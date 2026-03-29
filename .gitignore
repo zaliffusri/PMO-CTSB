@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build
+frontend/dist/
+*.local
+
+# Environment
+.env
+.env.*
+
+# Local app data (re-seeded on first backend start)
+backend/db/data.json
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,34 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import './index.css';
+
+class ErrorBoundary extends React.Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: '2rem', maxWidth: 600 }}>
+          <h1 style={{ color: '#e6edf3' }}>Something went wrong</h1>
+          <p style={{ color: '#8b9eb5' }}>The app hit an error. Details below may help fix it.</p>
+          <pre style={{ background: '#1a2332', padding: '1rem', borderRadius: 8, overflow: 'auto', fontSize: '0.85rem', color: '#e6edf3' }}>
+            {this.state.error?.message || String(this.state.error)}
+          </pre>
+          <p style={{ color: '#8b9eb5', marginTop: '1rem' }}>Check the browser console (F12) for more. Make sure the backend is running on port 3001.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  </React.StrictMode>
+);
