@@ -4,20 +4,16 @@ import { api } from '../api';
 
 export default function Dashboard() {
   const [projects, setProjects] = useState([]);
-  const [workload, setWorkload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [projectFilter, setProjectFilter] = useState('active'); // 'active' | 'all'
-  const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
-    Promise.all([api.projects.list(), api.availability.workload(today, today)])
-      .then(([p, w]) => {
-        setProjects(p);
-        setWorkload(w);
-      })
+    api.projects
+      .list()
+      .then(setProjects)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [today]);
+  }, []);
 
   if (loading) {
     return (
@@ -28,9 +24,7 @@ export default function Dashboard() {
   }
 
   const activeCount = projects.filter(p => p.status === 'active').length;
-  const overloadedList = workload?.workload?.filter(w => w.isOverloaded) ?? [];
-  const availableCount = workload?.workload?.filter(w => w.availability > 20)?.length ?? 0;
-  const overloadedCount = overloadedList.length;
+  const totalCount = projects.length;
   const filteredProjects = projectFilter === 'active'
     ? projects.filter(p => p.status === 'active')
     : projects;
@@ -38,7 +32,7 @@ export default function Dashboard() {
   const quickActions = [
     { to: '/projects', label: 'Projects', desc: 'Create & manage' },
     { to: '/clients', label: 'Clients', desc: 'Client list' },
-    { to: '/team', label: 'Team & Workload', desc: 'Capacity & assignments' },
+    { to: '/team', label: 'Team', desc: 'People & assignments' },
     { to: '/calendar', label: 'Calendar', desc: 'Activities & schedule' },
     { to: '/gantt', label: 'Gantt', desc: 'Timeline view' },
   ];
@@ -49,7 +43,7 @@ export default function Dashboard() {
         <div>
           <h1 className="dashboard-title">Dashboard</h1>
           <p className="dashboard-subtitle">
-            Overview of projects and team capacity. Use the cards below to jump to each area.
+            Overview of projects and quick links to each area.
           </p>
         </div>
       </header>
@@ -60,15 +54,10 @@ export default function Dashboard() {
           <span className="dashboard-stat-value">{activeCount}</span>
           <span className="dashboard-stat-hint">View all →</span>
         </Link>
-        <Link to="/team" className="dashboard-stat-card dashboard-stat-available">
-          <span className="dashboard-stat-label">Team with capacity</span>
-          <span className="dashboard-stat-value">{availableCount}</span>
-          <span className="dashboard-stat-hint">Check workload →</span>
-        </Link>
-        <Link to="/team" className={`dashboard-stat-card dashboard-stat-overloaded ${overloadedCount > 0 ? 'has-issue' : ''}`}>
-          <span className="dashboard-stat-label">Overloaded</span>
-          <span className="dashboard-stat-value">{overloadedCount}</span>
-          <span className="dashboard-stat-hint">{overloadedCount ? 'Review →' : 'None'}</span>
+        <Link to="/projects" className="dashboard-stat-card dashboard-stat-projects">
+          <span className="dashboard-stat-label">All projects</span>
+          <span className="dashboard-stat-value">{totalCount}</span>
+          <span className="dashboard-stat-hint">View list →</span>
         </Link>
       </section>
 
@@ -116,24 +105,6 @@ export default function Dashboard() {
         </section>
 
         <aside className="dashboard-sidebar">
-          {overloadedCount > 0 && (
-            <section className="dashboard-section dashboard-alert">
-              <h2 className="dashboard-section-title">Needs attention</h2>
-              <div className="dashboard-section-body">
-                <p className="dashboard-alert-text">{overloadedCount} team member{overloadedCount !== 1 ? 's' : ''} over 100% allocation.</p>
-                <ul className="dashboard-overloaded-list">
-                  {overloadedList.slice(0, 5).map(w => (
-                    <li key={w.id}>
-                      <Link to={`/team?check=${w.id}`} className="dashboard-overloaded-link">{w.name}</Link>
-                      <span className="dashboard-overloaded-pct">{w.totalAllocation}%</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link to="/team" className="dashboard-alert-cta">Review in Team & Workload →</Link>
-              </div>
-            </section>
-          )}
-
           <section className="dashboard-section dashboard-actions">
             <h2 className="dashboard-section-title">Quick actions</h2>
             <div className="dashboard-section-body">

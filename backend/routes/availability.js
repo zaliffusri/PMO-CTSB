@@ -1,7 +1,30 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
+import { normalizeTaskStatus } from '../lib/taskStatus.js';
 
 export const availabilityRouter = Router();
+
+function taskSummaryForPerson(personId) {
+  const projectIds = new Set(
+    store.project_assignments
+      .filter((a) => a.person_id === personId)
+      .map((a) => a.project_id)
+      .filter((pid) => {
+        const pr = store.projects.find((p) => p.id === pid);
+        return pr?.status === 'active';
+      }),
+  );
+  const counts = { new: 0, ongoing: 0, done: 0 };
+  store.project_tasks.forEach((t) => {
+    if (!projectIds.has(t.project_id)) return;
+    const s = normalizeTaskStatus(t);
+    counts[s]++;
+  });
+  return {
+    ...counts,
+    notDone: counts.new + counts.ongoing,
+  };
+}
 
 availabilityRouter.get('/workload', (req, res) => {
   const from = req.query.from || new Date().toISOString().slice(0, 10);
@@ -47,8 +70,10 @@ availabilityRouter.get('/workload', (req, res) => {
     byPerson[a.person_id].activityHours += hours;
   });
 
-  const workload = Object.values(byPerson).map(p => ({
+  const workload = Object.values(byPerson).map((p) => ({
     ...p,
+    projectCount: p.projects.length,
+    taskSummary: taskSummaryForPerson(p.id),
     availability: Math.max(0, 100 - p.totalAllocation),
     isOverloaded: p.totalAllocation > 100,
   }));

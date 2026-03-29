@@ -36,11 +36,11 @@ export function seedDemo() {
   }
 
   if (store.project_tasks.length === 0 && store.projects.length >= 2) {
-    store.addProjectTask({ project_id: 1, name: 'Discovery & design', planned_start_date: '2025-01-01', planned_end_date: '2025-02-15', actual_start_date: '2025-01-01', actual_end_date: '2025-02-20', progress_percent: 100, sort_order: 0 });
-    store.addProjectTask({ project_id: 1, name: 'Development phase 1', planned_start_date: '2025-02-16', planned_end_date: '2025-04-30', actual_start_date: '2025-02-21', actual_end_date: null, progress_percent: 60, sort_order: 1 });
-    store.addProjectTask({ project_id: 1, name: 'Testing & rollout', planned_start_date: '2025-05-01', planned_end_date: '2025-06-30', actual_start_date: null, actual_end_date: null, progress_percent: 0, sort_order: 2 });
-    store.addProjectTask({ project_id: 2, name: 'Requirements', planned_start_date: '2025-02-01', planned_end_date: '2025-03-15', actual_start_date: '2025-02-01', actual_end_date: '2025-03-10', progress_percent: 100, sort_order: 0 });
-    store.addProjectTask({ project_id: 2, name: 'Build & integrate', planned_start_date: '2025-03-16', planned_end_date: '2025-07-31', actual_start_date: '2025-03-11', actual_end_date: null, progress_percent: 45, sort_order: 1 });
-    store.addProjectTask({ project_id: 2, name: 'Go-live', planned_start_date: '2025-08-01', planned_end_date: '2025-08-31', actual_start_date: null, actual_end_date: null, progress_percent: 0, sort_order: 2 });
+    store.addProjectTask({ project_id: 1, name: 'Discovery & design', planned_start_date: '2025-01-01', planned_end_date: '2025-02-15', actual_start_date: '2025-01-01', actual_end_date: '2025-02-20', progress_percent: 100, sort_order: 0, status: 'done' });
+    store.addProjectTask({ project_id: 1, name: 'Development phase 1', planned_start_date: '2025-02-16', planned_end_date: '2025-04-30', actual_start_date: '2025-02-21', actual_end_date: null, progress_percent: 60, sort_order: 1, status: 'ongoing' });
+    store.addProjectTask({ project_id: 1, name: 'Testing & rollout', planned_start_date: '2025-05-01', planned_end_date: '2025-06-30', actual_start_date: null, actual_end_date: null, progress_percent: 0, sort_order: 2, status: 'new' });
+    store.addProjectTask({ project_id: 2, name: 'Requirements', planned_start_date: '2025-02-01', planned_end_date: '2025-03-15', actual_start_date: '2025-02-01', actual_end_date: '2025-03-10', progress_percent: 100, sort_order: 0, status: 'done' });
+    store.addProjectTask({ project_id: 2, name: 'Build & integrate', planned_start_date: '2025-03-16', planned_end_date: '2025-07-31', actual_start_date: '2025-03-11', actual_end_date: null, progress_percent: 45, sort_order: 1, status: 'ongoing' });
+    store.addProjectTask({ project_id: 2, name: 'Go-live', planned_start_date: '2025-08-01', planned_end_date: '2025-08-31', actual_start_date: null, actual_end_date: null, progress_percent: 0, sort_order: 2, status: 'new' });
   }
 }

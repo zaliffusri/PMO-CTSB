@@ -11,7 +11,7 @@ function ProjectDetail() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assignForm, setAssignForm] = useState({ person_id: '', role_in_project: '', allocation_percent: 100 });
+  const [assignForm, setAssignForm] = useState({ person_id: '', role_in_project: '' });
   const [tasks, setTasks] = useState([]);
   const [taskOpen, setTaskOpen] = useState(false);
   const [taskForm, setTaskForm] = useState({
@@ -21,6 +21,7 @@ function ProjectDetail() {
     actual_start_date: '',
     actual_end_date: '',
     progress_percent: 0,
+    status: 'new',
   });
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState('');
@@ -65,9 +66,9 @@ function ProjectDetail() {
         project_id: +id,
         person_id: +assignForm.person_id,
         role_in_project: assignForm.role_in_project || undefined,
-        allocation_percent: assignForm.allocation_percent || 100,
+        allocation_percent: 100,
       });
-      setAssignForm({ person_id: '', role_in_project: '', allocation_percent: 100 });
+      setAssignForm({ person_id: '', role_in_project: '' });
       setAssignOpen(false);
       load();
     } catch (err) {
@@ -97,8 +98,9 @@ function ProjectDetail() {
         actual_start_date: taskForm.actual_start_date || undefined,
         actual_end_date: taskForm.actual_end_date || undefined,
         progress_percent: taskForm.progress_percent ?? 0,
+        status: taskForm.status || 'new',
       });
-      setTaskForm({ name: '', planned_start_date: '', planned_end_date: '', actual_start_date: '', actual_end_date: '', progress_percent: 0 });
+      setTaskForm({ name: '', planned_start_date: '', planned_end_date: '', actual_start_date: '', actual_end_date: '', progress_percent: 0, status: 'new' });
       setTaskOpen(false);
       load();
     } catch (err) {
@@ -110,6 +112,15 @@ function ProjectDetail() {
     if (!confirm('Delete this task?')) return;
     try {
       await api.projectTasks.delete(taskId);
+      load();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const patchTask = async (taskId, partial) => {
+    try {
+      await api.projectTasks.update(taskId, partial);
       load();
     } catch (err) {
       alert(err.message);
@@ -256,7 +267,7 @@ function ProjectDetail() {
         <div style={{ ...card, marginBottom: '1rem' }}>
           <h3 style={{ margin: '0 0 1rem' }}>Assign team member</h3>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-            Check <Link to="/team">Team & Workload</Link> first to see who has capacity.
+            Pick someone from the list. You can manage the full team on <Link to="/team">Team</Link>.
           </p>
           <form onSubmit={addAssignment} style={{ display: 'grid', gap: '0.75rem', maxWidth: 400 }}>
             <label>
@@ -271,10 +282,6 @@ function ProjectDetail() {
             <label>
               Role in project
               <input type="text" value={assignForm.role_in_project} onChange={e => setAssignForm(f => ({ ...f, role_in_project: e.target.value }))} placeholder="e.g. Developer, Lead" style={inputStyle} />
-            </label>
-            <label>
-              Allocation %
-              <input type="number" min={1} max={100} value={assignForm.allocation_percent} onChange={e => setAssignForm(f => ({ ...f, allocation_percent: +e.target.value || 100 }))} style={inputStyle} />
             </label>
             <button type="submit" style={btnPrimary}>Assign</button>
           </form>
@@ -292,7 +299,6 @@ function ProjectDetail() {
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>Role</th>
-                <th style={thStyle}>Allocation</th>
                 <th style={thStyle}></th>
               </tr>
             </thead>
@@ -300,10 +306,9 @@ function ProjectDetail() {
               {project.members.map(m => (
                 <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={tdStyle}>
-                    <Link to={`/team?check=${m.person_id}`} style={{ color: 'var(--accent)' }}>{m.name}</Link>
+                    <Link to="/team" style={{ color: 'var(--accent)' }}>{m.name}</Link>
                   </td>
                   <td style={tdStyle}>{m.role_in_project || '–'}</td>
-                  <td style={tdStyle}>{m.allocation_percent}%</td>
                   <td style={tdStyle}>
                     <button type="button" onClick={() => removeAssignment(m.id)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}>Remove</button>
                   </td>
@@ -333,6 +338,14 @@ function ProjectDetail() {
                 Task name *
                 <input type="text" value={taskForm.name} onChange={e => setTaskForm(f => ({ ...f, name: e.target.value }))} required style={inputStyle} />
               </label>
+              <label>
+                Status
+                <select value={taskForm.status} onChange={e => setTaskForm(f => ({ ...f, status: e.target.value }))} style={inputStyle}>
+                  <option value="new">New</option>
+                  <option value="ongoing">Ongoing</option>
+                  <option value="done">Done</option>
+                </select>
+              </label>
               <label>Planned start <input type="date" value={taskForm.planned_start_date} onChange={e => setTaskForm(f => ({ ...f, planned_start_date: e.target.value }))} style={inputStyle} /></label>
               <label>Planned end <input type="date" value={taskForm.planned_end_date} onChange={e => setTaskForm(f => ({ ...f, planned_end_date: e.target.value }))} style={inputStyle} /></label>
               <label>Actual start <input type="date" value={taskForm.actual_start_date} onChange={e => setTaskForm(f => ({ ...f, actual_start_date: e.target.value }))} style={inputStyle} /></label>
@@ -350,6 +363,7 @@ function ProjectDetail() {
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                   <th style={thStyle}>Task</th>
+                  <th style={thStyle}>Status</th>
                   <th style={thStyle}>Planned</th>
                   <th style={thStyle}>Actual</th>
                   <th style={thStyle}>Progress</th>
@@ -360,6 +374,18 @@ function ProjectDetail() {
                 {tasks.map(t => (
                   <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={tdStyle}>{t.name}</td>
+                    <td style={tdStyle}>
+                      <select
+                        value={t.status || 'new'}
+                        onChange={e => patchTask(t.id, { status: e.target.value })}
+                        aria-label={`Status for ${t.name}`}
+                        style={{ ...inputStyle, marginTop: 0, padding: '0.35rem 0.5rem', maxWidth: '9rem' }}
+                      >
+                        <option value="new">New</option>
+                        <option value="ongoing">Ongoing</option>
+                        <option value="done">Done</option>
+                      </select>
+                    </td>
                     <td style={tdStyle}>{t.planned_start_date || '–'} – {t.planned_end_date || '–'}</td>
                     <td style={tdStyle}>{t.actual_start_date || '–'} – {t.actual_end_date || '–'}</td>
                     <td style={tdStyle}>{t.progress_percent ?? 0}%</td>

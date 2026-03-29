@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { useTheme } from './ThemeContext';
 import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
@@ -8,6 +9,22 @@ import Team from './pages/Team';
 import Calendar from './pages/Calendar';
 import Gantt from './pages/Gantt';
 
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  const nextIsLight = theme === 'dark';
+  return (
+    <button
+      type="button"
+      className="theme-toggle"
+      onClick={toggleTheme}
+      aria-label={nextIsLight ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={nextIsLight ? 'Light mode' : 'Dark mode'}
+    >
+      {theme === 'dark' ? '☀️' : '🌙'}
+    </button>
+  );
+}
+
 function Layout({ children }) {
   const [navOpen, setNavOpen] = useState(false);
 
@@ -15,17 +32,23 @@ function Layout({ children }) {
     <div className="app-layout">
       <header className="app-header">
         <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>PMO CTSB</span>
-        <button
-          type="button"
-          className="app-nav-toggle"
-          onClick={() => setNavOpen(!navOpen)}
-          aria-label="Toggle menu"
-        >
-          {navOpen ? '✕' : '☰'}
-        </button>
+        <div className="app-header-actions">
+          <ThemeToggle />
+          <button
+            type="button"
+            className="app-nav-toggle"
+            onClick={() => setNavOpen(!navOpen)}
+            aria-label="Toggle menu"
+          >
+            {navOpen ? '✕' : '☰'}
+          </button>
+        </div>
       </header>
       <nav className={`app-nav ${navOpen ? '' : 'closed'}`}>
-        <div className="nav-brand">PMO CTSB</div>
+        <div className="nav-brand-row">
+          <div className="nav-brand">PMO CTSB</div>
+          <ThemeToggle />
+        </div>
         <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} end onClick={() => setNavOpen(false)}>
           Dashboard
         </NavLink>
@@ -36,7 +59,7 @@ function Layout({ children }) {
           Clients
         </NavLink>
         <NavLink to="/team" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-          Team & Workload
+          Team
         </NavLink>
         <NavLink to="/calendar" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
           Calendar & Activities

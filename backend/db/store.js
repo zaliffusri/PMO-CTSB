@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { normalizeTaskStatus } from '../lib/taskStatus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const filePath = path.join(__dirname, 'data.json');
@@ -9,8 +10,17 @@ function load() {
   if (!existsSync(filePath)) return { people: [], projects: [], project_assignments: [], activities: [], project_tasks: [], clients: [] };
   const raw = JSON.parse(readFileSync(filePath, 'utf8'));
   if (!raw.project_tasks) raw.project_tasks = [];
+  let tasksMigrated = false;
+  raw.project_tasks = raw.project_tasks.map((t) => {
+    if (!t.status || !['new', 'ongoing', 'done'].includes(t.status)) {
+      tasksMigrated = true;
+      return { ...t, status: normalizeTaskStatus(t) };
+    }
+    return t;
+  });
   if (!raw.clients) raw.clients = [];
   raw.projects = (raw.projects || []).map(p => ({ ...p, tags: Array.isArray(p.tags) ? p.tags : [] }));
+  if (tasksMigrated) save(raw);
   return raw;
 }
 
@@ -164,11 +174,13 @@ export const store = {
   addProjectTask(row) {
     const id = nextId(data.project_tasks);
     const created_at = new Date().toISOString();
+    const status = row.status && ['new', 'ongoing', 'done'].includes(row.status) ? row.status : 'new';
     data.project_tasks.push({
       id,
       progress_percent: 0,
       sort_order: data.project_tasks.filter(t => t.project_id === row.project_id).length,
       ...row,
+      status,
       created_at,
     });
     save(data);

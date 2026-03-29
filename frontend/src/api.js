@@ -48,8 +48,6 @@ export const api = {
   },
   availability: {
     workload: (from, to) => request(`/availability/workload?from=${from}&to=${to || from}`),
-    check: (personId, from, to) =>
-      request(`/availability/check?person_id=${personId}${from ? `&from=${from}&to=${to || from}` : ''}`),
   },
   projectTasks: {
     list: (params) => request('/project-tasks?' + (params ? new URLSearchParams(params).toString() : '')),
