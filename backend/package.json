@@ -6,11 +6,13 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "migrate:supabase": "node scripts/migrateToSupabase.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dunder-proto": "^1.0.1",
-    "express": "^4.21.1"
+    "express": "^4.21.1",
+    "@supabase/supabase-js": "^2.50.0"
   }
 }

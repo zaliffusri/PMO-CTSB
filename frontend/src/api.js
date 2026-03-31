@@ -6,7 +6,9 @@ function resolveApiBase() {
   if (fromEnv != null && String(fromEnv).trim() !== '') {
     return String(fromEnv).replace(/\/$/, '');
   }
-  if (import.meta.env.DEV) {
+  const host =
+    typeof window !== 'undefined' && window.location ? String(window.location.hostname || '').toLowerCase() : '';
+  if (import.meta.env.DEV || host === 'localhost' || host === '127.0.0.1') {
     return 'http://127.0.0.1:3001/api';
   }
   return '/api';
