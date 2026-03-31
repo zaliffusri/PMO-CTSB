@@ -17,7 +17,7 @@ import { auditLogRouter } from './routes/auditLog.js';
 initDb();
 seedDemo();
 
-const app = express();
+export const app = express();
 const originEnv = process.env.FRONTEND_ORIGIN || '';
 const allowedOrigins = originEnv
   .split(',')
@@ -51,4 +51,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/audit-log', auditLogRouter);
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`PMO CTSB API running at http://localhost:${PORT}`));
+// When hosted as a Vercel serverless function, `process.env.VERCEL` is set and we should not call `app.listen`.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => console.log(`PMO CTSB API running at http://localhost:${PORT}`));
+}
