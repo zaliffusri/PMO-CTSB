@@ -24,6 +24,7 @@ function resolveApiBase() {
 
 const BASE = resolveApiBase();
 let authToken = localStorage.getItem('auth_token') || '';
+const AUTH_UNAUTHORIZED_EVENT = 'auth:unauthorized';
 
 export function setAuthToken(token) {
   authToken = token || '';
@@ -40,6 +41,13 @@ async function request(path, options = {}) {
   });
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    // Session/token is invalid or expired.
+    setAuthToken('');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+    }
+  }
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
@@ -109,3 +117,5 @@ export const api = {
     list: (params) => request('/audit-log?' + new URLSearchParams(params || {}).toString()),
   },
 };
+
+export { AUTH_UNAUTHORIZED_EVENT };
