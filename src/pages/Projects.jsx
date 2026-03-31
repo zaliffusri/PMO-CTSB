@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-
-const card = { background: 'var(--surface)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' };
+import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -170,9 +169,6 @@ export default function Projects() {
   );
 }
 
-const inputStyle = { display: 'block', width: '100%', padding: '0.5rem 0.75rem', marginTop: '0.25rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' };
-const btnPrimary = { padding: '0.5rem 1rem', background: 'var(--accent)', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600 };
-const btnSecondary = { padding: '0.5rem 1rem', background: 'var(--surface-hover)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8 };
 const btnTag = { padding: '0.35rem 0.65rem', background: 'var(--surface-hover)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' };
 const btnTagActive = { background: 'var(--accent)', color: 'white', borderColor: 'var(--accent)' };
 const tagChip = { display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', background: 'var(--surface-hover)', borderRadius: 6, fontSize: '0.8rem', color: 'var(--text-muted)' };

@@ -1,12 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-
-const card = { background: 'var(--surface)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' };
-const inputStyle = { display: 'block', width: '100%', padding: '0.5rem 0.75rem', marginTop: '0.25rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' };
-const btnPrimary = { padding: '0.5rem 1rem', background: 'var(--accent)', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600 };
-const thStyle = { padding: '0.6rem 0.5rem 0.6rem 0', color: 'var(--text-muted)', fontWeight: 600 };
-const tdStyle = { padding: '0.6rem 0.5rem 0.6rem 0' };
-const btnSecondary = { padding: '0.35rem 0.65rem', background: 'var(--surface-hover)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, fontSize: '0.85rem' };
+import { btnPrimary, btnSecondarySm, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
 
 const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', user: 'User' };
 function roleLabel(role) {
@@ -142,7 +136,7 @@ export default function Users() {
             </label>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button type="submit" style={btnPrimary}>Save</button>
-              <button type="button" style={btnSecondary} onClick={cancelEdit}>Cancel</button>
+              <button type="button" style={btnSecondarySm} onClick={cancelEdit}>Cancel</button>
             </div>
           </form>
         </div>
@@ -171,7 +165,7 @@ export default function Users() {
                     <td style={tdStyle}>{roleLabel(u.role)}</td>
                     <td style={tdStyle}>{new Date(u.created_at).toLocaleString()}</td>
                     <td style={tdStyle}>
-                      <button type="button" style={btnSecondary} onClick={() => startEdit(u)}>
+                      <button type="button" style={btnSecondarySm} onClick={() => startEdit(u)}>
                         {editingId === u.id ? 'Editing…' : 'Edit'}
                       </button>
                     </td>

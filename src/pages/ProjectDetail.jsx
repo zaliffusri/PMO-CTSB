@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api';
-
-const card = { background: 'var(--surface)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' };
+import { btnPrimary, btnSecondary, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
 
 function ProjectDetail() {
   const { id } = useParams();
@@ -584,11 +583,6 @@ function ProjectDetail() {
   );
 }
 
-const inputStyle = { display: 'block', width: '100%', padding: '0.5rem 0.75rem', marginTop: '0.25rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' };
-const btnPrimary = { padding: '0.5rem 1rem', background: 'var(--accent)', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600 };
-const btnSecondary = { padding: '0.5rem 1rem', background: 'var(--surface-hover)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8 };
-const thStyle = { padding: '0.6rem 0.5rem 0.6rem 0', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.9rem' };
-const tdStyle = { padding: '0.6rem 0.5rem 0.6rem 0' };
 const tagChip = { display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', background: 'var(--surface-hover)', borderRadius: 6, fontSize: '0.8rem', color: 'var(--text-muted)' };
 const tagChipButton = { display: 'inline-flex', alignItems: 'center', padding: '0.25rem 0.5rem', margin: '0 0.25rem 0.25rem 0', background: 'var(--surface-hover)', border: '1px solid var(--border)', borderRadius: 6, fontSize: '0.8rem', color: 'var(--accent)', cursor: 'pointer' };
 
