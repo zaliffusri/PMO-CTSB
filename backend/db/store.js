@@ -1,18 +1,15 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { normalizeTaskStatus } from '../lib/taskStatus.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const filePath = path.join(__dirname, 'data.json');
-let warnedReadOnlyFs = false;
 let warnedSupabase = false;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const hasSupabase = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const allowLocalStore = process.env.ALLOW_LOCAL_STORE === '1';
+if (!hasSupabase && !allowLocalStore) {
+  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required (or set ALLOW_LOCAL_STORE=1)');
+}
 const supabase = hasSupabase
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -21,109 +18,23 @@ const supabase = hasSupabase
 
 const AUDIT_LOG_MAX = 5000;
 
-function load() {
-  if (!existsSync(filePath)) {
-    return {
-      people: [],
-      projects: [],
-      project_assignments: [],
-      activities: [],
-      project_tasks: [],
-      clients: [],
-      users: [],
-      sessions: [],
-      settings: defaultSettings(),
-      audit_log: [],
-    };
-  }
-  const raw = JSON.parse(readFileSync(filePath, 'utf8'));
-  if (!raw.project_tasks) raw.project_tasks = [];
-  let tasksMigrated = false;
-  raw.project_tasks = raw.project_tasks.map((t) => {
-    let next = t;
-    if (t.assignee_id === undefined) {
-      tasksMigrated = true;
-      next = { ...next, assignee_id: null };
-    }
-    if (t.parent_id === undefined) {
-      tasksMigrated = true;
-      next = { ...next, parent_id: null };
-    }
-    if (t.task_kind !== 'group' && t.task_kind !== 'task') {
-      tasksMigrated = true;
-      next = { ...next, task_kind: 'task' };
-    }
-    if (!next.status || !['new', 'ongoing', 'done'].includes(next.status)) {
-      tasksMigrated = true;
-      next = { ...next, status: normalizeTaskStatus(next) };
-    }
-    return next;
-  });
-  if (!raw.clients) raw.clients = [];
-  if (!raw.users) raw.users = [];
-  if (!raw.sessions) raw.sessions = [];
-  if (!raw.settings) {
-    raw.settings = defaultSettings();
-    save(raw);
-  }
-  if (!raw.audit_log) {
-    raw.audit_log = [];
-    save(raw);
-  }
-  raw.projects = (raw.projects || []).map(p => ({ ...p, tags: Array.isArray(p.tags) ? p.tags : [] }));
-  if (tasksMigrated) save(raw);
-
-  // Activities use person_id as user id; migrate legacy rows that still reference people ids.
-  if (raw.activities?.length && raw.users?.length && raw.people?.length) {
-    let actMigrated = false;
-    const userIds = new Set(raw.users.map((u) => u.id));
-    const emailToUser = new Map(raw.users.map((u) => [String(u.email || '').toLowerCase(), u]));
-    const nameToUser = new Map();
-    raw.users.forEach((u) => {
-      const k = String(u.name || '').trim().toLowerCase();
-      if (k && !nameToUser.has(k)) nameToUser.set(k, u);
-    });
-    const personToUserId = new Map();
-    raw.people.forEach((p) => {
-      const byEmail = emailToUser.get(String(p.email || '').toLowerCase());
-      const byName = nameToUser.get(String(p.name || '').trim().toLowerCase());
-      const u = byEmail || byName;
-      if (u) personToUserId.set(p.id, u.id);
-    });
-    raw.activities = raw.activities.map((a) => {
-      if (userIds.has(a.person_id)) return a;
-      const mapped = personToUserId.get(a.person_id);
-      if (mapped) {
-        actMigrated = true;
-        return { ...a, person_id: mapped };
-      }
-      return a;
-    });
-    if (actMigrated) save(raw);
-  }
-
-  if (raw.activities?.length) {
-    let locFix = false;
-    raw.activities = raw.activities.map((a) => {
-      if (a.location != null && String(a.location).trim()) return a;
-      locFix = true;
-      return { ...a, location: '—' };
-    });
-    if (locFix) save(raw);
-  }
-  return raw;
+function emptyData() {
+  return {
+    people: [],
+    projects: [],
+    project_assignments: [],
+    activities: [],
+    project_tasks: [],
+    clients: [],
+    users: [],
+    sessions: [],
+    settings: defaultSettings(),
+    audit_log: [],
+  };
 }
 
 function save(data) {
-  try {
-    writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-  } catch (e) {
-    // Vercel serverless filesystem is read-only. Keep running with in-memory state.
-    if (!warnedReadOnlyFs) {
-      warnedReadOnlyFs = true;
-      console.warn(`store.save: persistence disabled (${e.message})`);
-    }
-  }
+  // Runtime persistence is Supabase-only (no local file writes).
   queueSupabaseSync(data);
 }
 
@@ -257,11 +168,9 @@ async function loadFromSupabase() {
 }
 
 async function loadInitialData() {
-  const local = load();
   const remote = await loadFromSupabase();
   if (remote) return remote;
-  if (supabase) queueSupabaseSync(local);
-  return local;
+  return emptyData();
 }
 
 let data = await loadInitialData();
