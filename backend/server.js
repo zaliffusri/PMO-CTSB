@@ -18,21 +18,8 @@ initDb();
 seedDemo();
 
 export const app = express();
-const originEnv = process.env.FRONTEND_ORIGIN || '';
-const allowedOrigins = originEnv
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.length === 0) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error('CORS blocked by FRONTEND_ORIGIN'));
-    },
-  }),
-);
+app.use(cors({ origin: true }));
+app.options('*', cors({ origin: true }));
 app.use(express.json());
 
 app.use('/api/auth', authRouter);
