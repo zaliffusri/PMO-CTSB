@@ -1,10 +1,20 @@
 import { store } from './store.js';
+import { hashPassword } from '../lib/auth.js';
 
 export function initDb() {
   // No-op; store uses JSON file
 }
 
 export function seedDemo() {
+  if (store.users.length === 0) {
+    store.addUser({
+      name: 'Admin User',
+      email: 'admin@pmo.local',
+      role: 'admin',
+      password_hash: hashPassword('admin123'),
+    });
+  }
+
   if (store.clients.length === 0) {
     store.addClient({ name: 'Ministry of Health', contact_name: 'Dr. Sarah Lim', email: 'sarah.lim@moh.gov.my', phone: '+60-3-12345678' });
     store.addClient({ name: 'UTHM', contact_name: 'Prof. Ahmad', email: 'ahmad@uthm.edu.my', phone: '+60-7-4567890' });
