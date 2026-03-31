@@ -1,0 +1,27 @@
+{
+  "name": "pmo-ctsb",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"cross-env ALLOW_LOCAL_STORE=1 node --watch server.js\" \"vite\"",
+    "build": "vite build",
+    "start": "npm run build && cross-env ALLOW_LOCAL_STORE=1 node server.js",
+    "start:backend": "cross-env ALLOW_LOCAL_STORE=1 node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.50.0",
+    "cors": "^2.8.5",
+    "dunder-proto": "^1.0.1",
+    "express": "^4.21.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.1.2",
+    "cross-env": "^10.0.0",
+    "vite": "^5.4.10"
+  }
+}

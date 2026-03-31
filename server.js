@@ -1,5 +1,8 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { initDb, seedDemo } from './db/schema.js';
 import { projectsRouter } from './routes/projects.js';
 import { clientsRouter } from './routes/clients.js';
@@ -36,6 +39,19 @@ app.use('/api/project-tasks', projectTasksRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/audit-log', auditLogRouter);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDistPath = path.resolve(__dirname, './dist');
+const frontendIndexPath = path.join(frontendDistPath, 'index.html');
+
+if (fs.existsSync(frontendIndexPath)) {
+  app.use(express.static(frontendDistPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(frontendIndexPath);
+  });
+}
 
 const PORT = process.env.PORT || 3001;
 // When hosted as a Vercel serverless function, `process.env.VERCEL` is set and we should not call `app.listen`.

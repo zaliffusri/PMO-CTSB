@@ -2,7 +2,7 @@
 node_modules/
 
 # Build
-frontend/dist/
+dist/
 *.local
 
 # Environment
@@ -10,7 +10,7 @@ frontend/dist/
 .env.*
 
 # Local app data (re-seeded on first backend start)
-backend/db/data.json
+db/data.json
 
 # Logs & OS
 *.log

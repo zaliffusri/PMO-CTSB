@@ -14,29 +14,26 @@ A system to manage projects, assign teams, and see workload and availability so 
   - **Availability %** = 100% minus total allocation (over 100% = overloaded).
 - **Check availability** – Before assigning someone to another project, use “Check availability” to see their current projects, allocation, and activities in a period so you know if they’re available.
 
-## Quick start
+## Quick start (single project root)
 
-1. **Backend** (API):
+From the repository root:
 
-   ```bash
-   cd backend
-   npm install
-   npm start
-   ```
+```bash
+npm install
+npm run dev
+```
 
-   API runs at `http://localhost:3001`.
+- Frontend runs at `http://localhost:5173`
+- Backend runs at `http://localhost:3001`
 
-2. **Frontend** (React):
+For a single-process local run (backend serves built frontend):
 
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+```bash
+npm start
+```
 
-   App runs at `http://localhost:5173` and proxies `/api` to the backend.
-
-3. Open `http://localhost:5173` in your browser. Demo data (projects, people, assignments, activities) is created on first run.
+Then open `http://localhost:3001`.
+Demo data (projects, people, assignments, activities) is created on first run.
 
 ## Usage flow
 
@@ -45,42 +42,18 @@ A system to manage projects, assign teams, and see workload and availability so 
 3. **Activities** – Log meetings and other activities for each person so the system knows their real workload.
 4. **Workload & Availability** – Use this page to see who has capacity and to **check** a person before assigning them to another project.
 
-Data is stored in `backend/db/data.json`. Delete that file to reset and get fresh demo data on next backend start.
+For local run, the root scripts automatically use `ALLOW_LOCAL_STORE=1` so you can run without Supabase credentials.
 
-## Free hosting (Netlify + Render)
+## Deploy to Vercel
 
-This repo is ready for a free split deployment:
-- **Backend:** Render web service using `render.yaml`
-- **Frontend:** Netlify site using `netlify.toml`
+1. Push this repository to GitHub.
+2. In Vercel, click **Add New Project** and import the repo.
+3. Vercel reads `vercel.json` automatically (`vite` frontend + serverless `/api`).
+4. Set environment variables in Vercel Project Settings:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+5. Deploy.
 
-### 1) Deploy backend to Render
-
-1. Push this repo to GitHub.
-2. In Render, choose **New +** -> **Blueprint** and select this repo.
-3. Render reads `render.yaml` and creates `pmo-ctsb-api`.
-4. In Render service settings, set:
-   - `FRONTEND_ORIGIN=https://<your-netlify-site>.netlify.app`
-5. Deploy and copy backend URL, e.g. `https://pmo-ctsb-api.onrender.com`.
-
-### 2) Deploy frontend to Netlify
-
-1. In Netlify, choose **Add new site** -> **Import an existing project**.
-2. Select this repository and deploy.
-3. Netlify reads `netlify.toml` automatically.
-4. Set environment variable in Netlify:
-   - `VITE_API_BASE=https://<your-render-service>.onrender.com/api`
-5. Trigger redeploy.
-
-### 3) Verify
-
-- Open Netlify site.
-- Register/login admin user.
-- Check pages load:
-  - Dashboard
-  - Settings
-  - History
-
-### Free-tier notes
-
-- Render free services may sleep after inactivity (first request can be slow).
-- `backend/db/data.json` is file-based and may not be durable across restarts/redeploys on free hosting.
+After deploy:
+- Frontend is served from `/`
+- Backend API is served from `/api/*`
