@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 
@@ -8,21 +8,30 @@ function ProjectDetail() {
   const { id } = useParams();
   const [project, setProject] = useState(null);
   const [people, setPeople] = useState([]);
+  const [allPeople, setAllPeople] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignForm, setAssignForm] = useState({ person_id: '', role_in_project: '' });
   const [tasks, setTasks] = useState([]);
-  const [taskOpen, setTaskOpen] = useState(false);
+  /** @type {null | 'group' | 'subtask' | 'standalone'} */
+  const [taskAddMode, setTaskAddMode] = useState(null);
   const [taskForm, setTaskForm] = useState({
     name: '',
+    parent_id: '',
     planned_start_date: '',
     planned_end_date: '',
     actual_start_date: '',
     actual_end_date: '',
     progress_percent: 0,
     status: 'new',
+    assignee_id: '',
   });
+
+  const taskGroups = useMemo(
+    () => tasks.filter((t) => t.task_kind === 'group'),
+    [tasks],
+  );
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState('');
   const [allTags, setAllTags] = useState([]);
@@ -48,6 +57,7 @@ function ProjectDetail() {
           status: p?.status || 'active',
           client_id: p?.client_id ?? '',
         });
+        setAllPeople(peopleList);
         setPeople(peopleList.filter(pe => !p.members?.some(m => m.person_id === pe.id)));
         setTasks(taskList);
       })
@@ -86,30 +96,93 @@ function ProjectDetail() {
     }
   };
 
+  const resetTaskForm = () => {
+    setTaskForm({
+      name: '',
+      parent_id: '',
+      planned_start_date: '',
+      planned_end_date: '',
+      actual_start_date: '',
+      actual_end_date: '',
+      progress_percent: 0,
+      status: 'new',
+      assignee_id: '',
+    });
+  };
+
+  const openTaskAdd = (mode) => {
+    setTaskAddMode(mode);
+    resetTaskForm();
+    if (mode === 'subtask' && taskGroups.length > 0) {
+      setTaskForm((f) => ({ ...f, parent_id: String(taskGroups[0].id) }));
+    }
+  };
+
+  const closeTaskAdd = () => {
+    setTaskAddMode(null);
+    resetTaskForm();
+  };
+
   const addTask = async (e) => {
     e.preventDefault();
     if (!taskForm.name.trim()) return;
+    if (taskAddMode === 'subtask') {
+      const pid = parseInt(String(taskForm.parent_id), 10);
+      if (!Number.isFinite(pid) || pid < 1) {
+        alert('Choose a task group (parent) for this subtask.');
+        return;
+      }
+    }
     try {
-      await api.projectTasks.create({
-        project_id: +id,
-        name: taskForm.name,
-        planned_start_date: taskForm.planned_start_date || undefined,
-        planned_end_date: taskForm.planned_end_date || undefined,
-        actual_start_date: taskForm.actual_start_date || undefined,
-        actual_end_date: taskForm.actual_end_date || undefined,
-        progress_percent: taskForm.progress_percent ?? 0,
-        status: taskForm.status || 'new',
-      });
-      setTaskForm({ name: '', planned_start_date: '', planned_end_date: '', actual_start_date: '', actual_end_date: '', progress_percent: 0, status: 'new' });
-      setTaskOpen(false);
+      if (taskAddMode === 'group') {
+        await api.projectTasks.create({
+          project_id: +id,
+          name: taskForm.name.trim(),
+          task_kind: 'group',
+          planned_start_date: taskForm.planned_start_date || undefined,
+          planned_end_date: taskForm.planned_end_date || undefined,
+        });
+      } else if (taskAddMode === 'subtask') {
+        const parentId = parseInt(String(taskForm.parent_id), 10);
+        await api.projectTasks.create({
+          project_id: +id,
+          name: taskForm.name.trim(),
+          task_kind: 'task',
+          parent_id: parentId,
+          planned_start_date: taskForm.planned_start_date || undefined,
+          planned_end_date: taskForm.planned_end_date || undefined,
+          actual_start_date: taskForm.actual_start_date || undefined,
+          actual_end_date: taskForm.actual_end_date || undefined,
+          progress_percent: taskForm.progress_percent ?? 0,
+          status: taskForm.status || 'new',
+          assignee_id: taskForm.assignee_id ? +taskForm.assignee_id : null,
+        });
+      } else {
+        await api.projectTasks.create({
+          project_id: +id,
+          name: taskForm.name.trim(),
+          task_kind: 'task',
+          planned_start_date: taskForm.planned_start_date || undefined,
+          planned_end_date: taskForm.planned_end_date || undefined,
+          actual_start_date: taskForm.actual_start_date || undefined,
+          actual_end_date: taskForm.actual_end_date || undefined,
+          progress_percent: taskForm.progress_percent ?? 0,
+          status: taskForm.status || 'new',
+          assignee_id: taskForm.assignee_id ? +taskForm.assignee_id : null,
+        });
+      }
+      closeTaskAdd();
       load();
     } catch (err) {
       alert(err.message);
     }
   };
 
-  const deleteTask = async (taskId) => {
-    if (!confirm('Delete this task?')) return;
+  const deleteTask = async (taskId, taskKind) => {
+    const msg = taskKind === 'group'
+      ? 'Delete this task group and all of its subtasks?'
+      : 'Delete this task?';
+    if (!confirm(msg)) return;
     try {
       await api.projectTasks.delete(taskId);
       load();
@@ -322,37 +395,94 @@ function ProjectDetail() {
 
       <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Tasks (Gantt)</h2>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Tasks (Gantt)</h2>
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: 560 }}>
+              Use <strong>+ Task group</strong> first to create a parent row. Then use <strong>+ Subtask</strong> under that group (assignee only on subtasks). <strong>+ Standalone task</strong> is a normal task without a parent—those rows are not groups, so they do not unlock subtasks.
+            </p>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
             <Link to="/gantt" style={btnSecondary}>View Gantt</Link>
-            <button type="button" onClick={() => setTaskOpen(!taskOpen)} style={btnPrimary}>
-              {taskOpen ? 'Cancel' : '+ Add task'}
+            <button type="button" onClick={() => (taskAddMode === 'group' ? closeTaskAdd() : openTaskAdd('group'))} style={btnPrimary}>
+              {taskAddMode === 'group' ? 'Cancel' : '+ Task group'}
+            </button>
+            <button
+              type="button"
+              onClick={() => (taskAddMode === 'subtask' ? closeTaskAdd() : openTaskAdd('subtask'))}
+              style={btnSecondary}
+              disabled={taskGroups.length === 0}
+              title={taskGroups.length === 0 ? 'Create a task group first' : undefined}
+            >
+              {taskAddMode === 'subtask' ? 'Cancel' : '+ Subtask'}
+            </button>
+            <button type="button" onClick={() => (taskAddMode === 'standalone' ? closeTaskAdd() : openTaskAdd('standalone'))} style={btnSecondary}>
+              {taskAddMode === 'standalone' ? 'Cancel' : '+ Standalone task'}
             </button>
           </div>
         </div>
-        {taskOpen && (
+        {taskAddMode && (
           <form onSubmit={addTask} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: 8 }}>
-            <h4 style={{ margin: '0 0 0.75rem' }}>New task</h4>
+            <h4 style={{ margin: '0 0 0.75rem' }}>
+              {taskAddMode === 'group' && 'New task group (parent)'}
+              {taskAddMode === 'subtask' && 'New subtask'}
+              {taskAddMode === 'standalone' && 'New standalone task'}
+            </h4>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
+              {taskAddMode === 'subtask' && (
+                <label style={{ gridColumn: '1 / -1' }}>
+                  Task group (parent) <span style={{ color: 'var(--danger)' }}>*</span>
+                  <select
+                    value={taskForm.parent_id}
+                    onChange={e => setTaskForm(f => ({ ...f, parent_id: e.target.value }))}
+                    required
+                    style={inputStyle}
+                  >
+                    <option value="">Select group…</option>
+                    {taskGroups.map(g => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label style={{ gridColumn: '1 / -1' }}>
-                Task name *
+                {taskAddMode === 'group' ? 'Group name' : 'Task name'} <span style={{ color: 'var(--danger)' }}>*</span>
                 <input type="text" value={taskForm.name} onChange={e => setTaskForm(f => ({ ...f, name: e.target.value }))} required style={inputStyle} />
               </label>
-              <label>
-                Status
-                <select value={taskForm.status} onChange={e => setTaskForm(f => ({ ...f, status: e.target.value }))} style={inputStyle}>
-                  <option value="new">New</option>
-                  <option value="ongoing">Ongoing</option>
-                  <option value="done">Done</option>
-                </select>
-              </label>
+              {(taskAddMode === 'subtask' || taskAddMode === 'standalone') && (
+                <>
+                  <label>
+                    Assign to
+                    <select value={taskForm.assignee_id} onChange={e => setTaskForm(f => ({ ...f, assignee_id: e.target.value }))} style={inputStyle}>
+                      <option value="">Unassigned</option>
+                      {allPeople.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Status
+                    <select value={taskForm.status} onChange={e => setTaskForm(f => ({ ...f, status: e.target.value }))} style={inputStyle}>
+                      <option value="new">New</option>
+                      <option value="ongoing">Ongoing</option>
+                      <option value="done">Done</option>
+                    </select>
+                  </label>
+                  <label>Progress % <input type="number" min={0} max={100} value={taskForm.progress_percent} onChange={e => setTaskForm(f => ({ ...f, progress_percent: +e.target.value || 0 }))} style={inputStyle} /></label>
+                </>
+              )}
               <label>Planned start <input type="date" value={taskForm.planned_start_date} onChange={e => setTaskForm(f => ({ ...f, planned_start_date: e.target.value }))} style={inputStyle} /></label>
               <label>Planned end <input type="date" value={taskForm.planned_end_date} onChange={e => setTaskForm(f => ({ ...f, planned_end_date: e.target.value }))} style={inputStyle} /></label>
-              <label>Actual start <input type="date" value={taskForm.actual_start_date} onChange={e => setTaskForm(f => ({ ...f, actual_start_date: e.target.value }))} style={inputStyle} /></label>
-              <label>Actual end <input type="date" value={taskForm.actual_end_date} onChange={e => setTaskForm(f => ({ ...f, actual_end_date: e.target.value }))} style={inputStyle} /></label>
-              <label>Progress % <input type="number" min={0} max={100} value={taskForm.progress_percent} onChange={e => setTaskForm(f => ({ ...f, progress_percent: +e.target.value || 0 }))} style={inputStyle} /></label>
+              {(taskAddMode === 'subtask' || taskAddMode === 'standalone') && (
+                <>
+                  <label>Actual start <input type="date" value={taskForm.actual_start_date} onChange={e => setTaskForm(f => ({ ...f, actual_start_date: e.target.value }))} style={inputStyle} /></label>
+                  <label>Actual end <input type="date" value={taskForm.actual_end_date} onChange={e => setTaskForm(f => ({ ...f, actual_end_date: e.target.value }))} style={inputStyle} /></label>
+                </>
+              )}
             </div>
-            <button type="submit" style={{ ...btnPrimary, marginTop: '0.75rem' }}>Add task</button>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+              <button type="submit" style={btnPrimary}>Add</button>
+              <button type="button" style={btnSecondary} onClick={closeTaskAdd}>Cancel</button>
+            </div>
           </form>
         )}
         {tasks.length === 0 ? (
@@ -363,6 +493,7 @@ function ProjectDetail() {
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                   <th style={thStyle}>Task</th>
+                  <th style={thStyle}>Assignee</th>
                   <th style={thStyle}>Status</th>
                   <th style={thStyle}>Planned</th>
                   <th style={thStyle}>Actual</th>
@@ -371,29 +502,79 @@ function ProjectDetail() {
                 </tr>
               </thead>
               <tbody>
-                {tasks.map(t => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={tdStyle}>{t.name}</td>
-                    <td style={tdStyle}>
-                      <select
-                        value={t.status || 'new'}
-                        onChange={e => patchTask(t.id, { status: e.target.value })}
-                        aria-label={`Status for ${t.name}`}
-                        style={{ ...inputStyle, marginTop: 0, padding: '0.35rem 0.5rem', maxWidth: '9rem' }}
-                      >
-                        <option value="new">New</option>
-                        <option value="ongoing">Ongoing</option>
-                        <option value="done">Done</option>
-                      </select>
-                    </td>
-                    <td style={tdStyle}>{t.planned_start_date || '–'} – {t.planned_end_date || '–'}</td>
-                    <td style={tdStyle}>{t.actual_start_date || '–'} – {t.actual_end_date || '–'}</td>
-                    <td style={tdStyle}>{t.progress_percent ?? 0}%</td>
-                    <td style={tdStyle}>
-                      <button type="button" onClick={() => deleteTask(t.id)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
+                {tasks.map((t) => {
+                  const isGroup = t.task_kind === 'group';
+                  const isChild = t.parent_id != null;
+                  return (
+                    <tr
+                      key={t.id}
+                      style={{
+                        borderBottom: '1px solid var(--border)',
+                        background: isGroup ? 'var(--surface-hover)' : undefined,
+                      }}
+                    >
+                      <td style={{ ...tdStyle, paddingLeft: isChild ? '1.75rem' : tdStyle.padding }}>
+                        {isGroup && (
+                          <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{t.name}</span>
+                        )}
+                        {!isGroup && isChild && (
+                          <span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{t.parent_name || 'Group'} / </span>
+                            {t.name}
+                          </span>
+                        )}
+                        {!isGroup && !isChild && <span>{t.name}</span>}
+                      </td>
+                      <td style={tdStyle}>
+                        {isGroup ? (
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                        ) : (
+                          <select
+                            value={t.assignee_id != null ? String(t.assignee_id) : ''}
+                            onChange={e => patchTask(t.id, { assignee_id: e.target.value === '' ? null : +e.target.value })}
+                            aria-label={`Assignee for ${t.name}`}
+                            style={{ ...inputStyle, marginTop: 0, padding: '0.35rem 0.5rem', maxWidth: '12rem' }}
+                          >
+                            <option value="">Unassigned</option>
+                            {allPeople.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                      <td style={tdStyle}>
+                        {isGroup ? (
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                        ) : (
+                          <select
+                            value={t.status || 'new'}
+                            onChange={e => patchTask(t.id, { status: e.target.value })}
+                            aria-label={`Status for ${t.name}`}
+                            style={{ ...inputStyle, marginTop: 0, padding: '0.35rem 0.5rem', maxWidth: '9rem' }}
+                          >
+                            <option value="new">New</option>
+                            <option value="ongoing">Ongoing</option>
+                            <option value="done">Done</option>
+                          </select>
+                        )}
+                      </td>
+                      <td style={tdStyle}>{t.planned_start_date || '–'} – {t.planned_end_date || '–'}</td>
+                      <td style={tdStyle}>
+                        {isGroup ? (
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                        ) : (
+                          <>{t.actual_start_date || '–'} – {t.actual_end_date || '–'}</>
+                        )}
+                      </td>
+                      <td style={tdStyle}>
+                        {isGroup ? <span style={{ color: 'var(--text-muted)' }}>—</span> : <>{t.progress_percent ?? 0}%</>}
+                      </td>
+                      <td style={tdStyle}>
+                        <button type="button" onClick={() => deleteTask(t.id, t.task_kind)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}>Delete</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

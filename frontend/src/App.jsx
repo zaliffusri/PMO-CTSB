@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { useTheme } from './ThemeContext';
+import { useAuth } from './AuthContext';
 import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
@@ -8,6 +9,12 @@ import Clients from './pages/Clients';
 import Team from './pages/Team';
 import Calendar from './pages/Calendar';
 import Gantt from './pages/Gantt';
+import Users from './pages/Users';
+import Account from './pages/Account';
+import History from './pages/History';
+import SettingsLayout from './pages/settings/SettingsLayout';
+import SettingsGeneral from './pages/settings/SettingsGeneral';
+import SettingsLocations from './pages/settings/SettingsLocations';
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -27,12 +34,20 @@ function ThemeToggle() {
 
 function Layout({ children }) {
   const [navOpen, setNavOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const { pathname } = useLocation();
+  const settingsNavActive = pathname.startsWith('/settings');
 
   return (
     <div className="app-layout">
       <header className="app-header">
         <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>PMO CTSB</span>
         <div className="app-header-actions">
+          {user && (
+            <button type="button" className="logout-btn" onClick={logout} title="Logout">
+              Logout
+            </button>
+          )}
           <ThemeToggle />
           <button
             type="button"
@@ -47,8 +62,18 @@ function Layout({ children }) {
       <nav className={`app-nav ${navOpen ? '' : 'closed'}`}>
         <div className="nav-brand-row">
           <div className="nav-brand">PMO CTSB</div>
+          {user && (
+            <button type="button" className="logout-btn" onClick={logout} title="Logout">
+              Logout
+            </button>
+          )}
           <ThemeToggle />
         </div>
+        {user && (
+          <div style={{ padding: '0.5rem 0.75rem 0.8rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            Signed in as {user.name || user.email}
+          </div>
+        )}
         <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} end onClick={() => setNavOpen(false)}>
           Dashboard
         </NavLink>
@@ -61,11 +86,37 @@ function Layout({ children }) {
         <NavLink to="/team" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
           Team
         </NavLink>
+        {user?.role === 'admin' && (
+          <NavLink to="/users" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+            Users
+          </NavLink>
+        )}
+        {user?.role === 'admin' && (
+          <NavLink
+            to="/history"
+            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+            onClick={() => setNavOpen(false)}
+          >
+            History
+          </NavLink>
+        )}
+        {user?.role === 'admin' && (
+          <NavLink
+            to="/settings/general"
+            className={() => `nav-link ${settingsNavActive ? 'active' : ''}`}
+            onClick={() => setNavOpen(false)}
+          >
+            Settings
+          </NavLink>
+        )}
         <NavLink to="/calendar" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
           Calendar & Activities
         </NavLink>
         <NavLink to="/gantt" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
           Gantt
+        </NavLink>
+        <NavLink to="/account" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+          My Account
         </NavLink>
       </nav>
       <main className="app-main">{children}</main>
@@ -73,9 +124,81 @@ function Layout({ children }) {
   );
 }
 
-export default function App() {
+function AuthScreen() {
+  const { login } = useAuth();
+  const defaultEmail = 'admin@pmo.local';
+  const defaultPassword = 'admin123';
+  const [form, setForm] = useState({ email: defaultEmail, password: defaultPassword });
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await login(form.email, form.password);
+    } catch (err) {
+      setError(err.message || 'Authentication failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <BrowserRouter>
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: '1rem' }}>
+      <form onSubmit={submit} style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '1.25rem' }}>
+        <h1 style={{ margin: '0 0 0.25rem' }}>PMO CTSB</h1>
+        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Login with your admin account.</p>
+        <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+          Default: <code>{defaultEmail}</code> / <code>{defaultPassword}</code>
+        </p>
+        {error && (
+          <div style={{ marginTop: '0.75rem', color: 'var(--danger)', fontSize: '0.9rem' }}>{error}</div>
+        )}
+        <div style={{ display: 'grid', gap: '0.7rem', marginTop: '0.9rem' }}>
+          <label>
+            Email
+            <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required style={authInput} />
+          </label>
+          <label>
+            Password
+            <div style={{ position: 'relative', marginTop: '0.25rem' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                required
+                style={{ ...authInput, marginTop: 0, paddingRight: '2.4rem' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                style={eyeBtn}
+              >
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
+          </label>
+        </div>
+        <button type="submit" style={{ marginTop: '1rem', width: '100%', ...authBtn }} disabled={busy}>
+          {busy ? 'Please wait...' : 'Login'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export default function App() {
+  const { isAuthenticated, checking, user } = useAuth();
+  if (checking) return <div style={{ padding: '2rem' }}>Checking session...</div>;
+  if (!isAuthenticated) return <AuthScreen />;
+
+  return (
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -83,10 +206,25 @@ export default function App() {
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/team" element={<Team />} />
+          <Route path="/users" element={user?.role === 'admin' ? <Users /> : <Dashboard />} />
+          <Route path="/history" element={user?.role === 'admin' ? <History /> : <Dashboard />} />
+          <Route
+            path="/settings"
+            element={user?.role === 'admin' ? <SettingsLayout /> : <Dashboard />}
+          >
+            <Route index element={<Navigate to="/settings/general" replace />} />
+            <Route path="general" element={<SettingsGeneral />} />
+            <Route path="locations" element={<SettingsLocations />} />
+          </Route>
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/gantt" element={<Gantt />} />
+          <Route path="/account" element={<Account />} />
         </Routes>
       </Layout>
     </BrowserRouter>
   );
 }
+
+const authInput = { display: 'block', width: '100%', padding: '0.55rem 0.75rem', marginTop: '0.25rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' };
+const authBtn = { padding: '0.6rem 1rem', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600 };
+const eyeBtn = { position: 'absolute', top: '50%', right: 6, transform: 'translateY(-50%)', height: 30, width: 30, border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', borderRadius: 6 };

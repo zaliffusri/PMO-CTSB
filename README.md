@@ -16,7 +16,7 @@ A system to manage projects, assign teams, and see workload and availability so 
 
 ## Quick start
 
-1. **Backend** (API + SQLite):
+1. **Backend** (API):
 
    ```bash
    cd backend
@@ -46,3 +46,41 @@ A system to manage projects, assign teams, and see workload and availability so 
 4. **Workload & Availability** – Use this page to see who has capacity and to **check** a person before assigning them to another project.
 
 Data is stored in `backend/db/data.json`. Delete that file to reset and get fresh demo data on next backend start.
+
+## Free hosting (Netlify + Render)
+
+This repo is ready for a free split deployment:
+- **Backend:** Render web service using `render.yaml`
+- **Frontend:** Netlify site using `netlify.toml`
+
+### 1) Deploy backend to Render
+
+1. Push this repo to GitHub.
+2. In Render, choose **New +** -> **Blueprint** and select this repo.
+3. Render reads `render.yaml` and creates `pmo-ctsb-api`.
+4. In Render service settings, set:
+   - `FRONTEND_ORIGIN=https://<your-netlify-site>.netlify.app`
+5. Deploy and copy backend URL, e.g. `https://pmo-ctsb-api.onrender.com`.
+
+### 2) Deploy frontend to Netlify
+
+1. In Netlify, choose **Add new site** -> **Import an existing project**.
+2. Select this repository and deploy.
+3. Netlify reads `netlify.toml` automatically.
+4. Set environment variable in Netlify:
+   - `VITE_API_BASE=https://<your-render-service>.onrender.com/api`
+5. Trigger redeploy.
+
+### 3) Verify
+
+- Open Netlify site.
+- Register/login admin user.
+- Check pages load:
+  - Dashboard
+  - Settings
+  - History
+
+### Free-tier notes
+
+- Render free services may sleep after inactivity (first request can be slow).
+- `backend/db/data.json` is file-based and may not be durable across restarts/redeploys on free hosting.

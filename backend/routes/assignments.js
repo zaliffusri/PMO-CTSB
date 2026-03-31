@@ -32,6 +32,12 @@ assignmentsRouter.post('/', (req, res) => {
     const pa = store.project_assignments.find(a => a.id === id);
     const person = store.people.find(p => p.id === pa.person_id);
     const project = store.projects.find(p => p.id === pa.project_id);
+    store.appendAuditLog(req.user, {
+      action: 'create',
+      target_type: 'assignment',
+      target_id: id,
+      summary: `Assigned ${person?.name || 'member'} to project "${project?.name || pa.project_id}"`,
+    });
     res.status(201).json({ ...pa, person_name: person?.name, project_name: project?.name });
   } catch (e) {
     if (e.code === 'DUPLICATE') {
@@ -61,5 +67,11 @@ assignmentsRouter.put('/:id', (req, res) => {
   const pa = store.project_assignments.find(a => a.id === id);
   const person = store.people.find(p => p.id === pa.person_id);
   const project = store.projects.find(p => p.id === pa.project_id);
+  store.appendAuditLog(req.user, {
+    action: 'update',
+    target_type: 'assignment',
+    target_id: id,
+    summary: `Updated assignment: ${person?.name || 'member'} ↔ "${project?.name || pa.project_id}"`,
+  });
   res.json({ ...pa, person_name: person?.name, project_name: project?.name });
 });

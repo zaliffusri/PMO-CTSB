@@ -1,8 +1,31 @@
-const BASE = '/api';
+// VITE_API_BASE overrides everything (e.g. different API port).
+// In `vite` dev, call the API server directly — the /api proxy on :5173 often 404s on some setups
+// (browser hits Vite, which has no /api route). Backend CORS allows localhost origins.
+function resolveApiBase() {
+  const fromEnv = import.meta.env.VITE_API_BASE;
+  if (fromEnv != null && String(fromEnv).trim() !== '') {
+    return String(fromEnv).replace(/\/$/, '');
+  }
+  if (import.meta.env.DEV) {
+    return 'http://127.0.0.1:3001/api';
+  }
+  return '/api';
+}
+
+const BASE = resolveApiBase();
+let authToken = localStorage.getItem('auth_token') || '';
+
+export function setAuthToken(token) {
+  authToken = token || '';
+  if (authToken) localStorage.setItem('auth_token', authToken);
+  else localStorage.removeItem('auth_token');
+}
 
 async function request(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers,
     ...options,
   });
   if (res.status === 204) return null;
@@ -12,6 +35,18 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  auth: {
+    registerAdmin: (body) => request('/auth/register-admin', { method: 'POST', body: JSON.stringify(body) }),
+    login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+    me: () => request('/auth/me'),
+    logout: () => request('/auth/logout', { method: 'POST' }),
+    changePassword: (body) => request('/auth/change-password', { method: 'POST', body: JSON.stringify(body) }),
+  },
+  users: {
+    list: () => request('/users'),
+    create: (body) => request('/users', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  },
   clients: {
     list: () => request('/clients'),
     get: (id) => request(`/clients/${id}`),
@@ -49,11 +84,18 @@ export const api = {
   availability: {
     workload: (from, to) => request(`/availability/workload?from=${from}&to=${to || from}`),
   },
+  settings: {
+    get: () => request('/settings'),
+    update: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  },
   projectTasks: {
     list: (params) => request('/project-tasks?' + (params ? new URLSearchParams(params).toString() : '')),
     listGantt: (from, to) => request(`/project-tasks/gantt${from && to ? `?from=${from}&to=${to}` : ''}`),
     create: (body) => request('/project-tasks', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/project-tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     delete: (id) => request(`/project-tasks/${id}`, { method: 'DELETE' }),
+  },
+  auditLog: {
+    list: (params) => request('/audit-log?' + new URLSearchParams(params || {}).toString()),
   },
 };

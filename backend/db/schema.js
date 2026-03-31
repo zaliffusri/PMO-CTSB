@@ -30,9 +30,9 @@ export function seedDemo() {
   store.addAssignment({ project_id: 2, person_id: 4, role_in_project: 'Member', allocation_percent: 50 });
 
   const today = new Date().toISOString().slice(0, 10);
-  store.addActivity({ person_id: 1, project_id: 1, type: 'meeting', title: 'Sprint planning', description: 'Weekly sprint planning', start_at: `${today}T09:00:00`, end_at: `${today}T10:30:00` });
-  store.addActivity({ person_id: 2, project_id: 1, type: 'meeting', title: 'Stakeholder sync', description: 'Client sync', start_at: `${today}T14:00:00`, end_at: `${today}T15:00:00` });
-  store.addActivity({ person_id: 3, project_id: 2, type: 'task', title: 'Code review', description: 'Backend PR review', start_at: `${today}T11:00:00`, end_at: `${today}T12:00:00` });
+  store.addActivity({ person_id: 1, project_id: 1, type: 'meeting', title: 'Sprint planning', description: 'Weekly sprint planning', location: 'Meeting room A', start_at: `${today}T09:00:00`, end_at: `${today}T10:30:00` });
+  store.addActivity({ person_id: 2, project_id: 1, type: 'meeting', title: 'Stakeholder sync', description: 'Client sync', location: 'UTHM campus', start_at: `${today}T14:00:00`, end_at: `${today}T15:00:00` });
+  store.addActivity({ person_id: 3, project_id: 2, type: 'task', title: 'Code review', description: 'Backend PR review', location: 'Remote', start_at: `${today}T11:00:00`, end_at: `${today}T12:00:00` });
   }
 
   if (store.project_tasks.length === 0 && store.projects.length >= 2) {

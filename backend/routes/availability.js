@@ -5,6 +5,9 @@ import { normalizeTaskStatus } from '../lib/taskStatus.js';
 export const availabilityRouter = Router();
 
 function taskSummaryForPerson(personId) {
+  if (personId == null) {
+    return { new: 0, ongoing: 0, done: 0, notDone: 0 };
+  }
   const projectIds = new Set(
     store.project_assignments
       .filter((a) => a.person_id === personId)
@@ -16,7 +19,9 @@ function taskSummaryForPerson(personId) {
   );
   const counts = { new: 0, ongoing: 0, done: 0 };
   store.project_tasks.forEach((t) => {
+    if (t.task_kind === 'group') return;
     if (!projectIds.has(t.project_id)) return;
+    if (t.assignee_id != null && t.assignee_id !== personId) return;
     const s = normalizeTaskStatus(t);
     counts[s]++;
   });
@@ -26,23 +31,37 @@ function taskSummaryForPerson(personId) {
   };
 }
 
+/** Map team person id → user id (email match, then name match). */
+function userIdByPersonId(users, people) {
+  const map = new Map();
+  users.forEach((u) => {
+    const pe =
+      people.find((p) => String(p.email || '').toLowerCase() === String(u.email || '').toLowerCase()) ||
+      people.find((p) => String(p.name || '').trim().toLowerCase() === String(u.name || '').trim().toLowerCase());
+    if (pe) map.set(pe.id, u.id);
+  });
+  return map;
+}
+
 availabilityRouter.get('/workload', (req, res) => {
   const from = req.query.from || new Date().toISOString().slice(0, 10);
   const to = req.query.to || from;
-  const people = store.people.sort((a, b) => a.name.localeCompare(b.name));
+  const people = store.people;
+  const users = [...store.users].sort((a, b) => a.name.localeCompare(b.name));
+  const personToUser = userIdByPersonId(users, people);
   const assignments = store.project_assignments.filter(pa => {
     const p = store.projects.find(pr => pr.id === pa.project_id);
     return p?.status === 'active';
   });
   const activities = store.activities.filter(a => a.end_at >= from && a.start_at <= to).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
 
-  const byPerson = {};
-  people.forEach(p => {
-    byPerson[p.id] = {
-      id: p.id,
-      name: p.name,
-      email: p.email,
-      role: p.role,
+  const byUser = {};
+  users.forEach(u => {
+    byUser[u.id] = {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
       totalAllocation: 0,
       projects: [],
       activities: [],
@@ -50,30 +69,37 @@ availabilityRouter.get('/workload', (req, res) => {
     };
   });
   assignments.forEach(a => {
-    if (!byPerson[a.person_id]) return;
+    const uid = personToUser.get(a.person_id);
+    if (uid == null || !byUser[uid]) return;
     const project = store.projects.find(p => p.id === a.project_id);
-    byPerson[a.person_id].projects.push({ name: project?.name, allocation: a.allocation_percent });
-    byPerson[a.person_id].totalAllocation += a.allocation_percent;
+    byUser[uid].projects.push({ name: project?.name, allocation: a.allocation_percent });
+    byUser[uid].totalAllocation += a.allocation_percent;
   });
   activities.forEach(a => {
-    if (!byPerson[a.person_id]) return;
+    if (!byUser[a.person_id]) return;
     const start = new Date(a.start_at).getTime();
     const end = new Date(a.end_at).getTime();
     const hours = (end - start) / (1000 * 60 * 60);
-    byPerson[a.person_id].activities.push({
+    byUser[a.person_id].activities.push({
       type: a.type,
       title: a.title,
+      location: a.location ?? null,
       start_at: a.start_at,
       end_at: a.end_at,
       hours,
     });
-    byPerson[a.person_id].activityHours += hours;
+    byUser[a.person_id].activityHours += hours;
   });
 
-  const workload = Object.values(byPerson).map((p) => ({
+  const userIdToPersonId = new Map();
+  personToUser.forEach((uid, pid) => {
+    if (!userIdToPersonId.has(uid)) userIdToPersonId.set(uid, pid);
+  });
+
+  const workload = Object.values(byUser).map((p) => ({
     ...p,
     projectCount: p.projects.length,
-    taskSummary: taskSummaryForPerson(p.id),
+    taskSummary: taskSummaryForPerson(userIdToPersonId.get(p.id) ?? null),
     availability: Math.max(0, 100 - p.totalAllocation),
     isOverloaded: p.totalAllocation > 100,
   }));
@@ -102,7 +128,7 @@ availabilityRouter.get('/check', (req, res) => {
   let activities = [];
   if (from && to) {
     activities = store.activities
-      .filter(a => a.person_id === personId && a.end_at >= from && a.start_at <= to)
+      .filter(a => a.person_id === userId && a.end_at >= from && a.start_at <= to)
       .sort((a, b) => new Date(a.start_at) - new Date(b.start_at))
       .map(a => {
         const proj = store.projects.find(p => p.id === a.project_id);
@@ -111,7 +137,7 @@ availabilityRouter.get('/check', (req, res) => {
   }
 
   res.json({
-    person: { id: person.id, name: person.name, email: person.email, role: person.role },
+    person: { id: user.id, name: user.name, email: user.email, role: user.role },
     currentProjects: projects,
     totalAllocation,
     availabilityPercent: Math.max(0, 100 - totalAllocation),

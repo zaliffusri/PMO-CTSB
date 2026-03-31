@@ -36,6 +36,24 @@ function barPosition(startStr, endStr, rangeStart, rangeEnd) {
   return { left: left.toFixed(2) + '%', width: width.toFixed(2) + '%' };
 }
 
+function formatGanttDateLabel(str) {
+  if (!str) return '—';
+  const d = parseDate(str);
+  if (!d) return str;
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function GanttBarTooltip({ title, lines }) {
+  return (
+    <div className="gantt-bar-tooltip" role="tooltip">
+      <span className="gantt-bar-tooltip-title">{title}</span>
+      {lines.map((line, i) => (
+        <span key={i} className="gantt-bar-tooltip-line">{line}</span>
+      ))}
+    </div>
+  );
+}
+
 export default function Gantt() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -207,8 +225,21 @@ export default function Gantt() {
                       const actualPos = barPosition(task.actual_start_date, task.actual_end_date, rangeStart, rangeEnd);
                       return (
                         <div key={task.id} className="gantt-row gantt-row-task">
-                          <div className="gantt-label-col gantt-label gantt-label-task" title={task.name}>
+                          <div
+                            className="gantt-label-col gantt-label gantt-label-task"
+                            title={[
+                              task.parent_name && `${task.parent_name} / `,
+                              task.name,
+                              task.assignee_name && ` · ${task.assignee_name}`,
+                            ].filter(Boolean).join('')}
+                          >
+                            {task.parent_name && (
+                              <span className="gantt-task-parent">{task.parent_name} / </span>
+                            )}
                             <span className="gantt-task-name">{task.name}</span>
+                            {task.assignee_name && (
+                              <span className="gantt-task-assignee" title={`Assigned to ${task.assignee_name}`}> · {task.assignee_name}</span>
+                            )}
                             {(viewMode === 'actual' || viewMode === 'both') && task.progress_percent != null && (
                               <span className="gantt-task-pct">{task.progress_percent}%</span>
                             )}
@@ -216,20 +247,35 @@ export default function Gantt() {
                           <div className="gantt-timeline-col gantt-timeline-track">
                             {(viewMode === 'planning' || viewMode === 'both') && planPos && (
                               <div
-                                className="gantt-bar gantt-bar-planning"
+                                className="gantt-bar-hit"
                                 style={{ left: planPos.left, width: planPos.width, minWidth: '4px' }}
-                                title={`Planned: ${task.planned_start_date} – ${task.planned_end_date}`}
-                              />
+                              >
+                                <div className="gantt-bar gantt-bar-planning" />
+                                <GanttBarTooltip
+                                  title="Planned"
+                                  lines={[
+                                    `${formatGanttDateLabel(task.planned_start_date)} → ${formatGanttDateLabel(task.planned_end_date)}`,
+                                  ]}
+                                />
+                              </div>
                             )}
                             {(viewMode === 'actual' || viewMode === 'both') && actualPos && (
                               <div
-                                className="gantt-bar gantt-bar-actual"
+                                className="gantt-bar-hit gantt-bar-hit-actual"
                                 style={{ left: actualPos.left, width: actualPos.width, minWidth: '4px' }}
-                                title={`Actual: ${task.actual_start_date || '–'} – ${task.actual_end_date || '–'} (${task.progress_percent ?? 0}%)`}
                               >
-                                {(task.progress_percent ?? 0) > 0 && (task.progress_percent ?? 0) < 100 && (
-                                  <span className="gantt-bar-progress" style={{ width: (task.progress_percent ?? 0) + '%' }} />
-                                )}
+                                <div className="gantt-bar gantt-bar-actual">
+                                  {(task.progress_percent ?? 0) > 0 && (task.progress_percent ?? 0) < 100 && (
+                                    <span className="gantt-bar-progress" style={{ width: (task.progress_percent ?? 0) + '%' }} />
+                                  )}
+                                </div>
+                                <GanttBarTooltip
+                                  title="Actual"
+                                  lines={[
+                                    `${formatGanttDateLabel(task.actual_start_date)} → ${formatGanttDateLabel(task.actual_end_date)}`,
+                                    `${task.progress_percent ?? 0}% complete`,
+                                  ]}
+                                />
                               </div>
                             )}
                           </div>

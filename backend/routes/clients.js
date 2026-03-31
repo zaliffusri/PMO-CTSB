@@ -25,6 +25,12 @@ clientsRouter.post('/', (req, res) => {
     email: email || null,
     phone: phone || null,
   });
+  store.appendAuditLog(req.user, {
+    action: 'create',
+    target_type: 'client',
+    target_id: id,
+    summary: `Created client "${(name || '').trim()}"`,
+  });
   const client = store.clients.find(c => c.id === id);
   res.status(201).json(client);
 });
@@ -40,6 +46,12 @@ clientsRouter.put('/:id', (req, res) => {
     email: email !== undefined ? email || null : existing.email,
     phone: phone !== undefined ? phone || null : existing.phone,
   });
+  store.appendAuditLog(req.user, {
+    action: 'update',
+    target_type: 'client',
+    target_id: id,
+    summary: `Updated client "${store.clients.find((c) => c.id === id)?.name || id}"`,
+  });
   const client = store.clients.find(c => c.id === id);
   res.json(client);
 });
@@ -49,5 +61,11 @@ clientsRouter.delete('/:id', (req, res) => {
   const existing = store.clients.find(c => c.id === id);
   if (!existing) return res.status(404).json({ error: 'Client not found' });
   store.deleteClient(id);
+  store.appendAuditLog(req.user, {
+    action: 'delete',
+    target_type: 'client',
+    target_id: id,
+    summary: `Deleted client "${existing.name}"`,
+  });
   res.status(204).send();
 });

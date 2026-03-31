@@ -202,6 +202,34 @@ input, select, textarea {
   gap: 0.5rem;
 }
 
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.25rem;
+  padding: 0 0.8rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: background 0.2s, border-color 0.2s;
+}
+.logout-btn:hover {
+  background: var(--border);
+  border-color: var(--text-muted);
+}
+.logout-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.nav-brand-row .logout-btn {
+  height: 2rem;
+  padding: 0 0.6rem;
+  font-size: 0.82rem;
+}
+
 .theme-toggle {
   display: inline-flex;
   align-items: center;
@@ -255,6 +283,61 @@ input, select, textarea {
   .page-header h1 {
     font-size: 1.75rem;
   }
+}
+
+/* Settings: sidebar subnav + content */
+.settings-page {
+  max-width: 960px;
+}
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  align-items: stretch;
+}
+@media (min-width: 640px) {
+  .settings-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+}
+.settings-subnav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+@media (min-width: 640px) {
+  .settings-subnav {
+    flex-direction: column;
+    min-width: 160px;
+    position: sticky;
+    top: 0.5rem;
+  }
+}
+.settings-subnav-link {
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+.settings-subnav-link:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.settings-subnav-link.active {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--nav-active-bg);
+  border-color: var(--border);
+}
+.settings-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .card-grid {
@@ -607,6 +690,9 @@ input, select, textarea {
 }
 
 /* Calendar */
+.calendar-card {
+  overflow: visible;
+}
 .calendar-header {
   display: flex;
   flex-wrap: wrap;
@@ -615,14 +701,27 @@ input, select, textarea {
   gap: 1rem;
   margin-bottom: 1rem;
 }
+.calendar-month-title {
+  margin: 0;
+  font-size: clamp(1rem, 3.5vw, 1.25rem);
+  min-width: min(180px, 100%);
+  text-align: center;
+}
+.calendar-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.35rem;
+  padding: 0 0.35rem;
+}
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow: visible;
+  min-width: 0;
 }
 .calendar-cell {
   background: var(--surface);
@@ -635,6 +734,12 @@ input, select, textarea {
   color: var(--text-muted);
   text-align: center;
   background: var(--surface-hover);
+}
+.calendar-day-name-short {
+  display: none;
+}
+.calendar-day-name-full {
+  display: inline;
 }
 .calendar-day {
   min-height: 80px;
@@ -667,7 +772,29 @@ input, select, textarea {
   gap: 0.25rem;
   width: 100%;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
+}
+.calendar-activity-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.calendar-activity-wrap:hover,
+.calendar-activity-wrap:focus-within {
+  z-index: 25;
+}
+.calendar-activity-trigger {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  text-align: left;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  display: block;
+  touch-action: manipulation;
 }
 .calendar-activity {
   font-size: 0.7rem;
@@ -679,11 +806,64 @@ input, select, textarea {
   white-space: nowrap;
   max-width: 100%;
 }
+.calendar-activity-popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  right: 0;
+  width: max(100%, 200px);
+  max-width: min(280px, 92vw);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.18));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+  z-index: 30;
+  white-space: normal;
+}
+.calendar-activity-popover-title {
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+  color: var(--text);
+}
+.calendar-activity-popover-meta {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  margin-bottom: 0.2rem;
+}
+.calendar-activity-popover-desc {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text);
+}
+@media (min-width: 768px) and (hover: hover) {
+  .calendar-activity-wrap:hover .calendar-activity-popover,
+  .calendar-activity-wrap:focus-within .calendar-activity-popover {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+@media (max-width: 767px), (hover: none) {
+  .calendar-activity-popover {
+    display: none !important;
+  }
+}
 .calendar-activity-meeting {
   background: rgba(59, 130, 246, 0.15);
   border-left-color: var(--accent);
 }
-.calendar-activity-task {
+.calendar-activity-task,
+.calendar-activity-outstation {
   background: rgba(34, 197, 94, 0.15);
   border-left-color: var(--success);
 }
@@ -718,6 +898,149 @@ input, select, textarea {
 .calendar-legend-item {
   display: inline-flex;
   align-items: center;
+}
+
+.calendar-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  animation: calendar-backdrop-in 0.18s ease;
+}
+.calendar-detail-backdrop + .calendar-detail-backdrop {
+  z-index: 1000;
+}
+@keyframes calendar-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.calendar-detail-sheet {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(82vh, 100%);
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 12px 12px 0 0;
+  padding: 0.5rem 1rem 1rem;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border);
+  border-bottom: none;
+}
+.calendar-detail-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--border);
+  margin: 0 auto 0.75rem;
+}
+.calendar-detail-sheet-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  line-height: 1.3;
+}
+.calendar-detail-sheet-line {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+}
+.calendar-detail-sheet-muted {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.calendar-detail-sheet-desc {
+  margin: 0.75rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+.calendar-detail-close {
+  margin-top: 1rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.calendar-activity-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.calendar-day-see-more {
+  display: block;
+  width: 100%;
+  margin-top: 0.1rem;
+  padding: 0.2rem 0.3rem;
+  font: inherit;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  touch-action: manipulation;
+}
+.calendar-day-see-more:hover {
+  background: rgba(59, 130, 246, 0.14);
+}
+.calendar-day-see-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.calendar-day-list-sheet .calendar-detail-sheet-title {
+  margin-bottom: 0.25rem;
+}
+.calendar-day-list-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: min(52vh, 400px);
+  overflow-y: auto;
+  margin-bottom: 0.75rem;
+  padding-right: 0.15rem;
+  -webkit-overflow-scrolling: touch;
+}
+.calendar-day-list-inner .calendar-activity-wrap {
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .calendar-header {
+    gap: 0.5rem;
+  }
+  .calendar-day {
+    min-height: 64px;
+    padding: 0.25rem;
+  }
+  .calendar-day-name {
+    padding: 0.35rem 0.2rem;
+    font-size: 0.65rem;
+  }
+  .calendar-day-name-full {
+    display: none;
+  }
+  .calendar-day-name-short {
+    display: inline;
+  }
+  .calendar-day-num {
+    font-size: 0.75rem;
+  }
 }
 
 /* Gantt chart – layout and styling */
@@ -823,7 +1146,7 @@ input, select, textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .gantt-loading,
 .gantt-empty {
@@ -836,7 +1159,7 @@ input, select, textarea {
 }
 .gantt-container {
   width: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 .gantt-scroll-wrap {
   overflow-x: auto;
@@ -938,9 +1261,6 @@ input, select, textarea {
   padding-left: 1.25rem;
   font-weight: 400;
 }
-.gantt-label-task {
-  font-size: 0.9rem;
-}
 .gantt-project-link {
   font-weight: 700;
   color: var(--accent);
@@ -949,12 +1269,31 @@ input, select, textarea {
 .gantt-project-link:hover {
   text-decoration: underline;
 }
+.gantt-task-parent {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.82em;
+}
+.gantt-label-task {
+  font-size: 0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.25rem;
+}
 .gantt-task-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
   max-width: 100%;
+  min-width: 0;
+}
+.gantt-task-assignee {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-weight: 500;
+  flex-shrink: 0;
 }
 .gantt-task-pct {
   margin-left: 0.35rem;
@@ -966,23 +1305,51 @@ input, select, textarea {
   height: 2.25rem;
   min-height: 2.25rem;
 }
-.gantt-bar {
+/* Hover target: shows date popup (inner .gantt-bar is visual only) */
+.gantt-bar-hit {
   position: absolute;
   top: 4px;
   bottom: 4px;
+  min-width: 4px;
+  z-index: 1;
+  pointer-events: auto;
+  cursor: default;
+}
+.gantt-bar-hit:hover {
+  z-index: 12;
+}
+.gantt-bar-hit.gantt-bar-hit-actual {
+  top: 50%;
+  bottom: auto;
+  height: 16px;
+  transform: translateY(-50%);
+}
+.gantt-bar {
+  position: absolute;
   border-radius: 6px;
-  pointer-events: none;
   min-width: 4px;
   box-shadow: var(--gantt-bar-shadow);
+  pointer-events: none;
+}
+.gantt-bar-hit .gantt-bar.gantt-bar-planning {
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
 }
 .gantt-bar-planning {
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.85) 0%, rgba(59, 130, 246, 0.6) 100%);
   border: 1px solid var(--accent);
 }
+.gantt-bar-hit .gantt-bar.gantt-bar-actual {
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+  transform: none;
+}
 .gantt-bar-actual {
-  top: 50%;
-  transform: translateY(-50%);
-  height: 16px;
   background: linear-gradient(180deg, rgba(34, 197, 94, 0.9) 0%, rgba(34, 197, 94, 0.65) 100%);
   border: 1px solid var(--success);
 }
@@ -993,6 +1360,57 @@ input, select, textarea {
   bottom: 0;
   background: rgba(34, 197, 94, 0.95);
   border-radius: 6px 0 0 6px;
+}
+.gantt-bar-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.45rem 0.65rem;
+  min-width: max-content;
+  max-width: min(280px, 70vw);
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.18));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+  z-index: 20;
+}
+.gantt-bar-hit:hover .gantt-bar-tooltip,
+.gantt-bar-hit:focus-within .gantt-bar-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+.gantt-bar-tooltip-title {
+  font-weight: 700;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.gantt-bar-tooltip-line {
+  display: block;
+  white-space: nowrap;
+}
+.gantt-bar-tooltip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--border);
+  margin-top: -1px;
 }
 .gantt-legend {
   display: flex;
