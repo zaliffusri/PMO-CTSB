@@ -4,7 +4,15 @@
 function resolveApiBase() {
   const fromEnv = import.meta.env.VITE_API_BASE;
   if (fromEnv != null && String(fromEnv).trim() !== '') {
-    return String(fromEnv).replace(/\/$/, '');
+    const raw = String(fromEnv).trim().replace(/\/$/, '');
+    try {
+      const u = new URL(raw);
+      // If user sets only origin (no path), default to /api.
+      if (u.pathname === '/' || u.pathname === '') return `${u.origin}/api`;
+    } catch {
+      // Relative values like /api are valid and handled as-is.
+    }
+    return raw;
   }
   const host =
     typeof window !== 'undefined' && window.location ? String(window.location.hostname || '').toLowerCase() : '';
