@@ -6,6 +6,7 @@ import { defaultSettings } from '../lib/defaultSettings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const filePath = path.join(__dirname, 'data.json');
+let warnedReadOnlyFs = false;
 
 const AUDIT_LOG_MAX = 5000;
 
@@ -103,7 +104,15 @@ function load() {
 }
 
 function save(data) {
-  writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  try {
+    writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    // Vercel serverless filesystem is read-only. Keep running with in-memory state.
+    if (!warnedReadOnlyFs) {
+      warnedReadOnlyFs = true;
+      console.warn(`store.save: persistence disabled (${e.message})`);
+    }
+  }
 }
 
 let data = load();
