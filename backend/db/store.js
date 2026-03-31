@@ -1,12 +1,23 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 import { normalizeTaskStatus } from '../lib/taskStatus.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const filePath = path.join(__dirname, 'data.json');
 let warnedReadOnlyFs = false;
+let warnedSupabase = false;
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const hasSupabase = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const supabase = hasSupabase
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+  : null;
 
 const AUDIT_LOG_MAX = 5000;
 
@@ -113,9 +124,147 @@ function save(data) {
       console.warn(`store.save: persistence disabled (${e.message})`);
     }
   }
+  queueSupabaseSync(data);
 }
 
-let data = load();
+let syncInFlight = false;
+let syncQueued = false;
+
+async function upsertAll(table, rows, onConflict = 'id') {
+  if (!rows || rows.length === 0) {
+    return;
+  }
+  const { error } = await supabase.from(table).upsert(rows, { onConflict });
+  if (error) throw error;
+}
+
+async function pushSnapshotToSupabase(snapshot) {
+  await upsertAll('clients', snapshot.clients || []);
+  await upsertAll('people', snapshot.people || []);
+  await upsertAll(
+    'projects',
+    (snapshot.projects || []).map((p) => ({ ...p, tags: Array.isArray(p.tags) ? p.tags : [] })),
+  );
+  await upsertAll('project_assignments', snapshot.project_assignments || []);
+  await upsertAll('activities', snapshot.activities || []);
+  await upsertAll('project_tasks', snapshot.project_tasks || []);
+  await upsertAll('users_app', snapshot.users || []);
+  await upsertAll('sessions_app', snapshot.sessions || []);
+  const settingsRow = { id: 1, ...(snapshot.settings || {}) };
+  await upsertAll('settings_app', [settingsRow], 'id');
+  await upsertAll('audit_log', snapshot.audit_log || []);
+}
+
+function queueSupabaseSync(snapshot) {
+  if (!supabase) return;
+  if (syncInFlight) {
+    syncQueued = true;
+    return;
+  }
+  syncInFlight = true;
+  const snap = JSON.parse(JSON.stringify(snapshot));
+  (async () => {
+    try {
+      await pushSnapshotToSupabase(snap);
+    } catch (e) {
+      if (!warnedSupabase) {
+        warnedSupabase = true;
+        console.warn(`store.save: supabase sync failed (${e.message})`);
+      }
+    } finally {
+      syncInFlight = false;
+      if (syncQueued) {
+        syncQueued = false;
+        queueSupabaseSync(data);
+      }
+    }
+  })();
+}
+
+async function loadFromSupabase() {
+  if (!supabase) return null;
+  try {
+    const [
+      clientsRes,
+      peopleRes,
+      projectsRes,
+      assignRes,
+      activitiesRes,
+      tasksRes,
+      usersRes,
+      sessionsRes,
+      settingsRes,
+      auditRes,
+    ] = await Promise.all([
+      supabase.from('clients').select('*').order('id', { ascending: true }),
+      supabase.from('people').select('*').order('id', { ascending: true }),
+      supabase.from('projects').select('*').order('id', { ascending: true }),
+      supabase.from('project_assignments').select('*').order('id', { ascending: true }),
+      supabase.from('activities').select('*').order('id', { ascending: true }),
+      supabase.from('project_tasks').select('*').order('id', { ascending: true }),
+      supabase.from('users_app').select('*').order('id', { ascending: true }),
+      supabase.from('sessions_app').select('*').order('id', { ascending: true }),
+      supabase.from('settings_app').select('*').eq('id', 1).maybeSingle(),
+      supabase.from('audit_log').select('*').order('id', { ascending: true }),
+    ]);
+    const errs = [
+      clientsRes.error,
+      peopleRes.error,
+      projectsRes.error,
+      assignRes.error,
+      activitiesRes.error,
+      tasksRes.error,
+      usersRes.error,
+      sessionsRes.error,
+      settingsRes.error,
+      auditRes.error,
+    ].filter(Boolean);
+    if (errs.length > 0) throw errs[0];
+
+    const settingsRow = settingsRes.data || {};
+    const { id: _id, updated_at: _updatedAt, ...settings } = settingsRow;
+    const remote = {
+      clients: clientsRes.data || [],
+      people: peopleRes.data || [],
+      projects: projectsRes.data || [],
+      project_assignments: assignRes.data || [],
+      activities: activitiesRes.data || [],
+      project_tasks: tasksRes.data || [],
+      users: usersRes.data || [],
+      sessions: sessionsRes.data || [],
+      settings,
+      audit_log: auditRes.data || [],
+    };
+    const hasAnyRows =
+      remote.clients.length +
+        remote.people.length +
+        remote.projects.length +
+        remote.project_assignments.length +
+        remote.activities.length +
+        remote.project_tasks.length +
+        remote.users.length +
+        remote.sessions.length +
+        remote.audit_log.length >
+      0;
+    return hasAnyRows ? remote : null;
+  } catch (e) {
+    if (!warnedSupabase) {
+      warnedSupabase = true;
+      console.warn(`store.load: supabase unavailable (${e.message})`);
+    }
+    return null;
+  }
+}
+
+async function loadInitialData() {
+  const local = load();
+  const remote = await loadFromSupabase();
+  if (remote) return remote;
+  if (supabase) queueSupabaseSync(local);
+  return local;
+}
+
+let data = await loadInitialData();
 
 function nextId(arr) {
   const ids = arr.map(x => x.id).filter(Boolean);
