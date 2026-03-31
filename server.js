@@ -18,7 +18,10 @@ import { settingsRouter } from './routes/settings.js';
 import { auditLogRouter } from './routes/auditLog.js';
 
 initDb();
-seedDemo();
+// Seed demo data only for local runs that explicitly allow local store.
+if (process.env.ALLOW_LOCAL_STORE === '1') {
+  seedDemo();
+}
 
 export const app = express();
 app.use(cors({ origin: true }));
