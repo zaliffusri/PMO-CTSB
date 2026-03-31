@@ -1,18 +1,13 @@
 {
   "version": 2,
-  "functions": {
-    "api/[...path].js": {
-      "runtime": "@vercel/node"
-    }
-  },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/[...path].js"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
-      "src": "/(.*)",
-      "dest": "/api/[...path].js"
+      "source": "/(.*)",
+      "destination": "/api/$1"
     }
   ]
 }
