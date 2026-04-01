@@ -1516,17 +1516,18 @@ input, select, textarea {
 
 .auth-card h1 {
   margin: 0 0 0.3rem;
+  color: #f3f8ff;
 }
 
 .auth-card > p {
   margin: 0;
-  color: var(--text-muted);
+  color: #9fb2cb;
   font-size: 0.92rem;
 }
 
 .auth-error {
   margin-top: 0.75rem;
-  color: var(--danger);
+  color: #ff8a8a;
   font-size: 0.9rem;
 }
 
@@ -1542,9 +1543,9 @@ input, select, textarea {
   padding: 0.6rem 0.75rem;
   margin-top: 0.25rem;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid #2f425d;
   background: rgba(10, 16, 28, 0.82);
-  color: var(--text);
+  color: #e8f1ff;
 }
 
 .auth-input-password {
@@ -1566,7 +1567,7 @@ input, select, textarea {
   width: 30px;
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: #8ea4bf;
   border-radius: 6px;
 }
 
@@ -1579,6 +1580,14 @@ input, select, textarea {
   font-weight: 700;
   background: linear-gradient(135deg, var(--accent) 0%, #5ea1ff 100%);
   color: #fff;
+}
+
+.auth-page label {
+  color: #d6e2f3;
+}
+
+.auth-input::placeholder {
+  color: #7f95af;
 }
 
 @media (max-width: 900px) {
