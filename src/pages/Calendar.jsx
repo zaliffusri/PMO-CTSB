@@ -194,6 +194,8 @@ export default function Calendar() {
   });
   const [personSearch, setPersonSearch] = useState('');
   const [detailActivityId, setDetailActivityId] = useState(null);
+  const nonAdminUsers = useMemo(() => users.filter((u) => u.role !== 'admin'), [users]);
+
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
   const [dayListDay, setDayListDay] = useState(null);
 
@@ -300,7 +302,7 @@ export default function Calendar() {
     }
   };
 
-  const filteredUsers = users.filter((u) => {
+  const filteredUsers = nonAdminUsers.filter((u) => {
     const q = personSearch.trim().toLowerCase();
     if (!q) return true;
     return String(u.name || '').toLowerCase().includes(q);
@@ -404,7 +406,7 @@ export default function Calendar() {
         from={from}
         to={to}
         card={card}
-        users={users}
+        users={nonAdminUsers}
         projects={projects}
       />
 
