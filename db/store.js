@@ -480,11 +480,18 @@ export const store = {
     save(data);
     return true;
   },
-  createSession(user_id, token, expires_at) {
+  async createSession(user_id, token, expires_at) {
     const id = nextId(data.sessions);
     const created_at = new Date().toISOString();
     const session = { id, user_id, token, expires_at, created_at };
     data.sessions.push(session);
+    if (supabase) {
+      const { error } = await supabase.from('sessions_app').upsert([session], { onConflict: 'id' });
+      if (error) {
+        data.sessions = data.sessions.filter((s) => s.id !== id);
+        throw error;
+      }
+    }
     save(data);
     return session;
   },

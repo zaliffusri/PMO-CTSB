@@ -21,56 +21,64 @@ function getTokenFromHeader(req) {
   return auth.slice('Bearer '.length).trim();
 }
 
-function createUserSession(user) {
+async function createUserSession(user) {
   const token = generateToken();
   const expires = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
-  store.createSession(user.id, token, expires);
+  await store.createSession(user.id, token, expires);
   return { token, expires_at: expires };
 }
 
-authRouter.post('/register-admin', (req, res) => {
-  const { name, email, password } = req.body || {};
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'name, email, and password are required' });
-  }
-  if (String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
-  if (store.findUserByEmail(email)) {
-    return res.status(409).json({ error: 'Email is already registered' });
-  }
+authRouter.post('/register-admin', async (req, res) => {
+  try {
+    const { name, email, password } = req.body || {};
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'name, email, and password are required' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    if (store.findUserByEmail(email)) {
+      return res.status(409).json({ error: 'Email is already registered' });
+    }
 
-  const id = store.addUser({
-    name: String(name).trim(),
-    email: String(email).trim().toLowerCase(),
-    role: 'admin',
-    password_hash: hashPassword(String(password)),
-  });
-  const created = store.findUserById(id);
-  store.appendAuditLog(
-    { id: created.id, email: created.email, name: created.name },
-    {
-      action: 'create',
-      target_type: 'user',
-      target_id: id,
-      summary: `Registered initial admin "${created.name}" (${created.email})`,
-    },
-  );
-  const session = createUserSession(created);
-  return res.status(201).json({ user: sanitizeUser(created), ...session });
+    const id = store.addUser({
+      name: String(name).trim(),
+      email: String(email).trim().toLowerCase(),
+      role: 'admin',
+      password_hash: hashPassword(String(password)),
+    });
+    const created = store.findUserById(id);
+    store.appendAuditLog(
+      { id: created.id, email: created.email, name: created.name },
+      {
+        action: 'create',
+        target_type: 'user',
+        target_id: id,
+        summary: `Registered initial admin "${created.name}" (${created.email})`,
+      },
+    );
+    const session = await createUserSession(created);
+    return res.status(201).json({ user: sanitizeUser(created), ...session });
+  } catch {
+    return res.status(500).json({ error: 'Failed to register admin' });
+  }
 });
 
-authRouter.post('/login', (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) {
-    return res.status(400).json({ error: 'email and password are required' });
+authRouter.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'email and password are required' });
+    }
+    const user = store.findUserByEmail(String(email).trim().toLowerCase());
+    if (!user || !verifyPassword(String(password), user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const session = await createUserSession(user);
+    return res.json({ user: sanitizeUser(user), ...session });
+  } catch {
+    return res.status(500).json({ error: 'Failed to login' });
   }
-  const user = store.findUserByEmail(String(email).trim().toLowerCase());
-  if (!user || !verifyPassword(String(password), user.password_hash)) {
-    return res.status(401).json({ error: 'Invalid email or password' });
-  }
-  const session = createUserSession(user);
-  return res.json({ user: sanitizeUser(user), ...session });
 });
 
 authRouter.get('/me', async (req, res) => {
