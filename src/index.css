@@ -1495,6 +1495,7 @@ input, select, textarea {
   margin: 0;
   font-size: clamp(1.7rem, 3.8vw, 2.45rem);
   line-height: 1.18;
+  color: #ffffff;
 }
 
 .auth-hero p {
