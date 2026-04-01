@@ -1,11 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '../api';
-import {
-  DEFAULT_ACTIVITY_SITE_LOCATIONS,
-  ACTIVITY_LOCATION_OTHERS,
-  resolveLocationForForm,
-  composeLocation,
-} from '../constants/activityLocations';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 
 const btnNav = { padding: '0.5rem 0.75rem', background: 'var(--surface-hover)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', cursor: 'pointer', fontSize: '1rem' };
@@ -194,8 +188,7 @@ export default function Calendar() {
     type: 'meeting',
     title: '',
     description: '',
-    location_preset: '',
-    location_custom: '',
+    location: '',
     start_at: '',
     end_at: '',
   });
@@ -213,8 +206,6 @@ export default function Calendar() {
     loadActivities(monthFrom, monthTo).finally(() => setLoading(false));
   }, [monthFrom, monthTo]);
 
-  const [appSettings, setAppSettings] = useState(null);
-
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -227,20 +218,11 @@ export default function Calendar() {
       } catch (e) {
         console.error(e);
       }
-      try {
-        const st = await api.settings.get();
-        if (!cancelled) setAppSettings(st);
-      } catch {
-        if (!cancelled) setAppSettings(null);
-      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
-
-  const sitePresets =
-    appSettings?.activity_locations?.length > 0 ? appSettings.activity_locations : DEFAULT_ACTIVITY_SITE_LOCATIONS;
 
   useEffect(() => {
     const anyOpen = detailActivityId != null || dayListDay != null;
@@ -284,7 +266,6 @@ export default function Calendar() {
 
   const submit = async (e) => {
     e.preventDefault();
-    const location = composeLocation(form.location_preset, form.location_custom);
     if (!form.person_ids?.length || !form.title || !form.start_at || !form.end_at) return;
     try {
       await Promise.all(
@@ -295,7 +276,7 @@ export default function Calendar() {
             type: form.type,
             title: form.title,
             description: form.description || undefined,
-            location,
+            location: form.location || undefined,
             start_at: form.start_at,
             end_at: form.end_at,
           }),
@@ -307,8 +288,7 @@ export default function Calendar() {
         type: 'meeting',
         title: '',
         description: '',
-        location_preset: '',
-        location_custom: '',
+        location: '',
         start_at: '',
         end_at: '',
       });
@@ -404,31 +384,16 @@ export default function Calendar() {
             </select></label>
             <label style={{ gridColumn: '1 / -1' }}>Title * <input type="text" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required style={inputStyle} /></label>
             <label style={{ gridColumn: '1 / -1' }}>Description <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} /></label>
-            <label style={{ gridColumn: '1 / -1' }}>Location
-              <select
-                value={form.location_preset}
-                onChange={(e) => setForm((f) => ({ ...f, location_preset: e.target.value, location_custom: e.target.value === ACTIVITY_LOCATION_OTHERS ? f.location_custom : '' }))}
+            <label style={{ gridColumn: '1 / -1' }}>
+              Location
+              <input
+                type="text"
+                value={form.location}
+                onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                placeholder="Type location (optional)"
                 style={inputStyle}
-              >
-                <option value="">Select site…</option>
-                {sitePresets.map((loc) => (
-                  <option key={loc} value={loc}>{loc}</option>
-                ))}
-                <option value={ACTIVITY_LOCATION_OTHERS}>{ACTIVITY_LOCATION_OTHERS}</option>
-              </select>
+              />
             </label>
-            {form.location_preset === ACTIVITY_LOCATION_OTHERS && (
-              <label style={{ gridColumn: '1 / -1' }}>
-                Specify location
-                <input
-                  type="text"
-                  value={form.location_custom}
-                  onChange={(e) => setForm((f) => ({ ...f, location_custom: e.target.value }))}
-                  placeholder="Type the location"
-                  style={inputStyle}
-                />
-              </label>
-            )}
             <label>Start * <input type="datetime-local" value={form.start_at} onChange={e => setForm(f => ({ ...f, start_at: e.target.value }))} required style={inputStyle} /></label>
             <label>End * <input type="datetime-local" value={form.end_at} onChange={e => setForm(f => ({ ...f, end_at: e.target.value }))} required style={inputStyle} /></label>
             <div style={{ gridColumn: '1 / -1' }}><button type="submit" style={btnPrimary}>Save activity</button></div>
@@ -441,7 +406,6 @@ export default function Calendar() {
         card={card}
         users={users}
         projects={projects}
-        locationPresets={sitePresets}
       />
 
       {/* Calendar */}
@@ -527,7 +491,7 @@ export default function Calendar() {
   );
 }
 
-function ActivityList({ from, to, card, users, projects, locationPresets = DEFAULT_ACTIVITY_SITE_LOCATIONS }) {
+function ActivityList({ from, to, card, users, projects }) {
   const [list, setList] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -546,7 +510,6 @@ function ActivityList({ from, to, card, users, projects, locationPresets = DEFAU
   const reload = () => api.activities.list({ from, to }).then(setList).catch(console.error);
 
   const startEdit = (a) => {
-    const { preset, custom } = resolveLocationForForm(a.location);
     setEditingId(a.id);
     setEditForm({
       person_id: String(a.person_id ?? ''),
@@ -554,8 +517,7 @@ function ActivityList({ from, to, card, users, projects, locationPresets = DEFAU
       type: a.type === 'task' ? 'outstation' : (['meeting', 'outstation', 'other'].includes(a.type) ? a.type : 'meeting'),
       title: a.title || '',
       description: a.description || '',
-      location_preset: preset,
-      location_custom: custom,
+      location: a.location || '',
       start_at: a.start_at ? String(a.start_at).slice(0, 16) : '',
       end_at: a.end_at ? String(a.end_at).slice(0, 16) : '',
     });
@@ -569,15 +531,13 @@ function ActivityList({ from, to, card, users, projects, locationPresets = DEFAU
       type: 'meeting',
       title: '',
       description: '',
-      location_preset: '',
-      location_custom: '',
+      location: '',
       start_at: '',
       end_at: '',
     });
   };
 
   const saveEdit = async (id) => {
-    const location = composeLocation(editForm.location_preset, editForm.location_custom);
     if (!editForm.person_id || !editForm.title || !editForm.start_at || !editForm.end_at) return;
     try {
       await api.activities.update(id, {
@@ -586,7 +546,7 @@ function ActivityList({ from, to, card, users, projects, locationPresets = DEFAU
         type: editForm.type,
         title: editForm.title,
         description: editForm.description || null,
-        location,
+        location: editForm.location || null,
         start_at: editForm.start_at,
         end_at: editForm.end_at,
       });
@@ -642,37 +602,16 @@ function ActivityList({ from, to, card, users, projects, locationPresets = DEFAU
                   <label style={{ gridColumn: '1 / -1' }}>Description
                     <textarea rows={2} value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} style={inputStyle} />
                   </label>
-                  <label style={{ gridColumn: '1 / -1' }}>Location
-                    <select
-                      value={editForm.location_preset}
-                      onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          location_preset: e.target.value,
-                          location_custom: e.target.value === ACTIVITY_LOCATION_OTHERS ? f.location_custom : '',
-                        }))
-                      }
+                  <label style={{ gridColumn: '1 / -1' }}>
+                    Location
+                    <input
+                      type="text"
+                      value={editForm.location}
+                      onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
+                      placeholder="Type location (optional)"
                       style={inputStyle}
-                    >
-                      <option value="">Select site…</option>
-                      {locationPresets.map((loc) => (
-                        <option key={loc} value={loc}>{loc}</option>
-                      ))}
-                      <option value={ACTIVITY_LOCATION_OTHERS}>{ACTIVITY_LOCATION_OTHERS}</option>
-                    </select>
+                    />
                   </label>
-                  {editForm.location_preset === ACTIVITY_LOCATION_OTHERS && (
-                    <label style={{ gridColumn: '1 / -1' }}>
-                      Specify location
-                      <input
-                        type="text"
-                        value={editForm.location_custom}
-                        onChange={(e) => setEditForm((f) => ({ ...f, location_custom: e.target.value }))}
-                        placeholder="Type the location"
-                        style={inputStyle}
-                      />
-                    </label>
-                  )}
                   <label>Start
                     <input type="datetime-local" value={editForm.start_at} onChange={e => setEditForm(f => ({ ...f, start_at: e.target.value }))} style={inputStyle} />
                   </label>
