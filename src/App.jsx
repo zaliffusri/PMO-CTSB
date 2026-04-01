@@ -153,7 +153,6 @@ function AuthScreen() {
       </div>
       <form onSubmit={submit} className="auth-card">
         <h1>PMO CTSB</h1>
-        <p>Login with your admin account.</p>
         {error && (
           <div className="auth-error">{error}</div>
         )}

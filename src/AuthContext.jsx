@@ -8,6 +8,12 @@ export function AuthProvider({ children }) {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setChecking(false);
+      return;
+    }
+
     api.auth.me()
       .then((res) => setUser(res.user))
       .catch(() => {
