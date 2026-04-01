@@ -464,6 +464,15 @@ export const store = {
   findUserById(id) {
     return data.users.find((u) => u.id === id) || null;
   },
+  async findUserByIdAny(id) {
+    const local = this.findUserById(id);
+    if (local) return local;
+    if (!supabase) return null;
+    const { data: row, error } = await supabase.from('users_app').select('*').eq('id', id).maybeSingle();
+    if (error || !row) return null;
+    data.users.push(row);
+    return row;
+  },
   updateUser(id, row) {
     const i = data.users.findIndex((u) => u.id === id);
     if (i === -1) return false;
@@ -481,6 +490,19 @@ export const store = {
   },
   findSessionByToken(token) {
     return data.sessions.find((s) => s.token === token) || null;
+  },
+  async findSessionByTokenAny(token) {
+    const local = this.findSessionByToken(token);
+    if (local) return local;
+    if (!supabase) return null;
+    const { data: row, error } = await supabase
+      .from('sessions_app')
+      .select('*')
+      .eq('token', token)
+      .maybeSingle();
+    if (error || !row) return null;
+    data.sessions.push(row);
+    return row;
   },
   deleteSessionByToken(token) {
     const i = data.sessions.findIndex((s) => s.token === token);

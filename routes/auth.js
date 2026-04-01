@@ -73,15 +73,15 @@ authRouter.post('/login', (req, res) => {
   return res.json({ user: sanitizeUser(user), ...session });
 });
 
-authRouter.get('/me', (req, res) => {
+authRouter.get('/me', async (req, res) => {
   store.clearExpiredSessions();
   const token = getTokenFromHeader(req);
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  const session = store.findSessionByToken(token);
+  const session = await store.findSessionByTokenAny(token);
   if (!session || (session.expires_at && session.expires_at <= new Date().toISOString())) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const user = store.findUserById(session.user_id);
+  const user = await store.findUserByIdAny(session.user_id);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   return res.json({ user: sanitizeUser(user) });
 });

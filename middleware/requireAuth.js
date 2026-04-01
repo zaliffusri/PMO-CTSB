@@ -7,15 +7,19 @@ function getTokenFromHeader(req) {
 }
 
 export function requireAuth(req, res, next) {
-  store.clearExpiredSessions();
-  const token = getTokenFromHeader(req);
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  const session = store.findSessionByToken(token);
-  if (!session) return res.status(401).json({ error: 'Unauthorized' });
-  const user = store.findUserById(session.user_id);
-  if (!user) return res.status(401).json({ error: 'Unauthorized' });
-  req.user = { id: user.id, email: user.email, role: user.role, name: user.name };
-  next();
+  (async () => {
+    store.clearExpiredSessions();
+    const token = getTokenFromHeader(req);
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const session = await store.findSessionByTokenAny(token);
+    if (!session || (session.expires_at && session.expires_at <= new Date().toISOString())) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const user = await store.findUserByIdAny(session.user_id);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    req.user = { id: user.id, email: user.email, role: user.role, name: user.name };
+    next();
+  })().catch(() => res.status(401).json({ error: 'Unauthorized' }));
 }
 
 export function requireAdmin(req, res, next) {
