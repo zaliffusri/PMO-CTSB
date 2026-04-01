@@ -143,6 +143,11 @@ input, select, textarea {
     border-bottom: none;
     border-right: 1px solid var(--border);
     padding: 1.5rem 0;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    overflow-y: auto;
   }
   .app-nav .nav-brand-row {
     display: flex;
