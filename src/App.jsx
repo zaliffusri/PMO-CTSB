@@ -90,14 +90,6 @@ function Layout({ children }) {
             </button>
             <div className="nav-sublayer-title">Settings</div>
             <NavLink
-              to="/settings/general"
-              className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
-              end
-              onClick={() => setNavOpen(false)}
-            >
-              General
-            </NavLink>
-            <NavLink
               to="/settings/locations"
               className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
               onClick={() => setNavOpen(false)}
@@ -135,7 +127,7 @@ function Layout({ children }) {
             )}
             {isAdmin && (
               <NavLink
-                to="/settings/general"
+                to="/settings"
                 className={() => `nav-link ${pathname.startsWith('/settings') ? 'active' : ''}`}
                 onClick={() => setNavOpen(false)}
               >
@@ -246,8 +238,8 @@ export default function App() {
             path="/settings"
             element={user?.role === 'admin' ? <SettingsLayout /> : <Dashboard />}
           >
-            <Route index element={<Navigate to="/settings/general" replace />} />
-            <Route path="general" element={<SettingsGeneral />} />
+            <Route index element={<SettingsGeneral />} />
+            <Route path="general" element={<Navigate to="/settings" replace />} />
             <Route path="locations" element={<SettingsLocations />} />
           </Route>
           <Route path="/calendar" element={<Calendar />} />
