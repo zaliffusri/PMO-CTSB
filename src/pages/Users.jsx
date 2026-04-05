@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { btnPrimary, btnSecondarySm, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
+import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
 
 const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', user: 'User' };
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'pmo', label: 'PMO' },
+  { value: 'finance', label: 'Finance' },
+  { value: 'user', label: 'User' },
+];
+
 function roleLabel(role) {
   return ROLE_LABELS[role] || role;
 }
@@ -14,9 +21,24 @@ export default function Users() {
   const [form, setForm] = useState({ name: '', email: '', role: 'user' });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: 'user', password: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
   const editFirstFieldRef = useRef(null);
 
   const load = () => api.users.list().then(setUsers).catch(console.error).finally(() => setLoading(false));
+
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return users.filter((u) => {
+      if (roleFilter && u.role !== roleFilter) return false;
+      if (!q) return true;
+      const name = (u.name || '').toLowerCase();
+      const email = (u.email || '').toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [users, searchQuery, roleFilter]);
+
+  const filtersActive = Boolean(searchQuery.trim() || roleFilter);
 
   useEffect(() => {
     load();
@@ -198,37 +220,106 @@ export default function Users() {
       )}
 
       <div style={card}>
+        {users.length > 0 && (
+          <div
+            className="filter-bar"
+            style={{
+              marginBottom: '1rem',
+              paddingBottom: '1rem',
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            <label style={{ flex: '1 1 200px', minWidth: 0, maxWidth: '320px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Search</span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Name or email…"
+                aria-label="Search users by name or email"
+                style={{ ...inputStyle, marginTop: 0 }}
+              />
+            </label>
+            <label style={{ flex: '0 1 160px', minWidth: '140px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Role</span>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                aria-label="Filter by role"
+                style={{ ...inputStyle, marginTop: 0 }}
+              >
+                <option value="">All roles</option>
+                {ROLE_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filtersActive && (
+              <button
+                type="button"
+                style={{ ...btnSecondary, alignSelf: 'flex-end', whiteSpace: 'nowrap' }}
+                onClick={() => {
+                  setSearchQuery('');
+                  setRoleFilter('');
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
+
         {!users.length ? (
           <p style={{ color: 'var(--text-muted)' }}>No users found.</p>
+        ) : !filteredUsers.length ? (
+          <p style={{ color: 'var(--text-muted)' }}>
+            No users match your search or role filter.
+            {filtersActive && (
+              <>
+                {' '}
+                <button type="button" style={{ ...btnSecondarySm, verticalAlign: 'baseline' }} onClick={() => { setSearchQuery(''); setRoleFilter(''); }}>
+                  Clear filters
+                </button>
+              </>
+            )}
+          </p>
         ) : (
-          <div className="table-wrap">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                  <th style={thStyle}>Name</th>
-                  <th style={thStyle}>Email</th>
-                  <th style={thStyle}>Role</th>
-                  <th style={thStyle}>Created</th>
-                  <th style={thStyle}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={tdStyle}>{u.name}</td>
-                    <td style={tdStyle}>{u.email}</td>
-                    <td style={tdStyle}>{roleLabel(u.role)}</td>
-                    <td style={tdStyle}>{new Date(u.created_at).toLocaleString()}</td>
-                    <td style={tdStyle}>
-                      <button type="button" style={btnSecondarySm} onClick={() => startEdit(u)}>
-                        Edit
-                      </button>
-                    </td>
+          <>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              Showing {filteredUsers.length} of {users.length} user{users.length !== 1 ? 's' : ''}
+              {filtersActive ? ' (filtered)' : ''}
+            </p>
+            <div className="table-wrap">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                    <th style={thStyle}>Name</th>
+                    <th style={thStyle}>Email</th>
+                    <th style={thStyle}>Role</th>
+                    <th style={thStyle}>Created</th>
+                    <th style={thStyle}></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filteredUsers.map((u) => (
+                    <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={tdStyle}>{u.name}</td>
+                      <td style={tdStyle}>{u.email}</td>
+                      <td style={tdStyle}>{roleLabel(u.role)}</td>
+                      <td style={tdStyle}>{new Date(u.created_at).toLocaleString()}</td>
+                      <td style={tdStyle}>
+                        <button type="button" style={btnSecondarySm} onClick={() => startEdit(u)}>
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>
