@@ -217,8 +217,8 @@ export default function SettingsLocations() {
             }}
           >
             Sites appear in Calendar when logging activities (with <strong>Others</strong> for custom text). Distances
-            are in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong> (General
-            settings). Changes apply when you save in the dialog.
+            are in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong>. Changes
+            apply when you save in the dialog.
           </p>
           <button
             type="button"

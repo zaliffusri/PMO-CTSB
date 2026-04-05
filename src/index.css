@@ -194,6 +194,15 @@ input, select, textarea {
   font-weight: 600;
   background: var(--nav-active-bg);
 }
+.app-nav button.nav-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
 @media (min-width: 769px) {
   .app-nav .nav-link {
     padding: 0.6rem 1.25rem;

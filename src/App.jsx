@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from './ThemeContext';
 import { useAuth } from './AuthContext';
@@ -13,7 +13,6 @@ import Users from './pages/Users';
 import Account from './pages/Account';
 import History from './pages/History';
 import SettingsLayout from './pages/settings/SettingsLayout';
-import SettingsGeneral from './pages/settings/SettingsGeneral';
 import SettingsLocations from './pages/settings/SettingsLocations';
 
 function ThemeToggle() {
@@ -34,11 +33,19 @@ function ThemeToggle() {
 
 function Layout({ children }) {
   const [navOpen, setNavOpen] = useState(false);
+  /** True after clicking Settings: show settings sidebar without changing the main route until a sub-item is chosen. */
+  const [settingsSidebarPeek, setSettingsSidebarPeek] = useState(false);
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'admin';
-  const isSettingsSidebar = isAdmin && pathname.startsWith('/settings');
+  const isSettingsSidebar = isAdmin && (pathname.startsWith('/settings') || settingsSidebarPeek);
+
+  useEffect(() => {
+    if (pathname.startsWith('/settings')) {
+      setSettingsSidebarPeek(false);
+    }
+  }, [pathname]);
 
   return (
     <div className="app-layout">
@@ -82,7 +89,10 @@ function Layout({ children }) {
               type="button"
               className="nav-link nav-back-link"
               onClick={() => {
-                navigate('/');
+                setSettingsSidebarPeek(false);
+                if (pathname.startsWith('/settings')) {
+                  navigate('/');
+                }
                 setNavOpen(false);
               }}
             >
@@ -126,13 +136,16 @@ function Layout({ children }) {
               </NavLink>
             )}
             {isAdmin && (
-              <NavLink
-                to="/settings"
-                className={() => `nav-link ${pathname.startsWith('/settings') ? 'active' : ''}`}
-                onClick={() => setNavOpen(false)}
+              <button
+                type="button"
+                className={`nav-link${settingsSidebarPeek ? ' active' : ''}`}
+                onClick={() => {
+                  setSettingsSidebarPeek(true);
+                  setNavOpen(false);
+                }}
               >
                 Settings
-              </NavLink>
+              </button>
             )}
             <NavLink to="/calendar" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
               Calendar & Activities
@@ -238,8 +251,8 @@ export default function App() {
             path="/settings"
             element={user?.role === 'admin' ? <SettingsLayout /> : <Dashboard />}
           >
-            <Route index element={<SettingsGeneral />} />
-            <Route path="general" element={<Navigate to="/settings" replace />} />
+            <Route index element={<Navigate to="/settings/locations" replace />} />
+            <Route path="general" element={<Navigate to="/settings/locations" replace />} />
             <Route path="locations" element={<SettingsLocations />} />
           </Route>
           <Route path="/calendar" element={<Calendar />} />
