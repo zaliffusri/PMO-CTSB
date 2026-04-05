@@ -3,7 +3,7 @@ import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import { btnPrimary, card, inputStyle } from '../styles/commonStyles';
 
-const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', user: 'User' };
+const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', hr: 'HR', user: 'User' };
 
 export default function Account() {
   const { user } = useAuth();

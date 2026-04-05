@@ -32,7 +32,7 @@ usersRouter.post('/', (req, res) => {
   if (store.findUserByEmail(email)) {
     return res.status(409).json({ error: 'Email is already registered' });
   }
-  const allowedRoles = new Set(['admin', 'pmo', 'finance', 'user']);
+  const allowedRoles = new Set(['admin', 'pmo', 'finance', 'hr', 'user']);
   const nextRole = allowedRoles.has(String(role)) ? String(role) : 'user';
   const id = store.addUser({
     name: String(name).trim(),
@@ -50,7 +50,7 @@ usersRouter.post('/', (req, res) => {
   res.status(201).json(safeUser(created));
 });
 
-const ALLOWED_ROLES = new Set(['admin', 'pmo', 'finance', 'user']);
+const ALLOWED_ROLES = new Set(['admin', 'pmo', 'finance', 'hr', 'user']);
 
 function countAdmins() {
   return store.users.filter((u) => u.role === 'admin').length;

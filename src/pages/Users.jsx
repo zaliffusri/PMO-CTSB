@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
 
-const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', user: 'User' };
+const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', hr: 'HR', user: 'User' };
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin' },
   { value: 'pmo', label: 'PMO' },
   { value: 'finance', label: 'Finance' },
+  { value: 'hr', label: 'HR' },
   { value: 'user', label: 'User' },
 ];
 
@@ -136,10 +137,11 @@ export default function Users() {
             <label>
               Role
               <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} style={inputStyle}>
-                <option value="admin">Admin</option>
-                <option value="pmo">PMO</option>
-                <option value="finance">Finance</option>
-                <option value="user">User</option>
+                {ROLE_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </label>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
@@ -191,10 +193,11 @@ export default function Users() {
               <label>
                 Role
                 <select value={editForm.role} onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))} style={inputStyle}>
-                  <option value="admin">Admin</option>
-                  <option value="pmo">PMO</option>
-                  <option value="finance">Finance</option>
-                  <option value="user">User</option>
+                  {ROLE_OPTIONS.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>
