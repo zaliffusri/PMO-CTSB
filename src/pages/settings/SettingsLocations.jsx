@@ -1,22 +1,35 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
 import { card, inputStyle, btnPrimary, btnSecondary, mapApiToForm } from './settingsStyles';
+
+const btnRemove = {
+  ...btnSecondary,
+  padding: '0.45rem 0.75rem',
+  fontSize: '0.85rem',
+  color: 'var(--danger)',
+  borderColor: 'var(--border)',
+  flexShrink: 0,
+};
 
 export default function SettingsLocations() {
   const { form, setForm, reload } = useOutletContext();
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  /** One string per row; synced from server when `form.activity_locations_text` changes */
+  const [rows, setRows] = useState(['']);
 
-  const locationLines = useMemo(
-    () =>
-      (form?.activity_locations_text || '')
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean),
-    [form?.activity_locations_text],
-  );
+  useEffect(() => {
+    if (!form) return;
+    const parsed = (form.activity_locations_text || '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    setRows(parsed.length ? parsed : ['']);
+  }, [form.activity_locations_text]);
+
+  const locationLines = useMemo(() => rows.map((r) => r.trim()).filter(Boolean), [rows]);
 
   if (!form) return null;
 
@@ -31,13 +44,26 @@ export default function SettingsLocations() {
     }));
   };
 
+  const addRow = () => setRows((prev) => [...prev, '']);
+
+  const updateRow = (index, value) => {
+    setRows((prev) => prev.map((r, i) => (i === index ? value : r)));
+  };
+
+  const removeRow = (index) => {
+    setRows((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   const save = async (e) => {
     e.preventDefault();
     setMsg('');
     setErr('');
     const activity_locations = locationLines;
     if (activity_locations.length === 0) {
-      setErr('Add at least one activity location (one per line).');
+      setErr('Add at least one activity location.');
       return;
     }
     const mileage_from_office_km = {};
@@ -65,19 +91,45 @@ export default function SettingsLocations() {
     <form onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <div style={card}>
         <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.1rem' }}>Activity locations</h2>
-        <p style={{ margin: '0 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          One site per line. These names appear in Calendar when logging activities (together with <strong>Others</strong> for custom text).
+        <p style={{ margin: '0 0 1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+          Add or remove sites below. These names appear in Calendar when logging activities (together with <strong>Others</strong> for custom text).
         </p>
-        <label>
-          Site list *
-          <textarea
-            value={form.activity_locations_text}
-            onChange={(e) => setForm((f) => ({ ...f, activity_locations_text: e.target.value }))}
-            rows={12}
-            required
-            style={{ ...inputStyle, fontFamily: 'inherit' }}
-          />
-        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {rows.map((row, index) => (
+            <div
+              key={index}
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '0.5rem',
+                alignItems: 'flex-start',
+              }}
+            >
+              <label style={{ flex: '1 1 200px', minWidth: 0, margin: 0 }}>
+                <input
+                  type="text"
+                  value={row}
+                  onChange={(e) => updateRow(index, e.target.value)}
+                  placeholder={`Site name ${index + 1}`}
+                  aria-label={`Location ${index + 1}`}
+                  style={{ ...inputStyle, marginTop: 0 }}
+                />
+              </label>
+              <button
+                type="button"
+                style={btnRemove}
+                onClick={() => removeRow(index)}
+                disabled={rows.length <= 1}
+                title={rows.length <= 1 ? 'Keep at least one row' : 'Remove this location'}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+        <button type="button" style={{ ...btnSecondary, marginTop: '0.75rem' }} onClick={addRow}>
+          + Add location
+        </button>
       </div>
 
       <div style={card}>
@@ -86,7 +138,7 @@ export default function SettingsLocations() {
           Optional distance in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong> (set under General) to each site.
         </p>
         {locationLines.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Add locations above to edit mileage.</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Enter at least one location name above to edit mileage.</p>
         ) : (
           <div style={{ display: 'grid', gap: '0.5rem', maxWidth: 480 }}>
             {locationLines.map((loc) => (
