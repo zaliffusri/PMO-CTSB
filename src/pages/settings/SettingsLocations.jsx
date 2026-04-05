@@ -220,7 +220,15 @@ export default function SettingsLocations() {
             are in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong> (General
             settings). Changes apply when you save in the dialog.
           </p>
-          <div className="locations-list" style={{ marginBottom: '0.5rem' }}>
+          <button
+            type="button"
+            style={{ ...btnSecondary, marginBottom: '0.75rem' }}
+            onClick={openAdd}
+            disabled={saving}
+          >
+            + Add location
+          </button>
+          <div className="locations-list">
             {rows.map((row, index) => (
               <div key={index} className="locations-list-row">
                 <div className="locations-list-name">{row.name.trim() || '—'}</div>
@@ -237,9 +245,6 @@ export default function SettingsLocations() {
               </div>
             ))}
           </div>
-          <button type="button" style={btnSecondary} onClick={openAdd} disabled={saving}>
-            + Add location
-          </button>
         </div>
 
         {msg && <div style={{ color: 'var(--success)' }}>{msg}</div>}
