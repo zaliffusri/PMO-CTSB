@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { btnPrimary, btnSecondarySm, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
 
@@ -14,12 +14,31 @@ export default function Users() {
   const [form, setForm] = useState({ name: '', email: '', role: 'user' });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: 'user', password: '' });
+  const editFirstFieldRef = useRef(null);
 
   const load = () => api.users.list().then(setUsers).catch(console.error).finally(() => setLoading(false));
 
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (editingId == null) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setEditingId(null);
+        setEditForm({ name: '', email: '', role: 'user', password: '' });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editingId]);
+
+  useEffect(() => {
+    if (editingId != null) {
+      editFirstFieldRef.current?.focus();
+    }
+  }, [editingId]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -110,35 +129,71 @@ export default function Users() {
       )}
 
       {editingId != null && (
-        <div style={{ ...card, marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>Edit user{editForm.email ? ` (${editForm.email})` : ''}</h3>
-          <form onSubmit={saveEdit} style={{ display: 'grid', gap: '0.75rem', maxWidth: 420 }}>
-            <label>
-              Name <span style={{ color: 'var(--danger)' }}>*</span>
-              <input type="text" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} required style={inputStyle} />
-            </label>
-            <label>
-              Email <span style={{ color: 'var(--danger)' }}>*</span>
-              <input type="email" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} required style={inputStyle} />
-            </label>
-            <label>
-              Role
-              <select value={editForm.role} onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))} style={inputStyle}>
-                <option value="admin">Admin</option>
-                <option value="pmo">PMO</option>
-                <option value="finance">Finance</option>
-                <option value="user">User</option>
-              </select>
-            </label>
-            <label>
-              New password (optional)
-              <input type="password" minLength={6} value={editForm.password} onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))} placeholder="Leave blank to keep current" style={inputStyle} />
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button type="submit" style={btnPrimary}>Save</button>
-              <button type="button" style={btnSecondarySm} onClick={cancelEdit}>Cancel</button>
+        <div className="modal-backdrop" onClick={cancelEdit} role="presentation">
+          <div
+            className="modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-user-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="edit-user-modal-title" className="modal-dialog-title">
+                Edit user
+                {editForm.email ? (
+                  <span style={{ display: 'block', fontWeight: 400, fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    {editForm.email}
+                  </span>
+                ) : null}
+              </h2>
+              <button type="button" className="modal-dialog-close" onClick={cancelEdit} aria-label="Close dialog">
+                ×
+              </button>
             </div>
-          </form>
+            <form onSubmit={saveEdit} style={{ display: 'grid', gap: '0.75rem' }}>
+              <label>
+                Name <span style={{ color: 'var(--danger)' }}>*</span>
+                <input
+                  ref={editFirstFieldRef}
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  required
+                  style={inputStyle}
+                />
+              </label>
+              <label>
+                Email <span style={{ color: 'var(--danger)' }}>*</span>
+                <input type="email" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} required style={inputStyle} />
+              </label>
+              <label>
+                Role
+                <select value={editForm.role} onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))} style={inputStyle}>
+                  <option value="admin">Admin</option>
+                  <option value="pmo">PMO</option>
+                  <option value="finance">Finance</option>
+                  <option value="user">User</option>
+                </select>
+              </label>
+              <label>
+                New password (optional)
+                <input
+                  type="password"
+                  minLength={6}
+                  value={editForm.password}
+                  onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
+                  placeholder="Leave blank to keep current"
+                  style={inputStyle}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                <button type="submit" style={btnPrimary}>Save</button>
+                <button type="button" style={btnSecondarySm} onClick={cancelEdit}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -166,7 +221,7 @@ export default function Users() {
                     <td style={tdStyle}>{new Date(u.created_at).toLocaleString()}</td>
                     <td style={tdStyle}>
                       <button type="button" style={btnSecondarySm} onClick={() => startEdit(u)}>
-                        {editingId === u.id ? 'Editing…' : 'Edit'}
+                        Edit
                       </button>
                     </td>
                   </tr>
