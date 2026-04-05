@@ -1,4 +1,4 @@
-export { btnPrimary, btnSecondary, card, inputStyle } from '../../styles/commonStyles';
+export { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle } from '../../styles/commonStyles';
 export const labelMuted = { color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.35rem' };
 
 export function mapApiToForm(s) {
