@@ -17,8 +17,8 @@ export default function SettingsLocations() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
-  /** One string per row; synced from server when `form.activity_locations_text` changes */
-  const [rows, setRows] = useState(['']);
+  /** One row per site: name + optional km from reference office */
+  const [rows, setRows] = useState([{ name: '', km: '' }]);
 
   useEffect(() => {
     if (!form) return;
@@ -26,28 +26,35 @@ export default function SettingsLocations() {
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
-    setRows(parsed.length ? parsed : ['']);
+    const mileage = form.mileage_from_office_km || {};
+    setRows(
+      parsed.length
+        ? parsed.map((name) => ({
+            name,
+            km:
+              mileage[name] !== undefined && mileage[name] !== ''
+                ? String(mileage[name])
+                : '',
+          }))
+        : [{ name: '', km: '' }]
+    );
   }, [form.activity_locations_text]);
 
-  const locationLines = useMemo(() => rows.map((r) => r.trim()).filter(Boolean), [rows]);
+  const locationLines = useMemo(
+    () => rows.map((r) => r.name.trim()).filter(Boolean),
+    [rows]
+  );
 
   if (!form) return null;
 
-  const setMileage = (locationName, value) => {
-    const n = value === '' ? '' : Number(value);
-    setForm((f) => ({
-      ...f,
-      mileage_from_office_km: {
-        ...f.mileage_from_office_km,
-        [locationName]: Number.isFinite(n) && n >= 0 ? n : 0,
-      },
-    }));
+  const addRow = () => setRows((prev) => [...prev, { name: '', km: '' }]);
+
+  const updateRowName = (index, value) => {
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, name: value } : r)));
   };
 
-  const addRow = () => setRows((prev) => [...prev, '']);
-
-  const updateRow = (index, value) => {
-    setRows((prev) => prev.map((r, i) => (i === index ? value : r)));
+  const updateRowKm = (index, value) => {
+    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, km: value } : r)));
   };
 
   const removeRow = (index) => {
@@ -67,9 +74,10 @@ export default function SettingsLocations() {
       return;
     }
     const mileage_from_office_km = {};
-    for (const loc of activity_locations) {
-      const v = form.mileage_from_office_km[loc];
-      const n = v === '' || v === undefined ? 0 : Number(v);
+    for (const r of rows) {
+      const loc = r.name.trim();
+      if (!loc) continue;
+      const n = r.km === '' || r.km === undefined ? 0 : Number(r.km);
       mileage_from_office_km[loc] = Number.isFinite(n) && n >= 0 ? n : 0;
     }
     try {
@@ -92,7 +100,9 @@ export default function SettingsLocations() {
       <div style={card}>
         <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.1rem' }}>Activity locations</h2>
         <p style={{ margin: '0 0 1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          Add or remove sites below. These names appear in Calendar when logging activities (together with <strong>Others</strong> for custom text).
+          Each row is a site name and optional distance in kilometres from{' '}
+          <strong>{form.reference_office_name || 'the reference office'}</strong> (set under General). These names
+          appear in Calendar when logging activities, together with <strong>Others</strong> for custom text.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {rows.map((row, index) => (
@@ -105,19 +115,41 @@ export default function SettingsLocations() {
                 alignItems: 'flex-start',
               }}
             >
-              <label style={{ flex: '1 1 200px', minWidth: 0, margin: 0 }}>
+              <label style={{ flex: '1 1 160px', minWidth: 0, margin: 0 }}>
                 <input
                   type="text"
-                  value={row}
-                  onChange={(e) => updateRow(index, e.target.value)}
+                  value={row.name}
+                  onChange={(e) => updateRowName(index, e.target.value)}
                   placeholder={`Site name ${index + 1}`}
-                  aria-label={`Location ${index + 1}`}
+                  aria-label={`Location ${index + 1} name`}
+                  style={{ ...inputStyle, marginTop: 0 }}
+                />
+              </label>
+              <label
+                style={{
+                  flex: '0 1 110px',
+                  minWidth: 88,
+                  margin: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.2rem',
+                }}
+              >
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>km</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={row.km}
+                  onChange={(e) => updateRowKm(index, e.target.value)}
+                  placeholder="—"
+                  aria-label={`Distance to location ${index + 1} in km`}
                   style={{ ...inputStyle, marginTop: 0 }}
                 />
               </label>
               <button
                 type="button"
-                style={btnRemove}
+                style={{ ...btnRemove, alignSelf: 'flex-end' }}
                 onClick={() => removeRow(index)}
                 disabled={rows.length <= 1}
                 title={rows.length <= 1 ? 'Keep at least one row' : 'Remove this location'}
@@ -130,33 +162,6 @@ export default function SettingsLocations() {
         <button type="button" style={{ ...btnSecondary, marginTop: '0.75rem' }} onClick={addRow}>
           + Add location
         </button>
-      </div>
-
-      <div style={card}>
-        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem' }}>Mileage from reference office</h2>
-        <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          Optional distance in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong> (set under General) to each site.
-        </p>
-        {locationLines.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Enter at least one location name above to edit mileage.</p>
-        ) : (
-          <div style={{ display: 'grid', gap: '0.5rem', maxWidth: 480 }}>
-            {locationLines.map((loc) => (
-              <label key={loc} style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '0.75rem', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.9rem' }}>{loc}</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={form.mileage_from_office_km[loc] ?? ''}
-                  onChange={(e) => setMileage(loc, e.target.value)}
-                  placeholder="km"
-                  style={inputStyle}
-                />
-              </label>
-            ))}
-          </div>
-        )}
       </div>
 
       {err && <div style={{ color: 'var(--danger)' }}>{err}</div>}
