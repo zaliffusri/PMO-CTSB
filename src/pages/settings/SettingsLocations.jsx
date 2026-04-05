@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
 import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle, mapApiToForm } from './settingsStyles';
@@ -11,10 +11,9 @@ const cardFullWidth = {
 };
 
 export default function SettingsLocations() {
-  const { form, setForm, reload } = useOutletContext();
+  const { form, setForm } = useOutletContext();
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
   /** One row per site: name + optional km from reference office */
   const [rows, setRows] = useState([{ name: '', km: '' }]);
   /** null | { draft, index } | { draft, isNew: true } */
@@ -41,11 +40,6 @@ export default function SettingsLocations() {
     );
   }, [form.activity_locations_text]);
 
-  const locationLines = useMemo(
-    () => rows.map((r) => r.name.trim()).filter(Boolean),
-    [rows]
-  );
-
   if (!form) return null;
 
   const closeModal = () => {
@@ -68,7 +62,36 @@ export default function SettingsLocations() {
     setEditModal((m) => (m ? { ...m, draft: { ...m.draft, ...patch } } : m));
   };
 
-  const applyModal = () => {
+  const persistRows = async (nextRows) => {
+    const activity_locations = nextRows.map((r) => r.name.trim()).filter(Boolean);
+    if (activity_locations.length === 0) {
+      return { ok: false, err: 'Add at least one activity location.' };
+    }
+    const mileage_from_office_km = {};
+    for (const r of nextRows) {
+      const loc = r.name.trim();
+      if (!loc) continue;
+      const n = r.km === '' || r.km === undefined ? 0 : Number(r.km);
+      mileage_from_office_km[loc] = Number.isFinite(n) && n >= 0 ? n : 0;
+    }
+    try {
+      setSaving(true);
+      setMsg('');
+      const s = await api.settings.update({
+        activity_locations,
+        mileage_from_office_km,
+      });
+      setForm(mapApiToForm(s));
+      setMsg('Saved.');
+      return { ok: true };
+    } catch (e2) {
+      return { ok: false, err: e2.message || 'Save failed' };
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyModal = async () => {
     if (!editModal) return;
     const name = editModal.draft.name.trim();
     if (!name) {
@@ -76,20 +99,28 @@ export default function SettingsLocations() {
       return;
     }
     const km = editModal.draft.km;
-    if (editModal.isNew) {
-      setRows((prev) => [...prev, { name, km }]);
-    } else {
-      const i = editModal.index;
-      setRows((prev) => prev.map((r, j) => (j === i ? { name, km } : r)));
+    const nextRows = editModal.isNew
+      ? [...rows, { name, km }]
+      : rows.map((r, j) => (j === editModal.index ? { name, km } : r));
+
+    const result = await persistRows(nextRows);
+    if (!result.ok) {
+      setModalErr(result.err || 'Save failed');
+      return;
     }
     closeModal();
   };
 
-  const removeInModal = () => {
+  const removeInModal = async () => {
     if (!editModal || editModal.isNew) return;
     if (rows.length <= 1) return;
     const i = editModal.index;
-    setRows((prev) => prev.filter((_, j) => j !== i));
+    const nextRows = rows.filter((_, j) => j !== i);
+    const result = await persistRows(nextRows);
+    if (!result.ok) {
+      setModalErr(result.err || 'Save failed');
+      return;
+    }
     closeModal();
   };
 
@@ -98,37 +129,6 @@ export default function SettingsLocations() {
     const n = Number(km);
     if (!Number.isFinite(n) || n < 0) return '—';
     return `${n} km`;
-  };
-
-  const save = async (e) => {
-    e.preventDefault();
-    setMsg('');
-    setErr('');
-    const activity_locations = locationLines;
-    if (activity_locations.length === 0) {
-      setErr('Add at least one activity location.');
-      return;
-    }
-    const mileage_from_office_km = {};
-    for (const r of rows) {
-      const loc = r.name.trim();
-      if (!loc) continue;
-      const n = r.km === '' || r.km === undefined ? 0 : Number(r.km);
-      mileage_from_office_km[loc] = Number.isFinite(n) && n >= 0 ? n : 0;
-    }
-    try {
-      setSaving(true);
-      const s = await api.settings.update({
-        activity_locations,
-        mileage_from_office_km,
-      });
-      setForm(mapApiToForm(s));
-      setMsg('Location settings saved.');
-    } catch (e2) {
-      setErr(e2.message || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
   };
 
   const modalTitle = editModal?.isNew ? 'Add location' : 'Edit location';
@@ -161,6 +161,7 @@ export default function SettingsLocations() {
                   onChange={(e) => setDraft({ name: e.target.value })}
                   placeholder="e.g. Site Alpha"
                   style={inputStyle}
+                  disabled={saving}
                 />
               </label>
               <label>
@@ -173,14 +174,15 @@ export default function SettingsLocations() {
                   onChange={(e) => setDraft({ km: e.target.value })}
                   placeholder="Optional"
                   style={inputStyle}
+                  disabled={saving}
                 />
               </label>
               {modalErr && <div style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{modalErr}</div>}
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                <button type="button" style={btnPrimary} onClick={applyModal}>
-                  {editModal.isNew ? 'Add' : 'Save'}
+                <button type="button" style={btnPrimary} onClick={applyModal} disabled={saving}>
+                  {saving ? 'Saving…' : editModal.isNew ? 'Add' : 'Save'}
                 </button>
-                <button type="button" style={btnSecondarySm} onClick={closeModal}>
+                <button type="button" style={btnSecondarySm} onClick={closeModal} disabled={saving}>
                   Cancel
                 </button>
                 {!editModal.isNew && rows.length > 1 && (
@@ -188,6 +190,7 @@ export default function SettingsLocations() {
                     type="button"
                     style={{ ...btnSecondarySm, color: 'var(--danger)', borderColor: 'var(--border)' }}
                     onClick={removeInModal}
+                    disabled={saving}
                   >
                     Remove
                   </button>
@@ -198,9 +201,8 @@ export default function SettingsLocations() {
         </div>
       )}
 
-      <form
+      <div
         className="settings-locations-form"
-        onSubmit={save}
         style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%', maxWidth: '100%' }}
       >
         <div style={cardFullWidth}>
@@ -216,7 +218,7 @@ export default function SettingsLocations() {
           >
             Sites appear in Calendar when logging activities (with <strong>Others</strong> for custom text). Distances
             are in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong> (General
-            settings).
+            settings). Changes apply when you save in the dialog.
           </p>
           <div className="locations-list" style={{ marginBottom: '0.5rem' }}>
             {rows.map((row, index) => (
@@ -228,29 +230,20 @@ export default function SettingsLocations() {
                   className="locations-list-edit"
                   style={btnSecondarySm}
                   onClick={() => openEdit(index)}
+                  disabled={saving}
                 >
                   Edit
                 </button>
               </div>
             ))}
           </div>
-          <button type="button" style={btnSecondary} onClick={openAdd}>
+          <button type="button" style={btnSecondary} onClick={openAdd} disabled={saving}>
             + Add location
           </button>
         </div>
 
-        {err && <div style={{ color: 'var(--danger)' }}>{err}</div>}
         {msg && <div style={{ color: 'var(--success)' }}>{msg}</div>}
-
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <button type="submit" style={btnPrimary} disabled={saving}>
-            {saving ? 'Saving…' : 'Save locations'}
-          </button>
-          <button type="button" style={btnSecondary} onClick={() => reload()} disabled={saving}>
-            Reload
-          </button>
-        </div>
-      </form>
+      </div>
     </>
   );
 }
