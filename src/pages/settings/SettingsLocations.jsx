@@ -3,17 +3,11 @@ import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
 import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle, mapApiToForm } from './settingsStyles';
 
-const listRow = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0.75rem',
-  padding: '0.65rem 0',
-  borderBottom: '1px solid var(--border)',
-};
-
-const listRowLast = {
-  ...listRow,
-  borderBottom: 'none',
+const cardFullWidth = {
+  ...card,
+  width: '100%',
+  maxWidth: '100%',
+  boxSizing: 'border-box',
 };
 
 export default function SettingsLocations() {
@@ -204,24 +198,37 @@ export default function SettingsLocations() {
         </div>
       )}
 
-      <form onSubmit={save} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        <div style={card}>
-          <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.1rem' }}>Activity locations</h2>
-          <p style={{ margin: '0 0 1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+      <form
+        className="settings-locations-form"
+        onSubmit={save}
+        style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%', maxWidth: '100%' }}
+      >
+        <div style={cardFullWidth}>
+          <h2 style={{ margin: '0 0 0.75rem', fontSize: 'clamp(1rem, 2.5vw, 1.1rem)' }}>Activity locations</h2>
+          <p
+            style={{
+              margin: '0 0 1rem',
+              color: 'var(--text-muted)',
+              fontSize: 'clamp(0.85rem, 2vw, 0.9rem)',
+              lineHeight: 1.5,
+              maxWidth: 70ch,
+            }}
+          >
             Sites appear in Calendar when logging activities (with <strong>Others</strong> for custom text). Distances
             are in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong> (General
             settings).
           </p>
-          <div style={{ marginBottom: '0.5rem' }}>
+          <div className="locations-list" style={{ marginBottom: '0.5rem' }}>
             {rows.map((row, index) => (
-              <div key={index} style={index === rows.length - 1 ? listRowLast : listRow}>
-                <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>{row.name.trim() || '—'}</div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-                    {formatKm(row.km)}
-                  </div>
-                </div>
-                <button type="button" style={{ ...btnSecondarySm, flexShrink: 0 }} onClick={() => openEdit(index)}>
+              <div key={index} className="locations-list-row">
+                <div className="locations-list-name">{row.name.trim() || '—'}</div>
+                <div className="locations-list-km">{formatKm(row.km)}</div>
+                <button
+                  type="button"
+                  className="locations-list-edit"
+                  style={btnSecondarySm}
+                  onClick={() => openEdit(index)}
+                >
                   Edit
                 </button>
               </div>

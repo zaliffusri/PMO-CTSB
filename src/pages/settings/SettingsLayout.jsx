@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { api } from '../../api';
 import { mapApiToForm, btnSecondary } from './settingsStyles';
 
 export default function SettingsLayout() {
+  const { pathname } = useLocation();
+  const wideSettings = pathname === '/settings/locations';
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [form, setForm] = useState(null);
@@ -54,7 +56,7 @@ export default function SettingsLayout() {
   }
 
   return (
-    <div className="settings-page">
+    <div className={`settings-page${wideSettings ? ' settings-page--wide' : ''}`}>
       <div className="page-header">
         <div>
           <h1>System settings</h1>
@@ -64,7 +66,7 @@ export default function SettingsLayout() {
         </div>
       </div>
 
-      <div className="settings-main">
+      <div className={`settings-main${wideSettings ? ' settings-main--wide' : ''}`}>
         <Outlet context={{ form, setForm, reload }} />
       </div>
     </div>

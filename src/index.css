@@ -344,6 +344,78 @@ input, select, textarea {
   max-width: 720px;
 }
 
+/* Locations settings: use full content width */
+.settings-page.settings-page--wide {
+  max-width: none;
+  width: 100%;
+}
+.settings-main.settings-main--wide {
+  max-width: none;
+  width: 100%;
+}
+
+/* Activity locations list: full width, responsive rows */
+.locations-list {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  overflow: hidden;
+}
+.locations-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 0.35rem 0.75rem;
+  align-items: center;
+  padding: 0.75rem clamp(0.65rem, 2.5vw, 1.25rem);
+  border-bottom: 1px solid var(--border);
+}
+.locations-list-row:last-child {
+  border-bottom: none;
+}
+.locations-list-name {
+  grid-column: 1;
+  grid-row: 1;
+  font-weight: 600;
+  font-size: clamp(0.95rem, 2.5vw, 1.05rem);
+  word-break: break-word;
+  line-height: 1.35;
+  min-width: 0;
+}
+.locations-list-km {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: clamp(0.8rem, 2vw, 0.9rem);
+  color: var(--text-muted);
+}
+.locations-list-row .locations-list-edit {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: center;
+  flex-shrink: 0;
+}
+@media (min-width: 640px) {
+  .locations-list-row {
+    grid-template-columns: minmax(0, 1fr) minmax(5rem, 7.5rem) auto;
+    grid-template-rows: auto;
+    gap: 0.75rem 1rem;
+  }
+  .locations-list-name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .locations-list-km {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: right;
+  }
+  .locations-list-row .locations-list-edit {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
 .card-grid {
   display: grid;
   gap: 1rem;
