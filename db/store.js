@@ -212,8 +212,14 @@ export const store = {
     save(data);
   },
 
-  listAuditLog({ limit = 100, offset = 0 } = {}) {
-    const rows = [...(data.audit_log || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+  listAuditLog({ limit = 100, offset = 0, user_id: filterUserId } = {}) {
+    let rows = [...(data.audit_log || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+    if (filterUserId != null && filterUserId !== '') {
+      const uid = +filterUserId;
+      if (!Number.isNaN(uid)) {
+        rows = rows.filter((r) => r.user_id === uid);
+      }
+    }
     const total = rows.length;
     const lim = Math.min(500, Math.max(1, +limit || 100));
     const off = Math.max(0, +offset || 0);

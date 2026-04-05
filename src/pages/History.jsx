@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
+import { inputStyle } from '../styles/commonStyles';
 
 const card = {
   background: 'var(--surface)',
@@ -33,13 +34,24 @@ export default function History() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [offset, setOffset] = useState(0);
+  const [userFilter, setUserFilter] = useState('');
+  const [users, setUsers] = useState([]);
   const limit = 100;
+
+  useEffect(() => {
+    api.users
+      .list()
+      .then((list) => setUsers(Array.isArray(list) ? list : []))
+      .catch(() => setUsers([]));
+  }, []);
 
   const load = useCallback(async () => {
     setErr('');
     setLoading(true);
     try {
-      const res = await api.auditLog.list({ limit, offset });
+      const params = { limit, offset };
+      if (userFilter) params.user_id = userFilter;
+      const res = await api.auditLog.list(params);
       setData(res);
     } catch (e) {
       setErr(e.message || 'Failed to load history');
@@ -47,7 +59,7 @@ export default function History() {
     } finally {
       setLoading(false);
     }
-  }, [offset]);
+  }, [offset, userFilter]);
 
   useEffect(() => {
     load();
@@ -84,6 +96,54 @@ export default function History() {
       ) : (
         <div style={card}>
           <div
+            className="filter-bar"
+            style={{
+              marginBottom: '1rem',
+              paddingBottom: '1rem',
+              borderBottom: '1px solid var(--border)',
+              alignItems: 'flex-end',
+            }}
+          >
+            <label style={{ flex: '1 1 220px', minWidth: 0, maxWidth: '360px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                Filter by user
+              </span>
+              <select
+                value={userFilter}
+                onChange={(e) => {
+                  setUserFilter(e.target.value);
+                  setOffset(0);
+                }}
+                aria-label="Filter history by user"
+                style={{ ...inputStyle, marginTop: 0 }}
+              >
+                <option value="">All users</option>
+                {users
+                  .slice()
+                  .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                  .map((u) => (
+                    <option key={u.id} value={String(u.id)}>
+                      {u.name || u.email}
+                      {u.email && u.name ? ` (${u.email})` : ''}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {userFilter && (
+              <button
+                type="button"
+                style={btnSecondary}
+                onClick={() => {
+                  setUserFilter('');
+                  setOffset(0);
+                }}
+              >
+                Clear user filter
+              </button>
+            )}
+          </div>
+
+          <div
             style={{
               display: 'flex',
               flexWrap: 'wrap',
@@ -94,7 +154,11 @@ export default function History() {
             }}
           >
             <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              {total === 0 ? 'No entries yet.' : `Showing ${offset + 1}–${offset + entries.length} of ${total}`}
+              {total === 0
+                ? userFilter
+                  ? 'No entries for this user.'
+                  : 'No entries yet.'
+                : `Showing ${offset + 1}–${offset + entries.length} of ${total}${userFilter ? ' (filtered)' : ''}`}
             </span>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button
