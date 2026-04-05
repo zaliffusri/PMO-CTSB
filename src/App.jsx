@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from './ThemeContext';
 import { useAuth } from './AuthContext';
 import Dashboard from './pages/Dashboard';
@@ -36,7 +36,9 @@ function Layout({ children }) {
   const [navOpen, setNavOpen] = useState(false);
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
-  const settingsNavActive = pathname.startsWith('/settings');
+  const navigate = useNavigate();
+  const isAdmin = user?.role === 'admin';
+  const isSettingsSidebar = isAdmin && pathname.startsWith('/settings');
 
   return (
     <div className="app-layout">
@@ -74,50 +76,83 @@ function Layout({ children }) {
             Signed in as {user.name || user.email}
           </div>
         )}
-        <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} end onClick={() => setNavOpen(false)}>
-          Dashboard
-        </NavLink>
-        <NavLink to="/projects" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-          Projects
-        </NavLink>
-        <NavLink to="/clients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-          Clients
-        </NavLink>
-        <NavLink to="/team" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-          Team
-        </NavLink>
-        {user?.role === 'admin' && (
-          <NavLink to="/users" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-            Users
-          </NavLink>
+        {isSettingsSidebar ? (
+          <>
+            <button
+              type="button"
+              className="nav-link nav-back-link"
+              onClick={() => {
+                navigate('/');
+                setNavOpen(false);
+              }}
+            >
+              ← Main menu
+            </button>
+            <div className="nav-sublayer-title">Settings</div>
+            <NavLink
+              to="/settings/general"
+              className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
+              end
+              onClick={() => setNavOpen(false)}
+            >
+              General
+            </NavLink>
+            <NavLink
+              to="/settings/locations"
+              className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
+              onClick={() => setNavOpen(false)}
+            >
+              Locations
+            </NavLink>
+          </>
+        ) : (
+          <>
+            <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} end onClick={() => setNavOpen(false)}>
+              Dashboard
+            </NavLink>
+            <NavLink to="/projects" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+              Projects
+            </NavLink>
+            <NavLink to="/clients" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+              Clients
+            </NavLink>
+            <NavLink to="/team" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+              Team
+            </NavLink>
+            {isAdmin && (
+              <NavLink to="/users" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+                Users
+              </NavLink>
+            )}
+            {isAdmin && (
+              <NavLink
+                to="/history"
+                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+                onClick={() => setNavOpen(false)}
+              >
+                History
+              </NavLink>
+            )}
+            {isAdmin && (
+              <NavLink
+                to="/settings/general"
+                className={() => `nav-link ${pathname.startsWith('/settings') ? 'active' : ''}`}
+                onClick={() => setNavOpen(false)}
+              >
+                Settings
+              </NavLink>
+            )}
+            <NavLink to="/calendar" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+              Calendar & Activities
+            </NavLink>
+            <NavLink to="/gantt" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+              Gantt
+            </NavLink>
+            <NavLink to="/account" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
+              My Account
+            </NavLink>
+          </>
         )}
-        {user?.role === 'admin' && (
-          <NavLink
-            to="/history"
-            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-            onClick={() => setNavOpen(false)}
-          >
-            History
-          </NavLink>
-        )}
-        {user?.role === 'admin' && (
-          <NavLink
-            to="/settings/general"
-            className={() => `nav-link ${settingsNavActive ? 'active' : ''}`}
-            onClick={() => setNavOpen(false)}
-          >
-            Settings
-          </NavLink>
-        )}
-        <NavLink to="/calendar" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-          Calendar & Activities
-        </NavLink>
-        <NavLink to="/gantt" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-          Gantt
-        </NavLink>
-        <NavLink to="/account" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => setNavOpen(false)}>
-          My Account
-        </NavLink>
       </nav>
       <main className="app-main">{children}</main>
     </div>

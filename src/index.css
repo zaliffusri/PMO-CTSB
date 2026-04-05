@@ -201,6 +201,52 @@ input, select, textarea {
   }
 }
 
+.app-nav .nav-back-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.15rem;
+}
+.app-nav .nav-back-link:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+@media (min-width: 769px) {
+  .app-nav .nav-back-link {
+    padding: 0.6rem 1.25rem;
+    font-size: 0.95rem;
+  }
+}
+.app-nav .nav-sublayer-title {
+  padding: 0.5rem 0.75rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+@media (min-width: 769px) {
+  .app-nav .nav-sublayer-title {
+    padding: 0.35rem 1.25rem 0.2rem;
+  }
+}
+.app-nav .nav-sublink {
+  padding-left: 1.35rem;
+}
+@media (min-width: 769px) {
+  .app-nav .nav-sublink {
+    padding-left: 1.75rem;
+  }
+}
+
 .app-header-actions {
   display: flex;
   align-items: center;
@@ -294,55 +340,8 @@ input, select, textarea {
 .settings-page {
   max-width: 960px;
 }
-.settings-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  align-items: stretch;
-}
-@media (min-width: 640px) {
-  .settings-layout {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 1.5rem;
-  }
-}
-.settings-subnav {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  flex-shrink: 0;
-}
-@media (min-width: 640px) {
-  .settings-subnav {
-    flex-direction: column;
-    min-width: 160px;
-    position: sticky;
-    top: 0.5rem;
-  }
-}
-.settings-subnav-link {
-  padding: 0.45rem 0.75rem;
-  border-radius: 8px;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  text-decoration: none;
-  border: 1px solid transparent;
-}
-.settings-subnav-link:hover {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-.settings-subnav-link.active {
-  color: var(--accent);
-  font-weight: 600;
-  background: var(--nav-active-bg);
-  border-color: var(--border);
-}
-.settings-content {
-  flex: 1;
-  min-width: 0;
+.settings-main {
+  max-width: 720px;
 }
 
 .card-grid {

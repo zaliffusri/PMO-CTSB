@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import { api } from '../../api';
 import { mapApiToForm, btnSecondary } from './settingsStyles';
 
@@ -64,22 +64,8 @@ export default function SettingsLayout() {
         </div>
       </div>
 
-      <div className="settings-layout">
-        <nav className="settings-subnav" aria-label="Settings sections">
-          <NavLink
-            to="/settings/general"
-            className={({ isActive }) => `settings-subnav-link ${isActive ? 'active' : ''}`}
-            end
-          >
-            General
-          </NavLink>
-          <NavLink to="/settings/locations" className={({ isActive }) => `settings-subnav-link ${isActive ? 'active' : ''}`}>
-            Locations
-          </NavLink>
-        </nav>
-        <div className="settings-content">
-          <Outlet context={{ form, setForm, reload }} />
-        </div>
+      <div className="settings-main">
+        <Outlet context={{ form, setForm, reload }} />
       </div>
     </div>
   );
