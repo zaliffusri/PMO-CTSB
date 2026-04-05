@@ -213,7 +213,7 @@ export default function SettingsLocations() {
               color: 'var(--text-muted)',
               fontSize: 'clamp(0.85rem, 2vw, 0.9rem)',
               lineHeight: 1.5,
-              maxWidth: 70ch,
+              maxWidth: '70ch',
             }}
           >
             Sites appear in Calendar when logging activities (with <strong>Others</strong> for custom text). Distances
