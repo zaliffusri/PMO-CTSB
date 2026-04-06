@@ -468,7 +468,10 @@ export const store = {
     return data.users.find((u) => u.email.toLowerCase() === String(email).toLowerCase()) || null;
   },
   findUserById(id) {
-    return data.users.find((u) => u.id === id) || null;
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    if (Number.isNaN(n)) return null;
+    return data.users.find((u) => Number(u.id) === n) || null;
   },
   async findUserByIdAny(id) {
     const local = this.findUserById(id);
@@ -480,7 +483,8 @@ export const store = {
     return row;
   },
   updateUser(id, row) {
-    const i = data.users.findIndex((u) => u.id === id);
+    const n = Number(id);
+    const i = data.users.findIndex((u) => Number(u.id) === n);
     if (i === -1) return false;
     data.users[i] = { ...data.users[i], ...row };
     save(data);

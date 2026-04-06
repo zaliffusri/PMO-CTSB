@@ -358,7 +358,18 @@ export default function Calendar() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.person_ids?.length || !form.title || !form.start_at || !form.end_at) return;
+    if (!form.person_ids?.length) {
+      alert('Select at least one person for this activity.');
+      return;
+    }
+    if (!form.title?.trim()) {
+      alert('Enter a title for the activity.');
+      return;
+    }
+    if (!form.start_at || !form.end_at) {
+      alert('Set both start and end date/time.');
+      return;
+    }
     const location = composeLocation(form.locationPreset, form.locationOther);
     if (!location) {
       alert('Please select a location or enter a custom one under Others.');

@@ -11,15 +11,47 @@ function normalizeActivityType(type) {
   return 'other';
 }
 
+/** Activities store `person_id` as app user id (for workload). Accept user id or team `people` id and normalize. */
+function resolveActivityUserId(raw) {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (store.findUserById(n)) return n;
+  const person = store.people.find((p) => Number(p.id) === n);
+  if (!person) return null;
+  const em = String(person.email || '').trim().toLowerCase();
+  if (em) {
+    const u = store.findUserByEmail(em);
+    if (u) return u.id;
+  }
+  const nm = String(person.name || '').trim().toLowerCase();
+  if (nm) {
+    const u = store.users.find((x) => String(x.name || '').trim().toLowerCase() === nm);
+    if (u) return u.id;
+  }
+  return null;
+}
+
+function activityPersonName(storedId) {
+  const u = store.findUserById(storedId);
+  if (u?.name) return u.name;
+  const person = store.people.find((p) => Number(p.id) === Number(storedId));
+  return person?.name ?? null;
+}
+
 activitiesRouter.get('/', (req, res) => {
   const personId = req.query.person_id ? +req.query.person_id : null;
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const from = req.query.from;
   const to = req.query.to;
   let rows = store.activities.map(a => {
-    const user = store.findUserById(a.person_id);
     const project = store.projects.find(p => p.id === a.project_id);
-    return { ...a, type: normalizeActivityType(a.type), person_name: user?.name, project_name: project?.name };
+    return {
+      ...a,
+      type: normalizeActivityType(a.type),
+      person_name: activityPersonName(a.person_id),
+      project_name: project?.name,
+    };
   });
   if (personId) rows = rows.filter(r => r.person_id === personId);
   if (projectId) rows = rows.filter(r => r.project_id === projectId);
@@ -38,9 +70,12 @@ activitiesRouter.post('/', (req, res) => {
   if (!loc) {
     return res.status(400).json({ error: 'location is required' });
   }
-  const uid = +person_id;
-  if (!store.findUserById(uid)) {
-    return res.status(400).json({ error: 'person_id must be a valid user id' });
+  const uid = resolveActivityUserId(person_id);
+  if (!uid) {
+    return res.status(400).json({
+      error:
+        'Invalid person: use a system user id, or a team member id whose email matches a user account.',
+    });
   }
   const id = store.addActivity({
     person_id: uid,
@@ -54,7 +89,7 @@ activitiesRouter.post('/', (req, res) => {
   });
   const a = store.activities.find(x => x.id === id);
   const user = store.findUserById(a.person_id);
-  const project = store.projects.find(p => p.id === a.project_id);
+  const project = store.projects.find((p) => p.id === a.project_id);
   store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'activity',
@@ -62,7 +97,12 @@ activitiesRouter.post('/', (req, res) => {
     summary: `Logged activity "${title}"`,
     detail: { person_name: user?.name, project_name: project?.name },
   });
-  res.status(201).json({ ...a, type: normalizeActivityType(a.type), person_name: user?.name, project_name: project?.name });
+  res.status(201).json({
+    ...a,
+    type: normalizeActivityType(a.type),
+    person_name: activityPersonName(a.person_id),
+    project_name: project?.name,
+  });
 });
 
 activitiesRouter.put('/:id', (req, res) => {
@@ -70,9 +110,16 @@ activitiesRouter.put('/:id', (req, res) => {
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
-  const nextPersonId = person_id !== undefined ? +person_id : existing.person_id;
-  if (person_id !== undefined && !store.findUserById(nextPersonId)) {
-    return res.status(400).json({ error: 'person_id must be a valid user id' });
+  let nextPersonId = existing.person_id;
+  if (person_id !== undefined) {
+    const resolved = resolveActivityUserId(person_id);
+    if (!resolved) {
+      return res.status(400).json({
+        error:
+          'Invalid person: use a system user id, or a team member id whose email matches a user account.',
+      });
+    }
+    nextPersonId = resolved;
   }
   const nextLocation = location !== undefined ? String(location || '').trim() : (existing.location != null ? String(existing.location).trim() : '');
   if (!nextLocation) {
@@ -89,9 +136,13 @@ activitiesRouter.put('/:id', (req, res) => {
     end_at: end_at ?? existing.end_at,
   });
   const a = store.activities.find(x => x.id === id);
-  const user = store.findUserById(a.person_id);
   const project = store.projects.find(p => p.id === a.project_id);
-  res.json({ ...a, type: normalizeActivityType(a.type), person_name: user?.name, project_name: project?.name });
+  res.json({
+    ...a,
+    type: normalizeActivityType(a.type),
+    person_name: activityPersonName(a.person_id),
+    project_name: project?.name,
+  });
 });
 
 activitiesRouter.delete('/:id', (req, res) => {
