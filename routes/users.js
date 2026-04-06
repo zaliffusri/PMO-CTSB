@@ -121,8 +121,8 @@ usersRouter.put('/:id', requireAdmin, async (req, res) => {
   let nextRole = role !== undefined ? String(role) : existing.role;
   if (!ALLOWED_ROLES.has(nextRole)) nextRole = existing.role;
 
-  if (existing.role === 'admin' && nextRole !== 'admin' && countAdmins() <= 1) {
-    return res.status(400).json({ error: 'Cannot remove the last admin role' });
+  if (existing.role === 'admin' && nextRole !== 'admin' && countActiveAdmins() <= 1) {
+    return res.status(400).json({ error: 'Cannot remove the last active admin role' });
   }
 
   let nextActive = existing.active !== false;

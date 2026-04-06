@@ -24,6 +24,8 @@ export default function Users() {
   const [editForm, setEditForm] = useState({ name: '', email: '', role: 'user', password: '', active: true });
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [togglingId, setTogglingId] = useState(null);
   const editFirstFieldRef = useRef(null);
 
   const load = () => api.users.list().then(setUsers).catch(console.error).finally(() => setLoading(false));
@@ -37,9 +39,9 @@ export default function Users() {
       const email = (u.email || '').toLowerCase();
       return name.includes(q) || email.includes(q);
     });
-  }, [users, searchQuery, roleFilter]);
+  }, [users, searchQuery, roleFilter, statusFilter]);
 
-  const filtersActive = Boolean(searchQuery.trim() || roleFilter);
+  const filtersActive = Boolean(searchQuery.trim() || roleFilter || statusFilter);
 
   useEffect(() => {
     load();
@@ -218,6 +220,14 @@ export default function Users() {
                   style={inputStyle}
                 />
               </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={editForm.active}
+                  onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.checked }))}
+                />
+                <span>Account active (inactive users cannot sign in)</span>
+              </label>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="submit" style={btnPrimary}>Save</button>
                 <button type="button" style={btnSecondarySm} onClick={cancelEdit}>
@@ -266,6 +276,19 @@ export default function Users() {
                 ))}
               </select>
             </label>
+            <label style={{ flex: '0 1 160px', minWidth: '140px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Status</span>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label="Filter by account status"
+                style={{ ...inputStyle, marginTop: 0 }}
+              >
+                <option value="">All</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
             {filtersActive && (
               <button
                 type="button"
@@ -273,6 +296,7 @@ export default function Users() {
                 onClick={() => {
                   setSearchQuery('');
                   setRoleFilter('');
+                  setStatusFilter('');
                 }}
               >
                 Clear filters
@@ -289,7 +313,7 @@ export default function Users() {
             {filtersActive && (
               <>
                 {' '}
-                <button type="button" style={{ ...btnSecondarySm, verticalAlign: 'baseline' }} onClick={() => { setSearchQuery(''); setRoleFilter(''); }}>
+                <button type="button" style={{ ...btnSecondarySm, verticalAlign: 'baseline' }} onClick={() => { setSearchQuery(''); setRoleFilter(''); setStatusFilter(''); }}>
                   Clear filters
                 </button>
               </>
@@ -320,11 +344,16 @@ export default function Users() {
                       <td style={tdStyle}>{u.email}</td>
                       <td style={tdStyle}>{roleLabel(u.role)}</td>
                       <td style={tdStyle}>
-                        {u.active === false ? (
-                          <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Inactive</span>
-                        ) : (
-                          <span style={{ color: 'var(--success, #2e7d32)' }}>Active</span>
-                        )}
+                        <select
+                          value={u.active === false ? 'inactive' : 'active'}
+                          disabled={togglingId === u.id}
+                          onChange={(e) => setUserActiveInline(u, e.target.value === 'active')}
+                          aria-label={`Status for ${u.name}`}
+                          style={{ ...inputStyle, marginTop: 0, minWidth: '7.5rem', padding: '0.35rem 0.5rem' }}
+                        >
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
                       </td>
                       <td style={tdStyle}>{new Date(u.created_at).toLocaleString()}</td>
                       <td style={tdStyle}>
