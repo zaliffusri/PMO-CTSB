@@ -34,6 +34,8 @@ export default function Users() {
     const q = searchQuery.trim().toLowerCase();
     return users.filter((u) => {
       if (roleFilter && u.role !== roleFilter) return false;
+      if (statusFilter === 'active' && u.active === false) return false;
+      if (statusFilter === 'inactive' && u.active !== false) return false;
       if (!q) return true;
       const name = (u.name || '').toLowerCase();
       const email = (u.email || '').toLowerCase();
@@ -114,6 +116,20 @@ export default function Users() {
       load();
     } catch (err) {
       alert(err.message);
+    }
+  };
+
+  const setUserActiveInline = async (u, nextActive) => {
+    const current = u.active !== false;
+    if (current === nextActive) return;
+    setTogglingId(u.id);
+    try {
+      await api.users.update(u.id, { active: nextActive });
+      await load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setTogglingId(null);
     }
   };
 
