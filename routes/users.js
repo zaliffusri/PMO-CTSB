@@ -15,6 +15,34 @@ function safeUser(u) {
   };
 }
 
+function findPersonByEmail(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return null;
+  return store.people.find((p) => String(p.email || '').trim().toLowerCase() === key) || null;
+}
+
+function syncUserToTeamPerson({ name, email, role, previousEmail }) {
+  const emailKey = String(email || '').trim().toLowerCase();
+  const prevKey = String(previousEmail || '').trim().toLowerCase();
+  let person = findPersonByEmail(emailKey);
+  if (!person && prevKey && prevKey !== emailKey) {
+    person = findPersonByEmail(prevKey);
+  }
+  if (person) {
+    store.updatePerson(person.id, {
+      name,
+      email: emailKey || null,
+      role,
+    });
+    return person.id;
+  }
+  return store.addPerson({
+    name,
+    email: emailKey || null,
+    role,
+  });
+}
+
 usersRouter.get('/', (req, res) => {
   const rows = store.users
     .map(safeUser)
@@ -41,6 +69,11 @@ usersRouter.post('/', (req, res) => {
     password_hash: hashPassword(finalPassword),
   });
   const created = store.findUserById(id);
+  syncUserToTeamPerson({
+    name: created.name,
+    email: created.email,
+    role: created.role,
+  });
   store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'user',
@@ -94,6 +127,12 @@ usersRouter.put('/:id', requireAdmin, (req, res) => {
 
   store.updateUser(id, patch);
   const updated = store.findUserById(id);
+  syncUserToTeamPerson({
+    name: updated.name,
+    email: updated.email,
+    role: updated.role,
+    previousEmail: existing.email,
+  });
   const changed = [];
   if (name !== undefined) changed.push('name');
   if (email !== undefined) changed.push('email');
