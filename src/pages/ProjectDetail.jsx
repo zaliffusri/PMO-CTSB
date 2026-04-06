@@ -71,7 +71,7 @@ function ProjectDetail() {
     e.preventDefault();
     if (!assignForm.person_id) return;
     try {
-      await api.assignments.create({
+      const created = await api.assignments.create({
         project_id: +id,
         person_id: +assignForm.person_id,
         role_in_project: assignForm.role_in_project || undefined,
@@ -80,6 +80,16 @@ function ProjectDetail() {
       setAssignForm({ person_id: '', role_in_project: '' });
       setAssignOpen(false);
       load();
+      const en = created?.email_notification;
+      if (en && en !== 'sent') {
+        const hint = {
+          no_recipient:
+            'Assignment saved. No notification email: add an email for this person on Team, or use the same name as their system user account.',
+          smtp_not_configured: 'Assignment saved. Email is not available until SMTP is configured on the server.',
+          failed: 'Assignment saved, but the notification email could not be sent. Ask an admin to check server logs.',
+        }[en];
+        if (hint) alert(hint);
+      }
     } catch (err) {
       alert(err.message);
     }
@@ -338,8 +348,11 @@ function ProjectDetail() {
       {assignOpen && (
         <div style={{ ...card, marginBottom: '1rem' }}>
           <h3 style={{ margin: '0 0 1rem' }}>Assign team member</h3>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
             Pick someone from the list. You can manage the full team on <Link to="/team">Team</Link>.
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+            Email notify: add an email on Team for this person, or use the same full name as their system user account so we can resolve their login email.
           </p>
           <form onSubmit={addAssignment} style={{ display: 'grid', gap: '0.75rem', maxWidth: 400 }}>
             <label>
