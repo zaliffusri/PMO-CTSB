@@ -7,11 +7,13 @@
     "dev": "concurrently \"cross-env ALLOW_LOCAL_STORE=1 node --watch server.js\" \"vite\"",
     "build": "vite build",
     "start": "npm run build && cross-env ALLOW_LOCAL_STORE=1 node server.js",
-    "start:backend": "cross-env ALLOW_LOCAL_STORE=1 node server.js"
+    "start:backend": "cross-env ALLOW_LOCAL_STORE=1 node server.js",
+    "email:test": "node scripts/email-test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.1",
     "dunder-proto": "^1.0.1",
     "express": "^4.21.1",
     "nodemailer": "^8.0.4",
