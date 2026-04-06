@@ -4,10 +4,30 @@ import { isMailerConfigured, sendAssignmentEmail } from '../lib/mailer.js';
 
 export const assignmentsRouter = Router();
 
+/** Same idea as calendar activities: team row may lack email; use matching app user by name. */
+function resolveAssigneeEmail(person) {
+  if (!person) return '';
+  let email = String(person.email || '').trim();
+  if (email) return email;
+  const nm = String(person.name || '').trim().toLowerCase();
+  if (nm) {
+    const u = store.users.find((x) => String(x.name || '').trim().toLowerCase() === nm);
+    if (u?.email) return String(u.email).trim();
+  }
+  return '';
+}
+
 function notifyAssignmentEmail({ person, project, roleInProject, allocationPercent, actorName, action }) {
   if (!isMailerConfigured()) return;
-  const recipient = String(person?.email || '').trim();
-  if (!recipient) return;
+  const recipient = resolveAssigneeEmail(person);
+  if (!recipient) {
+    if (person?.name) {
+      console.warn(
+        `assignments: no email for assignee "${person.name}" (set Team email or match user account name + email)`,
+      );
+    }
+    return;
+  }
   sendAssignmentEmail({
     to: recipient,
     personName: person?.name,
