@@ -62,14 +62,17 @@ peopleRouter.put('/:id', (req, res) => {
   res.json(person);
 });
 
-peopleRouter.delete('/:id', (req, res) => {
+peopleRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
   const existing = store.people.find(p => p.id === id);
   if (!existing) return res.status(404).json({ error: 'Person not found' });
   const assignCount = store.project_assignments.filter((a) => a.person_id === id).length;
   const actCount = store.activities.filter((a) => a.person_id === id).length;
   store.project_assignments.filter(a => a.person_id === id).forEach(a => store.deleteAssignment(a.id));
-  store.activities.filter(a => a.person_id === id).forEach(a => store.deleteActivity(a.id));
+  const activityIds = store.activities.filter(a => a.person_id === id).map(a => a.id);
+  for (const aid of activityIds) {
+    await store.deleteActivity(aid);
+  }
   store.deletePerson(id);
   store.appendAuditLog(req.user, {
     action: 'delete',

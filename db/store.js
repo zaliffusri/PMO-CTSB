@@ -393,11 +393,16 @@ export const store = {
     save(data);
     return true;
   },
-  deleteActivity(id) {
+  /** Removes locally and deletes the row in Supabase (upsert alone does not remove missing rows). */
+  async deleteActivity(id) {
     const i = data.activities.findIndex(a => a.id === id);
     if (i === -1) return false;
     data.activities.splice(i, 1);
     save(data);
+    if (supabase) {
+      const { error } = await supabase.from('activities').delete().eq('id', id);
+      if (error) throw error;
+    }
     return true;
   },
 

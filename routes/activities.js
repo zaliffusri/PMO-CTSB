@@ -187,7 +187,7 @@ activitiesRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
-  store.deleteActivity(id);
+  await store.deleteActivity(id);
   store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'activity',
