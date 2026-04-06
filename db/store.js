@@ -40,6 +40,13 @@ function save(data) {
 
 let syncInFlight = false;
 let syncQueued = false;
+let warnedUsersAppActiveColumn = false;
+
+/** DB column `active` is NOT NULL — never upsert null/undefined. */
+function normalizeUserRow(u) {
+  if (!u || typeof u !== 'object') return u;
+  return { ...u, active: u.active === false ? false : true };
+}
 
 async function upsertAll(table, rows, onConflict = 'id') {
   if (!rows || rows.length === 0) {
@@ -47,6 +54,30 @@ async function upsertAll(table, rows, onConflict = 'id') {
   }
   const { error } = await supabase.from(table).upsert(rows, { onConflict });
   if (error) throw error;
+}
+
+/**
+ * Upsert users; if DB has no `active` column yet, retry without it (run migration to persist status).
+ * See supabase/migrations/*_add_users_app_active.sql
+ */
+async function upsertUsersApp(rows) {
+  if (!rows || rows.length === 0) return;
+  const prepared = rows.map((u) => normalizeUserRow(u));
+  const { error } = await supabase.from('users_app').upsert(prepared, { onConflict: 'id' });
+  if (!error) return;
+  const msg = String(error.message || '');
+  const missingActive =
+    /active/i.test(msg) && (/users_app|schema cache/i.test(msg) || /column/i.test(msg));
+  if (!missingActive) throw error;
+  const stripped = prepared.map(({ active: _a, ...rest }) => rest);
+  const retry = await supabase.from('users_app').upsert(stripped, { onConflict: 'id' });
+  if (retry.error) throw retry.error;
+  if (!warnedUsersAppActiveColumn) {
+    warnedUsersAppActiveColumn = true;
+    console.warn(
+      'store: users_app has no `active` column — saved users without it. Run SQL: alter table public.users_app add column if not exists active boolean not null default true;',
+    );
+  }
 }
 
 async function pushSnapshotToSupabase(snapshot) {
@@ -59,7 +90,7 @@ async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('project_assignments', snapshot.project_assignments || []);
   await upsertAll('activities', snapshot.activities || []);
   await upsertAll('project_tasks', snapshot.project_tasks || []);
-  await upsertAll('users_app', snapshot.users || []);
+  await upsertUsersApp(snapshot.users || []);
   await upsertAll('sessions_app', snapshot.sessions || []);
   const settingsRow = { id: 1, ...(snapshot.settings || {}) };
   await upsertAll('settings_app', [settingsRow], 'id');
@@ -141,7 +172,7 @@ async function loadFromSupabase() {
       project_assignments: assignRes.data || [],
       activities: activitiesRes.data || [],
       project_tasks: tasksRes.data || [],
-      users: usersRes.data || [],
+      users: (usersRes.data || []).map(normalizeUserRow),
       sessions: sessionsRes.data || [],
       settings,
       audit_log: auditRes.data || [],
@@ -464,8 +495,7 @@ export const store = {
   addUser(row) {
     const id = nextId(data.users);
     const created_at = new Date().toISOString();
-    const user = { id, role: 'admin', active: true, ...row, created_at };
-    if (user.active === undefined) user.active = true;
+    const user = normalizeUserRow({ id, role: 'admin', active: true, ...row, created_at });
     data.users.push(user);
     save(data);
     return id;
@@ -485,14 +515,15 @@ export const store = {
     if (!supabase) return null;
     const { data: row, error } = await supabase.from('users_app').select('*').eq('id', id).maybeSingle();
     if (error || !row) return null;
-    data.users.push(row);
-    return row;
+    const normalized = normalizeUserRow(row);
+    data.users.push(normalized);
+    return normalized;
   },
   updateUser(id, row) {
     const n = Number(id);
     const i = data.users.findIndex((u) => Number(u.id) === n);
     if (i === -1) return false;
-    data.users[i] = { ...data.users[i], ...row };
+    data.users[i] = normalizeUserRow({ ...data.users[i], ...row });
     save(data);
     return true;
   },
