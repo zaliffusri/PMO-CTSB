@@ -236,6 +236,10 @@ export default function Calendar() {
   const [from, setFrom] = useState(new Date().toISOString().slice(0, 10));
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
   const [showForm, setShowForm] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportErr, setReportErr] = useState('');
+  const [reportRows, setReportRows] = useState([]);
   const [activitySites, setActivitySites] = useState(DEFAULT_ACTIVITY_SITE_LOCATIONS);
   const [form, setForm] = useState({
     person_ids: [],
@@ -311,11 +315,12 @@ export default function Calendar() {
   }, [showForm, activitySites]);
 
   useEffect(() => {
-    const anyOpen = showForm || detailActivityId != null || dayListDay != null;
+    const anyOpen = showForm || showReport || detailActivityId != null || dayListDay != null;
     if (!anyOpen) return;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (showForm) setShowForm(false);
+      else if (showReport) setShowReport(false);
       else if (detailActivityId != null) setDetailActivityId(null);
       else setDayListDay(null);
     };
@@ -326,7 +331,7 @@ export default function Calendar() {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [showForm, detailActivityId, dayListDay]);
+  }, [showForm, showReport, detailActivityId, dayListDay]);
 
   useEffect(() => {
     if (detailActivityId == null) return;
@@ -407,6 +412,77 @@ export default function Calendar() {
     }));
   };
 
+  const buildReportRows = (rawActivities) => {
+    const bucket = new Map();
+    rawActivities.forEach((a) => {
+      const id = String(a.person_id ?? '');
+      if (!id) return;
+      if (!bucket.has(id)) {
+        bucket.set(id, { total: 0, typeCounts: {}, lastAt: null });
+      }
+      const b = bucket.get(id);
+      b.total += 1;
+      b.typeCounts[a.type] = (b.typeCounts[a.type] || 0) + 1;
+      if (!b.lastAt || new Date(a.start_at) > new Date(b.lastAt)) b.lastAt = a.start_at;
+    });
+
+    return nonAdminUsers
+      .map((u) => {
+        const key = String(u.id);
+        const b = bucket.get(key) || { total: 0, typeCounts: {}, lastAt: null };
+        const typeSummary = Object.entries(b.typeCounts)
+          .sort((a, b2) => b2[1] - a[1])
+          .map(([type, count]) => `${activityTypeLabel(type)} (${count})`)
+          .join(', ');
+        return {
+          id: u.id,
+          name: u.name,
+          total: b.total,
+          hasActivity: b.total > 0,
+          types: typeSummary || '—',
+          lastAt: b.lastAt,
+        };
+      })
+      .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name));
+  };
+
+  const openReport = async () => {
+    if (!from || !to) return;
+    try {
+      setReportErr('');
+      setReportLoading(true);
+      const rows = await api.activities.list({ from, to });
+      setReportRows(buildReportRows(rows));
+      setShowReport(true);
+    } catch (e) {
+      setReportErr(e.message || 'Failed to generate report');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const exportReportCsv = () => {
+    const header = ['Person', 'Has Activity', 'Total Logs', 'Types', 'Last Activity'];
+    const body = reportRows.map((r) => [
+      r.name,
+      r.hasActivity ? 'Yes' : 'No',
+      String(r.total),
+      r.types === '—' ? '' : r.types,
+      r.lastAt ? new Date(r.lastAt).toLocaleString() : '',
+    ]);
+    const esc = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
+    const csv = [header, ...body].map((row) => row.map(esc).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `activity-report-${from}-to-${to}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); };
   const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); };
   const goToToday = () => { const d = new Date(); setYear(d.getFullYear()); setMonth(d.getMonth() + 1); };
@@ -429,10 +505,70 @@ export default function Calendar() {
       <div style={{ ...card, marginBottom: '1rem' }} className="filter-bar">
         <label>From <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inputStyle} /></label>
         <label>To <input type="date" value={to} onChange={e => setTo(e.target.value)} style={inputStyle} /></label>
+        <button type="button" onClick={openReport} style={btnSecondary} disabled={reportLoading || !from || !to}>
+          {reportLoading ? 'Generating…' : 'Generate report'}
+        </button>
         <button type="button" onClick={() => setShowForm(true)} style={btnPrimary}>
           + Log activity
         </button>
+        {reportErr && <div style={{ gridColumn: '1 / -1', color: 'var(--danger)', fontSize: '0.9rem' }}>{reportErr}</div>}
       </div>
+      {showReport && (
+        <div className="modal-backdrop" onClick={() => setShowReport(false)} role="presentation">
+          <div
+            className="modal-dialog modal-dialog--activity-log"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activity-report-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="activity-report-modal-title" className="modal-dialog-title">
+                Activity report ({from} to {to})
+              </h2>
+              <button type="button" className="modal-dialog-close" onClick={() => setShowReport(false)} aria-label="Close dialog">
+                ×
+              </button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                Check who has activity logs in the selected period.
+              </p>
+              <button type="button" style={btnSecondary} onClick={exportReportCsv}>
+                Export CSV
+              </button>
+            </div>
+            <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-hover)' }}>
+                    <th style={{ textAlign: 'left', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Person</th>
+                    <th style={{ textAlign: 'center', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Has Activity</th>
+                    <th style={{ textAlign: 'right', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Total</th>
+                    <th style={{ textAlign: 'left', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Types</th>
+                    <th style={{ textAlign: 'left', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Last Activity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.map((r) => (
+                    <tr key={r.id}>
+                      <td style={{ padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)' }}>{r.name}</td>
+                      <td style={{ textAlign: 'center', padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', color: r.hasActivity ? 'var(--success)' : 'var(--text-muted)' }}>
+                        {r.hasActivity ? 'Yes' : 'No'}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)' }}>{r.total}</td>
+                      <td style={{ padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)' }}>{r.types}</td>
+                      <td style={{ padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                        {r.lastAt ? new Date(r.lastAt).toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
       {showForm && (
         <div className="modal-backdrop" onClick={() => setShowForm(false)} role="presentation">
           <div
