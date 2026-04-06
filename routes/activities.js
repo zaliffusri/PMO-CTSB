@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
+import { isMailerConfigured, sendActivityLoggedEmail } from '../lib/mailer.js';
 
 export const activitiesRouter = Router();
 
@@ -103,6 +104,31 @@ activitiesRouter.post('/', async (req, res) => {
     console.error('activities POST persistToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
   }
+
+  const assignee = store.findUserById(uid);
+  let recipientEmail = String(assignee?.email || '').trim();
+  if (!recipientEmail && assignee?.name) {
+    const pe = store.people.find(
+      (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
+    );
+    recipientEmail = String(pe?.email || '').trim();
+  }
+  if (recipientEmail && isMailerConfigured()) {
+    sendActivityLoggedEmail({
+      to: recipientEmail,
+      recipientName: assignee?.name,
+      title,
+      typeKey: normalizeActivityType(type),
+      location: loc,
+      startAt: start_at,
+      endAt: end_at,
+      projectName: project?.name || null,
+      loggedBy: req.user?.name || req.user?.email || '',
+    }).catch((e) => {
+      console.warn(`activities: failed to send notification email (${e.message})`);
+    });
+  }
+
   res.status(201).json({
     ...a,
     type: normalizeActivityType(a.type),
