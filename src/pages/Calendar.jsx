@@ -255,7 +255,10 @@ export default function Calendar() {
   const [personSearch, setPersonSearch] = useState('');
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
-  const nonAdminUsers = useMemo(() => users.filter((u) => u.role !== 'admin'), [users]);
+  const nonAdminUsers = useMemo(
+    () => users.filter((u) => u.role !== 'admin' && u.active !== false),
+    [users],
+  );
 
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
   const [dayListDay, setDayListDay] = useState(null);

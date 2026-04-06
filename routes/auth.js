@@ -5,12 +5,17 @@ import { requireAuth } from '../middleware/requireAuth.js';
 
 export const authRouter = Router();
 
+function isUserActive(user) {
+  return user && user.active !== false;
+}
+
 function sanitizeUser(user) {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
+    active: user.active !== false,
     created_at: user.created_at,
   };
 }
@@ -74,6 +79,9 @@ authRouter.post('/login', async (req, res) => {
     if (!user || !verifyPassword(String(password), user.password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+    if (!isUserActive(user)) {
+      return res.status(403).json({ error: 'Account is inactive. Contact an administrator.' });
+    }
     const session = await createUserSession(user);
     return res.json({ user: sanitizeUser(user), ...session });
   } catch {
@@ -91,6 +99,10 @@ authRouter.get('/me', async (req, res) => {
   }
   const user = await store.findUserByIdAny(session.user_id);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!isUserActive(user)) {
+    store.deleteSessionByToken(token);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   return res.json({ user: sanitizeUser(user) });
 });
 

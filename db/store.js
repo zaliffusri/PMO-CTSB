@@ -464,7 +464,8 @@ export const store = {
   addUser(row) {
     const id = nextId(data.users);
     const created_at = new Date().toISOString();
-    const user = { id, role: 'admin', ...row, created_at };
+    const user = { id, role: 'admin', active: true, ...row, created_at };
+    if (user.active === undefined) user.active = true;
     data.users.push(user);
     save(data);
     return id;
@@ -532,6 +533,18 @@ export const store = {
     data.sessions.splice(i, 1);
     save(data);
     return true;
+  },
+  /** Remove all sessions for a user (e.g. when account deactivated). */
+  async deleteSessionsForUser(userId) {
+    const n = Number(userId);
+    if (Number.isNaN(n)) return;
+    const before = data.sessions.length;
+    data.sessions = data.sessions.filter((s) => Number(s.user_id) !== n);
+    if (data.sessions.length !== before) save(data);
+    if (supabase) {
+      const { error } = await supabase.from('sessions_app').delete().eq('user_id', n);
+      if (error) throw error;
+    }
   },
   clearExpiredSessions() {
     const now = new Date().toISOString();

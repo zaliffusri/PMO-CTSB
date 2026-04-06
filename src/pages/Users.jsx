@@ -21,7 +21,7 @@ export default function Users() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', role: 'user' });
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: '', email: '', role: 'user', password: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', role: 'user', password: '', active: true });
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const editFirstFieldRef = useRef(null);
@@ -50,7 +50,7 @@ export default function Users() {
     const onKey = (e) => {
       if (e.key === 'Escape') {
         setEditingId(null);
-        setEditForm({ name: '', email: '', role: 'user', password: '' });
+        setEditForm({ name: '', email: '', role: 'user', password: '', active: true });
       }
     };
     window.addEventListener('keydown', onKey);
@@ -82,12 +82,18 @@ export default function Users() {
 
   const startEdit = (u) => {
     setEditingId(u.id);
-    setEditForm({ name: u.name || '', email: u.email || '', role: u.role || 'user', password: '' });
+    setEditForm({
+      name: u.name || '',
+      email: u.email || '',
+      role: u.role || 'user',
+      password: '',
+      active: u.active !== false,
+    });
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditForm({ name: '', email: '', role: 'user', password: '' });
+    setEditForm({ name: '', email: '', role: 'user', password: '', active: true });
   };
 
   const saveEdit = async (e) => {
@@ -98,6 +104,7 @@ export default function Users() {
         name: editForm.name.trim(),
         email: editForm.email.trim(),
         role: editForm.role,
+        active: editForm.active,
       };
       if (editForm.password.trim()) body.password = editForm.password;
       await api.users.update(editingId, body);
@@ -301,6 +308,7 @@ export default function Users() {
                     <th style={thStyle}>Name</th>
                     <th style={thStyle}>Email</th>
                     <th style={thStyle}>Role</th>
+                    <th style={thStyle}>Status</th>
                     <th style={thStyle}>Created</th>
                     <th style={thStyle}></th>
                   </tr>
@@ -311,6 +319,13 @@ export default function Users() {
                       <td style={tdStyle}>{u.name}</td>
                       <td style={tdStyle}>{u.email}</td>
                       <td style={tdStyle}>{roleLabel(u.role)}</td>
+                      <td style={tdStyle}>
+                        {u.active === false ? (
+                          <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Inactive</span>
+                        ) : (
+                          <span style={{ color: 'var(--success, #2e7d32)' }}>Active</span>
+                        )}
+                      </td>
                       <td style={tdStyle}>{new Date(u.created_at).toLocaleString()}</td>
                       <td style={tdStyle}>
                         <button type="button" style={btnSecondarySm} onClick={() => startEdit(u)}>

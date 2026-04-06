@@ -11,6 +11,7 @@ function safeUser(u) {
     name: u.name,
     email: u.email,
     role: u.role,
+    active: u.active !== false,
     created_at: u.created_at,
   };
 }
@@ -50,7 +51,7 @@ usersRouter.get('/', (req, res) => {
   res.json(rows);
 });
 
-usersRouter.post('/', (req, res) => {
+usersRouter.post('/', requireAdmin, async (req, res) => {
   const { name, email, password, role } = req.body || {};
   if (!name || !email) {
     return res.status(400).json({ error: 'name and email are required' });
@@ -80,22 +81,29 @@ usersRouter.post('/', (req, res) => {
     target_id: id,
     summary: `Created user "${created.name}" (${created.email}) as ${created.role}`,
   });
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.error('users POST persistToSupabase failed', e);
+    return res.status(500).json({ error: e.message || 'Failed to save to database' });
+  }
   res.status(201).json(safeUser(created));
 });
 
 const ALLOWED_ROLES = new Set(['admin', 'pmo', 'finance', 'hr', 'user']);
 
-function countAdmins() {
-  return store.users.filter((u) => u.role === 'admin').length;
+/** Admins that can still sign in (used for last-admin protection). */
+function countActiveAdmins() {
+  return store.users.filter((u) => u.role === 'admin' && u.active !== false).length;
 }
 
-usersRouter.put('/:id', requireAdmin, (req, res) => {
+usersRouter.put('/:id', requireAdmin, async (req, res) => {
   const id = +req.params.id;
   const existing = store.findUserById(id);
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
-  const { name, email, role, password } = req.body || {};
-  if (name === undefined && email === undefined && role === undefined && password === undefined) {
+  const { name, email, role, password, active } = req.body || {};
+  if (name === undefined && email === undefined && role === undefined && password === undefined && active === undefined) {
     return res.status(400).json({ error: 'Nothing to update' });
   }
 
@@ -117,7 +125,15 @@ usersRouter.put('/:id', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Cannot remove the last admin role' });
   }
 
-  const patch = { name: nextName, email: nextEmailRaw, role: nextRole };
+  let nextActive = existing.active !== false;
+  if (active !== undefined) {
+    nextActive = Boolean(active);
+  }
+  if (existing.role === 'admin' && nextActive === false && countActiveAdmins() <= 1) {
+    return res.status(400).json({ error: 'Cannot deactivate the last active admin account' });
+  }
+
+  const patch = { name: nextName, email: nextEmailRaw, role: nextRole, active: nextActive };
   if (password !== undefined && password !== null && String(password).trim() !== '') {
     if (String(password).length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -125,8 +141,17 @@ usersRouter.put('/:id', requireAdmin, (req, res) => {
     patch.password_hash = hashPassword(String(password));
   }
 
+  const wasActive = existing.active !== false;
   store.updateUser(id, patch);
   const updated = store.findUserById(id);
+  if (wasActive && updated.active === false) {
+    try {
+      await store.deleteSessionsForUser(id);
+    } catch (e) {
+      console.error('users PUT: deleteSessionsForUser failed', e);
+      return res.status(500).json({ error: e.message || 'Failed to revoke sessions' });
+    }
+  }
   syncUserToTeamPerson({
     name: updated.name,
     email: updated.email,
@@ -137,6 +162,7 @@ usersRouter.put('/:id', requireAdmin, (req, res) => {
   if (name !== undefined) changed.push('name');
   if (email !== undefined) changed.push('email');
   if (role !== undefined) changed.push('role');
+  if (active !== undefined) changed.push('active');
   if (password !== undefined && password !== null && String(password).trim() !== '') changed.push('password');
   store.appendAuditLog(req.user, {
     action: 'update',
@@ -145,5 +171,11 @@ usersRouter.put('/:id', requireAdmin, (req, res) => {
     summary: `Updated user "${updated.name}" (${updated.email})`,
     detail: { fields: changed },
   });
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.error('users PUT persistToSupabase failed', e);
+    return res.status(500).json({ error: e.message || 'Failed to save to database' });
+  }
   res.json(safeUser(updated));
 });
