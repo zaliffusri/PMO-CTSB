@@ -52,6 +52,13 @@ For local run, the root scripts automatically use `ALLOW_LOCAL_STORE=1` so you c
 4. Set environment variables in Vercel Project Settings:
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
+   - Optional for assignment email notifications:
+     - `SMTP_HOST`
+     - `SMTP_PORT` (e.g. `587`)
+     - `SMTP_USER`
+     - `SMTP_PASS`
+     - `SMTP_FROM` (sender email)
+     - `SMTP_SECURE` (`true` for SMTPS/465, otherwise `false`)
 5. Deploy.
 
 After deploy:

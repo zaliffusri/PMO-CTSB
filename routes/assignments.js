@@ -1,7 +1,25 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
+import { isMailerConfigured, sendAssignmentEmail } from '../lib/mailer.js';
 
 export const assignmentsRouter = Router();
+
+function notifyAssignmentEmail({ person, project, roleInProject, allocationPercent, actorName, action }) {
+  if (!isMailerConfigured()) return;
+  const recipient = String(person?.email || '').trim();
+  if (!recipient) return;
+  sendAssignmentEmail({
+    to: recipient,
+    personName: person?.name,
+    projectName: project?.name || String(project?.id || ''),
+    roleInProject,
+    allocationPercent,
+    assignedBy: actorName,
+    action,
+  }).catch((e) => {
+    console.warn(`assignments: failed to send notification email (${e.message})`);
+  });
+}
 
 assignmentsRouter.get('/', (req, res) => {
   const projectId = req.query.project_id ? +req.query.project_id : null;
@@ -38,6 +56,14 @@ assignmentsRouter.post('/', (req, res) => {
       target_id: id,
       summary: `Assigned ${person?.name || 'member'} to project "${project?.name || pa.project_id}"`,
     });
+    notifyAssignmentEmail({
+      person,
+      project,
+      roleInProject: pa.role_in_project,
+      allocationPercent: pa.allocation_percent,
+      actorName: req.user?.name || req.user?.email || '',
+      action: 'assigned',
+    });
     res.status(201).json({ ...pa, person_name: person?.name, project_name: project?.name });
   } catch (e) {
     if (e.code === 'DUPLICATE') {
@@ -72,6 +98,14 @@ assignmentsRouter.put('/:id', (req, res) => {
     target_type: 'assignment',
     target_id: id,
     summary: `Updated assignment: ${person?.name || 'member'} ↔ "${project?.name || pa.project_id}"`,
+  });
+  notifyAssignmentEmail({
+    person,
+    project,
+    roleInProject: pa.role_in_project,
+    allocationPercent: pa.allocation_percent,
+    actorName: req.user?.name || req.user?.email || '',
+    action: 'updated',
   });
   res.json({ ...pa, person_name: person?.name, project_name: project?.name });
 });
