@@ -61,7 +61,7 @@ activitiesRouter.get('/', (req, res) => {
   res.json(rows);
 });
 
-activitiesRouter.post('/', (req, res) => {
+activitiesRouter.post('/', async (req, res) => {
   const { person_id, project_id, type, title, description, location, start_at, end_at } = req.body;
   if (!person_id || !type || !title || !start_at || !end_at) {
     return res.status(400).json({ error: 'person_id, type, title, start_at, end_at are required' });
@@ -97,6 +97,12 @@ activitiesRouter.post('/', (req, res) => {
     summary: `Logged activity "${title}"`,
     detail: { person_name: user?.name, project_name: project?.name },
   });
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.error('activities POST persistToSupabase failed', e);
+    return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
+  }
   res.status(201).json({
     ...a,
     type: normalizeActivityType(a.type),
@@ -105,7 +111,7 @@ activitiesRouter.post('/', (req, res) => {
   });
 });
 
-activitiesRouter.put('/:id', (req, res) => {
+activitiesRouter.put('/:id', async (req, res) => {
   const { person_id, project_id, type, title, description, location, start_at, end_at } = req.body;
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
@@ -137,6 +143,12 @@ activitiesRouter.put('/:id', (req, res) => {
   });
   const a = store.activities.find(x => x.id === id);
   const project = store.projects.find(p => p.id === a.project_id);
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.error('activities PUT persistToSupabase failed', e);
+    return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
+  }
   res.json({
     ...a,
     type: normalizeActivityType(a.type),
@@ -145,7 +157,7 @@ activitiesRouter.put('/:id', (req, res) => {
   });
 });
 
-activitiesRouter.delete('/:id', (req, res) => {
+activitiesRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
@@ -156,5 +168,11 @@ activitiesRouter.delete('/:id', (req, res) => {
     target_id: id,
     summary: `Deleted activity "${existing.title}"`,
   });
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.error('activities DELETE persistToSupabase failed', e);
+    return res.status(500).json({ error: e.message || 'Failed to save to database' });
+  }
   res.status(204).send();
 });

@@ -534,4 +534,15 @@ export const store = {
     data.sessions = data.sessions.filter((s) => !s.expires_at || s.expires_at > now);
     if (data.sessions.length !== before) save(data);
   },
+
+  /**
+   * Push full snapshot to Supabase and await completion.
+   * On Vercel/serverless, queued sync in `save()` may not finish after the HTTP response,
+   * so routes that mutate data should call this before sending the response.
+   */
+  async persistToSupabase() {
+    if (!supabase) return;
+    const snap = JSON.parse(JSON.stringify(data));
+    await pushSnapshotToSupabase(snap);
+  },
 };
