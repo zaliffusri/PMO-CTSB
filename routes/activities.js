@@ -3,7 +3,7 @@ import { store } from '../db/store.js';
 
 export const activitiesRouter = Router();
 
-const ALLOWED_TYPES = new Set(['meeting', 'outstation', 'other']);
+const ALLOWED_TYPES = new Set(['meeting', 'outstation', 'other', 'uat', 'urs', 'fat', 'demo', 'training', 'go-live', 'tender']);
 
 function normalizeActivityType(type) {
   if (type === 'task') return 'outstation';

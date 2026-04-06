@@ -54,9 +54,22 @@ function activityCssClass(type) {
   return 'other';
 }
 
-const ACTIVITY_TYPE_LABELS = { meeting: 'Meeting', outstation: 'Outstation', other: 'Other', task: 'Outstation' };
+const ACTIVITY_TYPE_OPTIONS = [
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'outstation', label: 'Outstation' },
+  { value: 'other', label: 'Other' },
+  { value: 'uat', label: 'UAT' },
+  { value: 'urs', label: 'URS' },
+  { value: 'fat', label: 'FAT' },
+  { value: 'demo', label: 'DEMO' },
+  { value: 'training', label: 'TRAINING' },
+  { value: 'go-live', label: 'GO-LIVE' },
+  { value: 'tender', label: 'TENDER' },
+];
+const ACTIVITY_TYPE_LABELS = Object.fromEntries(ACTIVITY_TYPE_OPTIONS.map((x) => [x.value, x.label]));
+ACTIVITY_TYPE_LABELS.task = 'Outstation';
 function activityTypeLabel(type) {
-  return ACTIVITY_TYPE_LABELS[type] || type || 'Other';
+  return ACTIVITY_TYPE_LABELS[type] || String(type || 'Other').toUpperCase();
 }
 
 const DAY_NAMES_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -298,11 +311,12 @@ export default function Calendar() {
   }, [showForm, activitySites]);
 
   useEffect(() => {
-    const anyOpen = detailActivityId != null || dayListDay != null;
+    const anyOpen = showForm || detailActivityId != null || dayListDay != null;
     if (!anyOpen) return;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      if (detailActivityId != null) setDetailActivityId(null);
+      if (showForm) setShowForm(false);
+      else if (detailActivityId != null) setDetailActivityId(null);
       else setDayListDay(null);
     };
     document.addEventListener('keydown', onKey);
@@ -312,7 +326,7 @@ export default function Calendar() {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [detailActivityId, dayListDay]);
+  }, [showForm, detailActivityId, dayListDay]);
 
   useEffect(() => {
     if (detailActivityId == null) return;
@@ -415,78 +429,121 @@ export default function Calendar() {
       <div style={{ ...card, marginBottom: '1rem' }} className="filter-bar">
         <label>From <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inputStyle} /></label>
         <label>To <input type="date" value={to} onChange={e => setTo(e.target.value)} style={inputStyle} /></label>
-        <button
-          type="button"
-          onClick={() => setShowForm((v) => !v)}
-          style={btnPrimary}
-        >
-          {showForm ? 'Cancel' : '+ Log activity'}
+        <button type="button" onClick={() => setShowForm(true)} style={btnPrimary}>
+          + Log activity
         </button>
       </div>
       {showForm && (
-        <div style={{ ...card, marginBottom: '1rem' }}>
-          <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
-            <label style={{ gridColumn: '1 / -1' }}>
-              Person * (multi-select)
-              <input
-                type="text"
-                value={personSearch}
-                onChange={(e) => setPersonSearch(e.target.value)}
-                placeholder="Search person name..."
-                style={inputStyle}
+        <div className="modal-backdrop" onClick={() => setShowForm(false)} role="presentation">
+          <div
+            className="modal-dialog modal-dialog--activity-log"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activity-log-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="activity-log-modal-title" className="modal-dialog-title">
+                Log activity
+              </h2>
+              <button type="button" className="modal-dialog-close" onClick={() => setShowForm(false)} aria-label="Close dialog">
+                ×
+              </button>
+            </div>
+            <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+              <label style={{ gridColumn: '1 / -1' }}>
+                Person * (multi-select)
+                <input
+                  type="text"
+                  value={personSearch}
+                  onChange={(e) => setPersonSearch(e.target.value)}
+                  placeholder="Search person name..."
+                  style={inputStyle}
+                />
+                <div style={{ marginTop: '0.5rem', maxHeight: 180, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem', background: 'var(--bg)' }}>
+                  {filteredUsers.length === 0 ? (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No person found.</div>
+                  ) : (
+                    filteredUsers.map((u) => (
+                      <label key={u.id} style={{ display: 'block', marginBottom: '0.35rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={form.person_ids.includes(String(u.id))}
+                          onChange={() => togglePerson(u.id)}
+                          style={{ marginRight: 8 }}
+                        />
+                        {u.name}
+                      </label>
+                    ))
+                  )}
+                </div>
+                <div style={{ marginTop: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  Selected: {form.person_ids.length}
+                </div>
+              </label>
+              <label>
+                Project{' '}
+                <select value={form.project_id} onChange={(e) => setForm((f) => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
+                  <option value="">None</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Type{' '}
+                <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} style={inputStyle}>
+                  {ACTIVITY_TYPE_OPTIONS.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ gridColumn: '1 / -1' }}>
+                Title *{' '}
+                <input type="text" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} required style={inputStyle} />
+              </label>
+              <label style={{ gridColumn: '1 / -1' }}>
+                Description{' '}
+                <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} />
+              </label>
+              <ActivityLocationFields
+                siteLocations={activitySites}
+                preset={form.locationPreset}
+                other={form.locationOther}
+                onPreset={(v) => setForm((f) => ({ ...f, locationPreset: v, locationOther: v === ACTIVITY_LOCATION_OTHERS ? f.locationOther : '' }))}
+                onOther={(v) => setForm((f) => ({ ...f, locationOther: v }))}
               />
-              <div style={{ marginTop: '0.5rem', maxHeight: 180, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem', background: 'var(--bg)' }}>
-                {filteredUsers.length === 0 ? (
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No person found.</div>
+              <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Sites match{' '}
+                {user?.role === 'admin' ? (
+                  <Link to="/settings/locations">Settings → Locations</Link>
                 ) : (
-                  filteredUsers.map((u) => (
-                    <label key={u.id} style={{ display: 'block', marginBottom: '0.35rem', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={form.person_ids.includes(String(u.id))}
-                        onChange={() => togglePerson(u.id)}
-                        style={{ marginRight: 8 }}
-                      />
-                      {u.name}
-                    </label>
-                  ))
+                  <span>Settings → Locations (admin)</span>
                 )}
+                . Choose <strong>Others</strong> for a one-off place.
+              </p>
+              <label>
+                Start *{' '}
+                <input type="datetime-local" value={form.start_at} onChange={(e) => setForm((f) => ({ ...f, start_at: e.target.value }))} required style={inputStyle} />
+              </label>
+              <label>
+                End *{' '}
+                <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
+              </label>
+              <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                <button type="submit" style={btnPrimary}>
+                  Save activity
+                </button>
+                <button type="button" style={btnSecondary} onClick={() => setShowForm(false)}>
+                  Cancel
+                </button>
               </div>
-              <div style={{ marginTop: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                Selected: {form.person_ids.length}
-              </div>
-            </label>
-            <label>Project <select value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
-              <option value="">None</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select></label>
-            <label>Type <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={inputStyle}>
-              <option value="meeting">Meeting</option>
-              <option value="outstation">Outstation</option>
-              <option value="other">Other</option>
-            </select></label>
-            <label style={{ gridColumn: '1 / -1' }}>Title * <input type="text" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required style={inputStyle} /></label>
-            <label style={{ gridColumn: '1 / -1' }}>Description <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} /></label>
-            <ActivityLocationFields
-              siteLocations={activitySites}
-              preset={form.locationPreset}
-              other={form.locationOther}
-              onPreset={(v) => setForm((f) => ({ ...f, locationPreset: v, locationOther: v === ACTIVITY_LOCATION_OTHERS ? f.locationOther : '' }))}
-              onOther={(v) => setForm((f) => ({ ...f, locationOther: v }))}
-            />
-            <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Sites match{' '}
-              {user?.role === 'admin' ? (
-                <Link to="/settings/locations">Settings → Locations</Link>
-              ) : (
-                <span>Settings → Locations (admin)</span>
-              )}
-              . Choose <strong>Others</strong> for a one-off place.
-            </p>
-            <label>Start * <input type="datetime-local" value={form.start_at} onChange={e => setForm(f => ({ ...f, start_at: e.target.value }))} required style={inputStyle} /></label>
-            <label>End * <input type="datetime-local" value={form.end_at} onChange={e => setForm(f => ({ ...f, end_at: e.target.value }))} required style={inputStyle} /></label>
-            <div style={{ gridColumn: '1 / -1' }}><button type="submit" style={btnPrimary}>Save activity</button></div>
-          </form>
+            </form>
+          </div>
         </div>
       )}
       <ActivityList
@@ -606,7 +663,7 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
     setEditForm({
       person_id: String(a.person_id ?? ''),
       project_id: a.project_id != null ? String(a.project_id) : '',
-      type: a.type === 'task' ? 'outstation' : (['meeting', 'outstation', 'other'].includes(a.type) ? a.type : 'meeting'),
+      type: a.type === 'task' ? 'outstation' : (ACTIVITY_TYPE_OPTIONS.some((x) => x.value === a.type) ? a.type : 'meeting'),
       title: a.title || '',
       description: a.description || '',
       locationPreset: preset || (activitySites[0] || ''),
@@ -690,9 +747,11 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
                   </label>
                   <label>Type
                     <select value={editForm.type} onChange={e => setEditForm(f => ({ ...f, type: e.target.value }))} style={inputStyle}>
-                      <option value="meeting">Meeting</option>
-                      <option value="outstation">Outstation</option>
-                      <option value="other">Other</option>
+                      {ACTIVITY_TYPE_OPTIONS.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label style={{ gridColumn: '1 / -1' }}>Title

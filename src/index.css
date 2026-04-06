@@ -1723,6 +1723,10 @@ input, select, textarea {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
   animation: modal-dialog-in 0.18s ease;
 }
+.modal-dialog--activity-log {
+  max-width: min(720px, calc(100vw - 2rem));
+  max-height: min(92vh, 900px);
+}
 @keyframes modal-dialog-in {
   from {
     opacity: 0;
