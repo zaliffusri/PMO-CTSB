@@ -26,6 +26,7 @@ export default function Users() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [togglingId, setTogglingId] = useState(null);
+  const createFirstFieldRef = useRef(null);
   const editFirstFieldRef = useRef(null);
 
   const load = () => api.users.list().then(setUsers).catch(console.error).finally(() => setLoading(false));
@@ -50,22 +51,38 @@ export default function Users() {
   }, []);
 
   useEffect(() => {
-    if (editingId == null) return;
+    if (editingId == null && !showForm) return;
     const onKey = (e) => {
       if (e.key === 'Escape') {
-        setEditingId(null);
-        setEditForm({ name: '', email: '', role: 'user', password: '', active: true });
+        if (editingId != null) {
+          setEditingId(null);
+          setEditForm({ name: '', email: '', role: 'user', password: '', active: true });
+        } else {
+          setShowForm(false);
+          setForm({ name: '', email: '', role: 'user' });
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editingId]);
+  }, [editingId, showForm]);
 
   useEffect(() => {
     if (editingId != null) {
       editFirstFieldRef.current?.focus();
     }
   }, [editingId]);
+
+  useEffect(() => {
+    if (showForm) {
+      createFirstFieldRef.current?.focus();
+    }
+  }, [showForm]);
+
+  const cancelCreate = () => {
+    setShowForm(false);
+    setForm({ name: '', email: '', role: 'user' });
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -76,8 +93,7 @@ export default function Users() {
         email: form.email.trim(),
         role: form.role,
       });
-      setForm({ name: '', email: '', role: 'user' });
-      setShowForm(false);
+      cancelCreate();
       load();
     } catch (err) {
       alert(err.message);
@@ -142,38 +158,61 @@ export default function Users() {
           <h1>System Users</h1>
           <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>Admin can create and edit user accounts for this system.</p>
         </div>
-        <button type="button" onClick={() => setShowForm(!showForm)} style={btnPrimary}>
-          {showForm ? 'Cancel' : '+ Create user'}
+        <button type="button" onClick={() => setShowForm(true)} style={btnPrimary}>
+          + Create user
         </button>
       </div>
 
       {showForm && (
-        <div style={{ ...card, marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>Create user</h3>
-          <form onSubmit={submit} style={{ display: 'grid', gap: '0.75rem', maxWidth: 420 }}>
-            <label>
-              Name <span style={{ color: 'var(--danger)' }}>*</span>
-              <input type="text" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required style={inputStyle} />
-            </label>
-            <label>
-              Email <span style={{ color: 'var(--danger)' }}>*</span>
-              <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required style={inputStyle} />
-            </label>
-            <label>
-              Role
-              <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} style={inputStyle}>
-                {ROLE_OPTIONS.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              New users get default password: <code>P@ssw0rd</code>
-            </p>
-            <button type="submit" style={btnPrimary}>Create</button>
-          </form>
+        <div className="modal-backdrop" onClick={cancelCreate} role="presentation">
+          <div
+            className="modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-user-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="create-user-modal-title" className="modal-dialog-title">Create user</h2>
+              <button type="button" className="modal-dialog-close" onClick={cancelCreate} aria-label="Close dialog">
+                ×
+              </button>
+            </div>
+            <form onSubmit={submit} style={{ display: 'grid', gap: '0.75rem' }}>
+              <label>
+                Name <span style={{ color: 'var(--danger)' }}>*</span>
+                <input
+                  ref={createFirstFieldRef}
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  required
+                  style={inputStyle}
+                />
+              </label>
+              <label>
+                Email <span style={{ color: 'var(--danger)' }}>*</span>
+                <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required style={inputStyle} />
+              </label>
+              <label>
+                Role
+                <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} style={inputStyle}>
+                  {ROLE_OPTIONS.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                New users get default password: <code>P@ssw0rd</code>
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                <button type="submit" style={btnPrimary}>Create</button>
+                <button type="button" style={btnSecondarySm} onClick={cancelCreate}>Cancel</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
