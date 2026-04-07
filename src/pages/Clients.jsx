@@ -53,26 +53,41 @@ export default function Clients() {
       </div>
 
       {showForm && (
-        <div style={{ ...card, marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>New client</h3>
-          <form onSubmit={submit} style={{ display: 'grid', gap: '0.75rem', maxWidth: 400 }}>
-            <label>Name <span style={{ color: 'var(--danger)' }}>*</span>
-              <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required style={inputStyle} placeholder="Company or organisation" />
-            </label>
-            <label>Contact person
-              <input type="text" value={form.contact_name} onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))} style={inputStyle} />
-            </label>
-            <label>Email
-              <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} />
-            </label>
-            <label>Phone
-              <input type="text" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button type="submit" style={btnPrimary}>Add client</button>
-              <button type="button" onClick={() => setShowForm(false)} style={btnSecondary}>Cancel</button>
+        <div className="modal-backdrop" onClick={() => setShowForm(false)} role="presentation">
+          <div
+            className="modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-create-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="client-create-modal-title" className="modal-dialog-title">
+                New client
+              </h2>
+              <button type="button" className="modal-dialog-close" onClick={() => setShowForm(false)} aria-label="Close dialog">
+                ×
+              </button>
             </div>
-          </form>
+            <form onSubmit={submit} style={{ display: 'grid', gap: '0.75rem' }}>
+              <label>Name <span style={{ color: 'var(--danger)' }}>*</span>
+                <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required style={inputStyle} placeholder="Company or organisation" />
+              </label>
+              <label>Contact person
+                <input type="text" value={form.contact_name} onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))} style={inputStyle} />
+              </label>
+              <label>Email
+                <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} />
+              </label>
+              <label>Phone
+                <input type="text" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" style={btnPrimary}>Add client</button>
+                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary}>Cancel</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
