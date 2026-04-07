@@ -157,7 +157,6 @@ function ActivityLocationFields({ siteLocations, preset, other, onPreset, onOthe
 }
 
 function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
-  const timeStr = new Date(a.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const rangeLabel = formatActivityTimeRange(a);
   const label = `${activityTypeLabel(a.type)}: ${a.title}. ${a.location ? `${a.location}. ` : ''}${a.person_name ?? ''}. ${rangeLabel}`;
 
@@ -176,8 +175,6 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
         aria-expanded={detailOpen}
         aria-haspopup="dialog"
       >
-        <span className="calendar-activity-time">{timeStr}</span>
-        <span className="calendar-activity-person">{a.person_name}</span>
         <span className="calendar-activity-title">{a.title}</span>
         {a.project_name && <span className="calendar-activity-project">{a.project_name}</span>}
       </button>
