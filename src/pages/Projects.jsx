@@ -3,6 +3,13 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 
+const PROJECT_CLASSIFICATION_OPTIONS = [
+  'Pre-Sales Project',
+  'Project Based',
+  'Support & Services',
+  'Additional Scope',
+];
+
 export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [allTags, setAllTags] = useState([]);
@@ -10,7 +17,7 @@ export default function Projects() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [filterTag, setFilterTag] = useState('');
-  const [form, setForm] = useState({ name: '', description: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
+  const [form, setForm] = useState({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
   const [tagInput, setTagInput] = useState('');
 
   const load = () => api.projects.list(filterTag ? { tag: filterTag } : {}).then(setProjects).catch(console.error).finally(() => setLoading(false));
@@ -40,7 +47,7 @@ export default function Projects() {
     if (!form.name.trim()) return;
     try {
       await api.projects.create({ ...form, client_id: form.client_id || undefined, tags: form.tags });
-      setForm({ name: '', description: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
+      setForm({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
       setTagInput('');
       setShowForm(false);
       load();
@@ -85,6 +92,19 @@ export default function Projects() {
             <label>
               Description
               <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} />
+            </label>
+            <label>
+              Classification
+              <select
+                value={form.classification}
+                onChange={e => setForm(f => ({ ...f, classification: e.target.value }))}
+                style={inputStyle}
+              >
+                <option value="">Select classification...</option>
+                {PROJECT_CLASSIFICATION_OPTIONS.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </label>
             <label>
               Tags (to group projects)
@@ -157,7 +177,9 @@ export default function Projects() {
                 )}
                 {p.description && <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>{p.description}</p>}
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  {p.client_name && <span>{p.client_name} · </span>}{p.member_count} members · {p.status} {p.start_date && `· ${p.start_date} – ${p.end_date || '–'}`}
+                  {p.client_name && <span>{p.client_name} · </span>}
+                  {p.classification && <span>{p.classification} · </span>}
+                  {p.member_count} members · {p.status} {p.start_date && `· ${p.start_date} – ${p.end_date || '–'}`}
                 </p>
               </div>
               <Link to={`/projects/${p.id}`} style={btnSecondary}>View & assign team</Link>

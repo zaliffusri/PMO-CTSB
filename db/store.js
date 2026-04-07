@@ -354,9 +354,20 @@ export const store = {
   addProject(row) {
     const id = nextId(data.projects);
     const created_at = new Date().toISOString();
-    const { client_id, tags, ...rest } = row;
+    const { client_id, tags, classification, ...rest } = row;
     const tagList = Array.isArray(tags) ? tags.filter(t => t != null && String(t).trim()) : [];
-    data.projects.push({ id, status: 'active', client_id: client_id || null, tags: tagList, ...rest, created_at });
+    const normalizedClassification = classification != null && String(classification).trim()
+      ? String(classification).trim()
+      : null;
+    data.projects.push({
+      id,
+      status: 'active',
+      client_id: client_id || null,
+      classification: normalizedClassification,
+      tags: tagList,
+      ...rest,
+      created_at,
+    });
     save(data);
     return id;
   },
@@ -365,6 +376,12 @@ export const store = {
     if (i === -1) return false;
     if (row.tags !== undefined) {
       row.tags = Array.isArray(row.tags) ? row.tags.filter(t => t != null && String(t).trim()) : [];
+    }
+    if (row.classification !== undefined) {
+      row.classification =
+        row.classification != null && String(row.classification).trim()
+          ? String(row.classification).trim()
+          : null;
     }
     data.projects[i] = { ...data.projects[i], ...row, client_id: row.client_id ?? data.projects[i].client_id };
     if (data.projects[i].client_id === undefined || data.projects[i].client_id === '') data.projects[i].client_id = null;
