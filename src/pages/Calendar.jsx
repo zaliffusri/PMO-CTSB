@@ -44,6 +44,31 @@ function isActivityOnDate(activity, year, month, day) {
   return (start >= dayStart && start < dayEnd) || (end > dayStart && end <= dayEnd) || (start <= dayStart && end >= dayEnd);
 }
 
+/**
+ * One "Log activity" with several people creates one DB row per person. For the calendar,
+ * merge those rows into a single chip with all assignee names grouped together.
+ */
+function groupActivitiesForCalendar(activities) {
+  const map = new Map();
+  for (const a of activities) {
+    const projectKey = a.project_id != null ? String(a.project_id) : '';
+    const desc = String(a.description ?? '').trim();
+    const key = `${a.start_at}|${a.end_at}|${a.type}|${a.title}|${String(a.location ?? '').trim()}|${projectKey}|${desc}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(a);
+  }
+  const result = [];
+  for (const [, group] of map) {
+    group.sort((x, y) => (x.id ?? 0) - (y.id ?? 0));
+    const primary = group[0];
+    const names = [...new Set(group.map((g) => g.person_name).filter(Boolean))];
+    const person_name = names.length ? names.join(', ') : (primary.person_name ?? '');
+    result.push({ ...primary, person_name });
+  }
+  result.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+  return result;
+}
+
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -336,6 +361,8 @@ export default function Calendar() {
     };
   }, [showForm, showReport, detailActivityId, dayListDay]);
 
+  const groupedCalendarActivities = useMemo(() => groupActivitiesForCalendar(activities), [activities]);
+
   useEffect(() => {
     if (detailActivityId == null) return;
     if (!activities.some((x) => x.id === detailActivityId)) setDetailActivityId(null);
@@ -344,7 +371,7 @@ export default function Calendar() {
   const activitiesByDay = useMemo(() => {
     const byDay = {};
     for (let d = 1; d <= 31; d++) byDay[d] = [];
-    activities.forEach(a => {
+    groupedCalendarActivities.forEach((a) => {
       for (let d = 1; d <= 31; d++) {
         if (isActivityOnDate(a, year, month, d)) byDay[d].push(a);
       }
@@ -353,7 +380,7 @@ export default function Calendar() {
       byDay[d].sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
     }
     return byDay;
-  }, [activities, year, month]);
+  }, [groupedCalendarActivities, year, month]);
 
   useEffect(() => {
     setDayListDay(null);
@@ -507,7 +534,7 @@ export default function Calendar() {
     setDetailActivityId((prev) => (prev === id ? null : id));
   };
 
-  const detailActivity = detailActivityId != null ? activities.find((x) => x.id === detailActivityId) : null;
+  const detailActivity = detailActivityId != null ? groupedCalendarActivities.find((x) => x.id === detailActivityId) : null;
   const dayListActivities = dayListDay != null ? (activitiesByDay[dayListDay] ?? []) : [];
 
   return (
