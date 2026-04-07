@@ -82,79 +82,94 @@ export default function Projects() {
       )}
 
       {showForm && (
-        <div style={{ ...card, marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>New project</h3>
-          <form onSubmit={submit} style={{ display: 'grid', gap: '0.75rem', maxWidth: 400 }}>
-            <label>
-              Name <span style={{ color: 'var(--danger)' }}>*</span>
-              <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required style={inputStyle} />
-            </label>
-            <label>
-              Description
-              <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} />
-            </label>
-            <label>
-              Classification
-              <select
-                value={form.classification}
-                onChange={e => setForm(f => ({ ...f, classification: e.target.value }))}
-                style={inputStyle}
-              >
-                <option value="">Select classification...</option>
-                {PROJECT_CLASSIFICATION_OPTIONS.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Tags (to group projects)
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.25rem' }}>
-                {(form.tags || []).map(t => (
-                  <span key={t} style={tagChip}>
-                    {t} <button type="button" onClick={() => removeFormTag(t)} aria-label="Remove" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 0 0 4px', fontSize: '1rem' }}>×</button>
-                  </span>
-                ))}
-                <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addFormTag(tagInput); } }} placeholder="Or type new tag, press Enter" style={{ ...inputStyle, width: 'auto', minWidth: 160, margin: 0 }} />
-              </div>
-              {formTagsAvailable.length > 0 && (
-                <div style={{ marginTop: '0.5rem' }}>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Choose existing: </span>
-                  {formTagsAvailable.map(t => (
-                    <button key={t} type="button" onClick={() => addFormTag(t)} style={tagChipButton}>{t}</button>
+        <div className="modal-backdrop" onClick={() => setShowForm(false)} role="presentation">
+          <div
+            className="modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-create-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="project-create-modal-title" className="modal-dialog-title">
+                New project
+              </h2>
+              <button type="button" className="modal-dialog-close" onClick={() => setShowForm(false)} aria-label="Close dialog">
+                ×
+              </button>
+            </div>
+            <form onSubmit={submit} style={{ display: 'grid', gap: '0.75rem' }}>
+              <label>
+                Name <span style={{ color: 'var(--danger)' }}>*</span>
+                <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required style={inputStyle} />
+              </label>
+              <label>
+                Description
+                <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} />
+              </label>
+              <label>
+                Classification
+                <select
+                  value={form.classification}
+                  onChange={e => setForm(f => ({ ...f, classification: e.target.value }))}
+                  style={inputStyle}
+                >
+                  <option value="">Select classification...</option>
+                  {PROJECT_CLASSIFICATION_OPTIONS.map((c) => (
+                    <option key={c} value={c}>{c}</option>
                   ))}
+                </select>
+              </label>
+              <label>
+                Tags (to group projects)
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.25rem' }}>
+                  {(form.tags || []).map(t => (
+                    <span key={t} style={tagChip}>
+                      {t} <button type="button" onClick={() => removeFormTag(t)} aria-label="Remove" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 0 0 4px', fontSize: '1rem' }}>×</button>
+                    </span>
+                  ))}
+                  <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addFormTag(tagInput); } }} placeholder="Or type new tag, press Enter" style={{ ...inputStyle, width: 'auto', minWidth: 160, margin: 0 }} />
                 </div>
-              )}
-            </label>
-            <label>
-              Client
-              <select value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} style={inputStyle}>
-                <option value="">No client</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </label>
-            <label>
-              Status
-              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inputStyle}>
-                <option value="active">Active</option>
-                <option value="on-hold">On hold</option>
-                <option value="completed">Completed</option>
-              </select>
-            </label>
-            <div className="form-row form-row-2">
-              <label>
-                Start date
-                <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} style={inputStyle} />
+                {formTagsAvailable.length > 0 && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Choose existing: </span>
+                    {formTagsAvailable.map(t => (
+                      <button key={t} type="button" onClick={() => addFormTag(t)} style={tagChipButton}>{t}</button>
+                    ))}
+                  </div>
+                )}
               </label>
               <label>
-                End date
-                <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} style={inputStyle} />
+                Client
+                <select value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} style={inputStyle}>
+                  <option value="">No client</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
               </label>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button type="submit" style={btnPrimary}>Create</button>
-              <button type="button" onClick={() => setShowForm(false)} style={btnSecondary}>Cancel</button>
-            </div>
-          </form>
+              <label>
+                Status
+                <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inputStyle}>
+                  <option value="active">Active</option>
+                  <option value="on-hold">On hold</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </label>
+              <div className="form-row form-row-2">
+                <label>
+                  Start date
+                  <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} style={inputStyle} />
+                </label>
+                <label>
+                  End date
+                  <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} style={inputStyle} />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" style={btnPrimary}>Create</button>
+                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary}>Cancel</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
