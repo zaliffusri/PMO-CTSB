@@ -40,6 +40,32 @@ function activityPersonName(storedId) {
   return person?.name ?? null;
 }
 
+function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, loggedBy }) {
+  const assignee = store.findUserById(uid);
+  let recipientEmail = String(assignee?.email || '').trim();
+  if (!recipientEmail && assignee?.name) {
+    const pe = store.people.find(
+      (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
+    );
+    recipientEmail = String(pe?.email || '').trim();
+  }
+  if (recipientEmail && isMailerConfigured()) {
+    sendActivityLoggedEmail({
+      to: recipientEmail,
+      recipientName: assignee?.name,
+      title,
+      typeKey,
+      location,
+      startAt: start_at,
+      endAt: end_at,
+      projectName,
+      loggedBy,
+    }).catch((e) => {
+      console.warn(`activities: failed to send notification email (${e.message})`);
+    });
+  }
+}
+
 activitiesRouter.get('/', (req, res) => {
   const personId = req.query.person_id ? +req.query.person_id : null;
   const projectId = req.query.project_id ? +req.query.project_id : null;
@@ -105,29 +131,15 @@ activitiesRouter.post('/', async (req, res) => {
     return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
   }
 
-  const assignee = store.findUserById(uid);
-  let recipientEmail = String(assignee?.email || '').trim();
-  if (!recipientEmail && assignee?.name) {
-    const pe = store.people.find(
-      (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
-    );
-    recipientEmail = String(pe?.email || '').trim();
-  }
-  if (recipientEmail && isMailerConfigured()) {
-    sendActivityLoggedEmail({
-      to: recipientEmail,
-      recipientName: assignee?.name,
-      title,
-      typeKey: normalizeActivityType(type),
-      location: loc,
-      startAt: start_at,
-      endAt: end_at,
-      projectName: project?.name || null,
-      loggedBy: req.user?.name || req.user?.email || '',
-    }).catch((e) => {
-      console.warn(`activities: failed to send notification email (${e.message})`);
-    });
-  }
+  notifyActivityAssignee(uid, {
+    title,
+    typeKey: normalizeActivityType(type),
+    location: loc,
+    start_at,
+    end_at,
+    projectName: project?.name || null,
+    loggedBy: req.user?.name || req.user?.email || '',
+  });
 
   res.status(201).json({
     ...a,
@@ -138,12 +150,30 @@ activitiesRouter.post('/', async (req, res) => {
 });
 
 activitiesRouter.put('/:id', async (req, res) => {
-  const { person_id, project_id, type, title, description, location, start_at, end_at } = req.body;
+  const { person_id, person_ids, project_id, type, title, description, location, start_at, end_at } = req.body;
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
-  let nextPersonId = existing.person_id;
-  if (person_id !== undefined) {
+
+  const nextLocation = location !== undefined ? String(location || '').trim() : (existing.location != null ? String(existing.location).trim() : '');
+  if (!nextLocation) {
+    return res.status(400).json({ error: 'location is required' });
+  }
+
+  const nextProjectId = project_id !== undefined ? project_id : existing.project_id;
+  const nextType = type !== undefined ? normalizeActivityType(type) : normalizeActivityType(existing.type);
+  const nextTitle = title ?? existing.title;
+  const nextDescription = description ?? existing.description;
+  const nextStart = start_at ?? existing.start_at;
+  const nextEnd = end_at ?? existing.end_at;
+
+  const resolvedUids = [];
+  if (Array.isArray(person_ids) && person_ids.length > 0) {
+    for (const pid of person_ids) {
+      const uid = resolveActivityUserId(pid);
+      if (uid) resolvedUids.push(uid);
+    }
+  } else if (person_id !== undefined) {
     const resolved = resolveActivityUserId(person_id);
     if (!resolved) {
       return res.status(400).json({
@@ -151,35 +181,112 @@ activitiesRouter.put('/:id', async (req, res) => {
           'Invalid person: use a system user id, or a team member id whose email matches a user account.',
       });
     }
-    nextPersonId = resolved;
+    resolvedUids.push(resolved);
+  } else {
+    resolvedUids.push(existing.person_id);
   }
-  const nextLocation = location !== undefined ? String(location || '').trim() : (existing.location != null ? String(existing.location).trim() : '');
-  if (!nextLocation) {
-    return res.status(400).json({ error: 'location is required' });
+
+  const uniqueUids = [...new Set(resolvedUids)];
+  if (uniqueUids.length === 0) {
+    return res.status(400).json({ error: 'Select at least one valid assignee.' });
   }
-  store.updateActivity(id, {
-    person_id: nextPersonId,
-    project_id: project_id !== undefined ? project_id : existing.project_id,
-    type: type !== undefined ? normalizeActivityType(type) : normalizeActivityType(existing.type),
-    title: title ?? existing.title,
-    description: description ?? existing.description,
-    location: nextLocation,
-    start_at: start_at ?? existing.start_at,
-    end_at: end_at ?? existing.end_at,
+
+  const loggedBy = req.user?.name || req.user?.email || '';
+
+  if (uniqueUids.length === 1) {
+    store.updateActivity(id, {
+      person_id: uniqueUids[0],
+      project_id: nextProjectId,
+      type: nextType,
+      title: nextTitle,
+      description: nextDescription,
+      location: nextLocation,
+      start_at: nextStart,
+      end_at: nextEnd,
+    });
+    const a = store.activities.find(x => x.id === id);
+    const project = store.projects.find(p => p.id === a.project_id);
+    store.appendAuditLog(req.user, {
+      action: 'update',
+      target_type: 'activity',
+      target_id: id,
+      summary: `Updated activity "${nextTitle}"`,
+      detail: { person_name: activityPersonName(a.person_id), project_name: project?.name },
+    });
+    try {
+      await store.persistToSupabase();
+    } catch (e) {
+      console.error('activities PUT persistToSupabase failed', e);
+      return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
+    }
+    return res.json({
+      ...a,
+      type: normalizeActivityType(a.type),
+      person_name: activityPersonName(a.person_id),
+      project_name: project?.name,
+      split_into: null,
+    });
+  }
+
+  await store.deleteActivity(id);
+  const createdRows = [];
+  const project = store.projects.find(p => p.id === nextProjectId);
+  for (const uid of uniqueUids) {
+    const newId = store.addActivity({
+      person_id: uid,
+      project_id: nextProjectId || null,
+      type: nextType,
+      title: nextTitle,
+      description: nextDescription || null,
+      location: nextLocation,
+      start_at: nextStart,
+      end_at: nextEnd,
+    });
+    const row = store.activities.find(x => x.id === newId);
+    createdRows.push(row);
+    notifyActivityAssignee(uid, {
+      title: nextTitle,
+      typeKey: nextType,
+      location: nextLocation,
+      start_at: nextStart,
+      end_at: nextEnd,
+      projectName: project?.name || null,
+      loggedBy,
+    });
+  }
+
+  const firstNewId = createdRows[0]?.id ?? id;
+  store.appendAuditLog(req.user, {
+    action: 'update',
+    target_type: 'activity',
+    target_id: firstNewId,
+    summary: `Edited activity "${nextTitle}" for ${uniqueUids.length} assignees`,
+    detail: {
+      previous_activity_id: id,
+      new_activity_ids: createdRows.map((r) => r.id),
+      project_name: project?.name,
+    },
   });
-  const a = store.activities.find(x => x.id === id);
-  const project = store.projects.find(p => p.id === a.project_id);
+
   try {
     await store.persistToSupabase();
   } catch (e) {
-    console.error('activities PUT persistToSupabase failed', e);
+    console.error('activities PUT (split) persistToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
   }
-  res.json({
-    ...a,
-    type: normalizeActivityType(a.type),
-    person_name: activityPersonName(a.person_id),
+
+  const first = createdRows[0];
+  return res.json({
+    ...first,
+    type: normalizeActivityType(first.type),
+    person_name: activityPersonName(first.person_id),
     project_name: project?.name,
+    split_into: createdRows.map((r) => ({
+      id: r.id,
+      person_id: r.person_id,
+      person_name: activityPersonName(r.person_id),
+    })),
+    replaced_id: id,
   });
 });
 
