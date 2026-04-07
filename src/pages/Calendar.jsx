@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
@@ -295,6 +295,11 @@ export default function Calendar() {
   useEffect(() => {
     setLoading(true);
     loadActivities(monthFrom, monthTo).finally(() => setLoading(false));
+  }, [monthFrom, monthTo]);
+
+  /** Keep calendar in sync when the period list deletes or edits an activity (separate state). */
+  const refreshCalendarActivities = useCallback(() => {
+    api.activities.list({ from: monthFrom, to: monthTo }).then(setActivities).catch(console.error);
   }, [monthFrom, monthTo]);
 
   useEffect(() => {
@@ -730,6 +735,7 @@ export default function Calendar() {
         users={nonAdminUsers}
         projects={projects}
         activitySites={activitySites}
+        onActivitiesChanged={refreshCalendarActivities}
       />
 
       {/* Calendar */}
@@ -815,7 +821,7 @@ export default function Calendar() {
   );
 }
 
-function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT_ACTIVITY_SITE_LOCATIONS }) {
+function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT_ACTIVITY_SITE_LOCATIONS, onActivitiesChanged }) {
   const [list, setList] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -885,6 +891,7 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
       });
       cancelEdit();
       reload();
+      onActivitiesChanged?.();
     } catch (err) {
       alert(err.message);
     }
@@ -896,6 +903,7 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
       await api.activities.delete(id);
       if (editingId === id) cancelEdit();
       reload();
+      onActivitiesChanged?.();
     } catch (err) {
       alert(err.message);
     }
