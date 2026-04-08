@@ -847,8 +847,9 @@ export default function Calendar() {
 function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT_ACTIVITY_SITE_LOCATIONS, onActivitiesChanged }) {
   const [list, setList] = useState([]);
   const [editingId, setEditingId] = useState(null);
+  const [editPersonSearch, setEditPersonSearch] = useState('');
   const [editForm, setEditForm] = useState({
-    person_id: '',
+    person_ids: [],
     project_id: '',
     type: 'meeting',
     title: '',
@@ -859,6 +860,14 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
     end_at: '',
   });
 
+  const filteredEditUsers = useMemo(() => {
+    const q = editPersonSearch.trim().toLowerCase();
+    return users.filter((u) => {
+      if (!q) return true;
+      return String(u.name || '').toLowerCase().includes(q);
+    });
+  }, [users, editPersonSearch]);
+
   useEffect(() => { api.activities.list({ from, to }).then(setList).catch(console.error); }, [from, to]);
 
   const reload = () => api.activities.list({ from, to }).then(setList).catch(console.error);
@@ -866,8 +875,9 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
   const startEdit = (a) => {
     const { preset, custom } = resolveLocationForForm(a.location, activitySites);
     setEditingId(a.id);
+    setEditPersonSearch('');
     setEditForm({
-      person_id: String(a.person_id ?? ''),
+      person_ids: a.person_id != null && a.person_id !== '' ? [String(a.person_id)] : [],
       project_id: a.project_id != null ? String(a.project_id) : '',
       type: a.type === 'task' ? 'outstation' : (ACTIVITY_TYPE_OPTIONS.some((x) => x.value === a.type) ? a.type : 'meeting'),
       title: a.title || '',
@@ -881,8 +891,9 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
 
   const cancelEdit = () => {
     setEditingId(null);
+    setEditPersonSearch('');
     setEditForm({
-      person_id: '',
+      person_ids: [],
       project_id: '',
       type: 'meeting',
       title: '',
@@ -894,8 +905,20 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
     });
   };
 
+  const toggleEditPerson = (userId) => {
+    const sid = String(userId);
+    setEditForm((f) => ({
+      ...f,
+      person_ids: f.person_ids.includes(sid) ? f.person_ids.filter((x) => x !== sid) : [...f.person_ids, sid],
+    }));
+  };
+
   const saveEdit = async (id) => {
-    if (!editForm.person_id || !editForm.title || !editForm.start_at || !editForm.end_at) return;
+    if (!editForm.person_ids?.length) {
+      alert('Select at least one person for this activity.');
+      return;
+    }
+    if (!editForm.title || !editForm.start_at || !editForm.end_at) return;
     const location = composeLocation(editForm.locationPreset, editForm.locationOther);
     if (!location) {
       alert('Please select a location or enter a custom one under Others.');
@@ -903,7 +926,7 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
     }
     try {
       await api.activities.update(id, {
-        person_id: +editForm.person_id,
+        person_ids: editForm.person_ids.map((pid) => +pid),
         project_id: editForm.project_id ? +editForm.project_id : null,
         type: editForm.type,
         title: editForm.title,
@@ -941,11 +964,35 @@ function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT
             <li key={a.id} style={{ padding: '0.65rem 0', borderBottom: '1px solid var(--border)' }}>
               {editingId === a.id ? (
                 <div style={{ display: 'grid', gap: '0.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-                  <label>Person
-                    <select value={editForm.person_id} onChange={e => setEditForm(f => ({ ...f, person_id: e.target.value }))} style={inputStyle}>
-                      <option value="">Select...</option>
-                      {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
+                  <label style={{ gridColumn: '1 / -1' }}>Assignees * (multi-select)
+                    <input
+                      type="text"
+                      value={editPersonSearch}
+                      onChange={(e) => setEditPersonSearch(e.target.value)}
+                      placeholder="Search person name…"
+                      style={inputStyle}
+                    />
+                    <div style={{ marginTop: '0.5rem', maxHeight: 160, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem', background: 'var(--bg)' }}>
+                      {filteredEditUsers.length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No person found.</div>
+                      ) : (
+                        filteredEditUsers.map((u) => (
+                          <label key={u.id} style={{ display: 'block', marginBottom: '0.35rem', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={editForm.person_ids.includes(String(u.id))}
+                              onChange={() => toggleEditPerson(u.id)}
+                              style={{ marginRight: 8 }}
+                            />
+                            {u.name}
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    <div style={{ marginTop: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Selected: {editForm.person_ids.length}
+                      {editForm.person_ids.length > 1 ? ' — saves as one row per person' : ''}
+                    </div>
                   </label>
                   <label>Project
                     <select value={editForm.project_id} onChange={e => setEditForm(f => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
