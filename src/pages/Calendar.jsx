@@ -282,8 +282,6 @@ export default function Calendar() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [from, setFrom] = useState(new Date().toISOString().slice(0, 10));
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
   const [showForm, setShowForm] = useState(false);
   const [activitySites, setActivitySites] = useState(DEFAULT_ACTIVITY_SITE_LOCATIONS);
   const [form, setForm] = useState({
@@ -544,8 +542,6 @@ export default function Calendar() {
 
       {/* Activities: filter + add + list */}
       <div style={{ ...card, marginBottom: '1rem' }} className="filter-bar">
-        <label>From <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inputStyle} /></label>
-        <label>To <input type="date" value={to} onChange={e => setTo(e.target.value)} style={inputStyle} /></label>
         <button type="button" onClick={openCreateForm} style={btnPrimary}>
           + Log activity
         </button>
