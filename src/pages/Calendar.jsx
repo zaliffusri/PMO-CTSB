@@ -87,7 +87,18 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 /** Maps API type to CSS suffix (legacy `task` → outstation). */
 function activityCssClass(type) {
   if (type === 'task') return 'outstation';
-  if (type === 'meeting' || type === 'outstation' || type === 'other') return type;
+  if (
+    type === 'meeting' ||
+    type === 'outstation' ||
+    type === 'other' ||
+    type === 'uat' ||
+    type === 'urs' ||
+    type === 'fat' ||
+    type === 'demo' ||
+    type === 'training' ||
+    type === 'go-live' ||
+    type === 'tender'
+  ) return type;
   return 'other';
 }
 
@@ -420,20 +431,16 @@ export default function Calendar() {
       return;
     }
     try {
-      await Promise.all(
-        form.person_ids.map((pid) =>
-          api.activities.create({
-            person_id: +pid,
-            project_id: form.project_id || undefined,
-            type: form.type,
-            title: form.title,
-            description: form.description || undefined,
-            location,
-            start_at: form.start_at,
-            end_at: form.end_at,
-          }),
-        ),
-      );
+      await api.activities.create({
+        person_ids: form.person_ids.map((pid) => +pid),
+        project_id: form.project_id || undefined,
+        type: form.type,
+        title: form.title,
+        description: form.description || undefined,
+        location,
+        start_at: form.start_at,
+        end_at: form.end_at,
+      });
       setForm({
         person_ids: [],
         project_id: '',
@@ -808,6 +815,13 @@ export default function Calendar() {
               <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-meeting" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> Meeting</span>
               <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-outstation" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> Outstation</span>
               <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-other" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> Other</span>
+              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-uat" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> UAT</span>
+              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-urs" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> URS</span>
+              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-fat" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> FAT</span>
+              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-demo" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> DEMO</span>
+              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-training" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> TRAINING</span>
+              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-go-live" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> GO-LIVE</span>
+              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-tender" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> TENDER</span>
             </div>
           </>
         )}

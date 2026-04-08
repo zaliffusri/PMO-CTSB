@@ -956,6 +956,34 @@ input, select, textarea {
   background: rgba(139, 158, 181, 0.15);
   border-left-color: var(--text-muted);
 }
+.calendar-activity-uat {
+  background: rgba(99, 102, 241, 0.18);
+  border-left-color: #6366f1;
+}
+.calendar-activity-urs {
+  background: rgba(236, 72, 153, 0.18);
+  border-left-color: #ec4899;
+}
+.calendar-activity-fat {
+  background: rgba(245, 158, 11, 0.2);
+  border-left-color: #f59e0b;
+}
+.calendar-activity-demo {
+  background: rgba(14, 165, 233, 0.2);
+  border-left-color: #0ea5e9;
+}
+.calendar-activity-training {
+  background: rgba(168, 85, 247, 0.2);
+  border-left-color: #a855f7;
+}
+.calendar-activity-go-live {
+  background: rgba(16, 185, 129, 0.2);
+  border-left-color: #10b981;
+}
+.calendar-activity-tender {
+  background: rgba(244, 63, 94, 0.2);
+  border-left-color: #f43f5e;
+}
 .calendar-activity-time {
   font-weight: 600;
   margin-right: 0.25rem;

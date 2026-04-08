@@ -63,40 +63,54 @@ activitiesRouter.get('/', (req, res) => {
 });
 
 activitiesRouter.post('/', async (req, res) => {
-  const { person_id, project_id, type, title, description, location, start_at, end_at } = req.body;
-  if (!person_id || !type || !title || !start_at || !end_at) {
-    return res.status(400).json({ error: 'person_id, type, title, start_at, end_at are required' });
+  const { person_id, person_ids, project_id, type, title, description, location, start_at, end_at } = req.body;
+  const rawPersonIds = Array.isArray(person_ids) && person_ids.length > 0 ? person_ids : [person_id];
+  if (!type || !title || !start_at || !end_at) {
+    return res.status(400).json({ error: 'type, title, start_at, end_at are required' });
   }
+  if (!rawPersonIds.length) return res.status(400).json({ error: 'Select at least one person' });
   const loc = location != null ? String(location).trim() : '';
   if (!loc) {
     return res.status(400).json({ error: 'location is required' });
   }
-  const uid = resolveActivityUserId(person_id);
-  if (!uid) {
+  const uniquePersonIds = [...new Set(rawPersonIds.map((x) => Number(x)).filter(Number.isFinite))];
+  if (!uniquePersonIds.length) {
+    return res.status(400).json({ error: 'Invalid person list' });
+  }
+  const resolvedUsers = uniquePersonIds.map((pid) => resolveActivityUserId(pid));
+  if (resolvedUsers.some((uid) => !uid)) {
     return res.status(400).json({
       error:
         'Invalid person: use a system user id, or a team member id whose email matches a user account.',
     });
   }
-  const id = store.addActivity({
-    person_id: uid,
-    project_id: project_id || null,
-    type: normalizeActivityType(type),
-    title,
-    description: description || null,
-    location: loc,
-    start_at,
-    end_at,
-  });
-  const a = store.activities.find(x => x.id === id);
-  const user = store.findUserById(a.person_id);
-  const project = store.projects.find((p) => p.id === a.project_id);
+  const normalizedType = normalizeActivityType(type);
+  const created = [];
+  for (const uid of resolvedUsers) {
+    const id = store.addActivity({
+      person_id: uid,
+      project_id: project_id || null,
+      type: normalizedType,
+      title,
+      description: description || null,
+      location: loc,
+      start_at,
+      end_at,
+    });
+    const a = store.activities.find((x) => x.id === id);
+    if (a) created.push(a);
+  }
+  const project = store.projects.find((p) => p.id === (project_id || null));
   store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'activity',
-    target_id: id,
+    target_id: created[0]?.id ?? null,
     summary: `Logged activity "${title}"`,
-    detail: { person_name: user?.name, project_name: project?.name },
+    detail: {
+      person_count: created.length,
+      person_names: created.map((a) => activityPersonName(a.person_id)).filter(Boolean),
+      project_name: project?.name,
+    },
   });
   try {
     await store.persistToSupabase();
@@ -105,36 +119,41 @@ activitiesRouter.post('/', async (req, res) => {
     return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
   }
 
-  const assignee = store.findUserById(uid);
-  let recipientEmail = String(assignee?.email || '').trim();
-  if (!recipientEmail && assignee?.name) {
-    const pe = store.people.find(
-      (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
-    );
-    recipientEmail = String(pe?.email || '').trim();
-  }
-  if (recipientEmail && isMailerConfigured()) {
-    sendActivityLoggedEmail({
-      to: recipientEmail,
-      recipientName: assignee?.name,
-      title,
-      typeKey: normalizeActivityType(type),
-      location: loc,
-      startAt: start_at,
-      endAt: end_at,
-      projectName: project?.name || null,
-      loggedBy: req.user?.name || req.user?.email || '',
-    }).catch((e) => {
-      console.warn(`activities: failed to send notification email (${e.message})`);
+  if (isMailerConfigured()) {
+    created.forEach((a) => {
+      const assignee = store.findUserById(a.person_id);
+      let recipientEmail = String(assignee?.email || '').trim();
+      if (!recipientEmail && assignee?.name) {
+        const pe = store.people.find(
+          (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
+        );
+        recipientEmail = String(pe?.email || '').trim();
+      }
+      if (!recipientEmail) return;
+      sendActivityLoggedEmail({
+        to: recipientEmail,
+        recipientName: assignee?.name,
+        title,
+        typeKey: normalizedType,
+        location: loc,
+        startAt: start_at,
+        endAt: end_at,
+        projectName: project?.name || null,
+        loggedBy: req.user?.name || req.user?.email || '',
+      }).catch((e) => {
+        console.warn(`activities: failed to send notification email (${e.message})`);
+      });
     });
   }
 
-  res.status(201).json({
+  const responseRows = created.map((a) => ({
     ...a,
     type: normalizeActivityType(a.type),
     person_name: activityPersonName(a.person_id),
     project_name: project?.name,
-  });
+  }));
+  if (responseRows.length === 1) return res.status(201).json(responseRows[0]);
+  return res.status(201).json(responseRows);
 });
 
 activitiesRouter.put('/:id', async (req, res) => {
