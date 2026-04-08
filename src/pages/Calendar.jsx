@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
@@ -75,7 +75,8 @@ function groupActivitiesForCalendar(activities) {
     const primary = group[0];
     const names = [...new Set(group.map((g) => g.person_name).filter(Boolean))];
     const person_name = names.length ? names.join(', ') : (primary.person_name ?? '');
-    result.push({ ...primary, person_name });
+    const person_ids = [...new Set(group.map((g) => g.person_id).filter((x) => x != null))];
+    result.push({ ...primary, person_name, person_ids });
   }
   result.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
   return result;
@@ -173,7 +174,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
 
   const handleClick = (e) => {
     e.stopPropagation();
-    if (shouldUseMobileActivityDetail()) onToggleDetail(a.id);
+    onToggleDetail(a.id);
   };
 
   return (
@@ -201,7 +202,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   );
 }
 
-function CalendarActivityDetailSheet({ activity: a, onClose }) {
+function CalendarActivityDetailSheet({ activity: a, onClose, onEdit }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
   return (
@@ -220,6 +221,9 @@ function CalendarActivityDetailSheet({ activity: a, onClose }) {
         {a.location && <p className="calendar-detail-sheet-line">{a.location}</p>}
         <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
         {a.description && <p className="calendar-detail-sheet-desc">{a.description}</p>}
+        <button type="button" style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }} onClick={() => onEdit?.(a)}>
+          Edit activity
+        </button>
         <button type="button" className="calendar-detail-close" onClick={onClose}>
           Close
         </button>
@@ -281,10 +285,6 @@ export default function Calendar() {
   const [from, setFrom] = useState(new Date().toISOString().slice(0, 10));
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
   const [showForm, setShowForm] = useState(false);
-  const [showReport, setShowReport] = useState(false);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportErr, setReportErr] = useState('');
-  const [reportRows, setReportRows] = useState([]);
   const [activitySites, setActivitySites] = useState(DEFAULT_ACTIVITY_SITE_LOCATIONS);
   const [form, setForm] = useState({
     person_ids: [],
@@ -298,6 +298,7 @@ export default function Calendar() {
     end_at: '',
   });
   const [personSearch, setPersonSearch] = useState('');
+  const [editingActivityId, setEditingActivityId] = useState(null);
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
   const nonAdminUsers = useMemo(
@@ -315,11 +316,6 @@ export default function Calendar() {
   useEffect(() => {
     setLoading(true);
     loadActivities(monthFrom, monthTo).finally(() => setLoading(false));
-  }, [monthFrom, monthTo]);
-
-  /** Keep calendar in sync when the period list deletes or edits an activity (separate state). */
-  const refreshCalendarActivities = useCallback(() => {
-    api.activities.list({ from: monthFrom, to: monthTo }).then(setActivities).catch(console.error);
   }, [monthFrom, monthTo]);
 
   useEffect(() => {
@@ -368,12 +364,11 @@ export default function Calendar() {
   }, [showForm, activitySites]);
 
   useEffect(() => {
-    const anyOpen = showForm || showReport || detailActivityId != null || dayListDay != null;
+    const anyOpen = showForm || detailActivityId != null || dayListDay != null;
     if (!anyOpen) return;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (showForm) setShowForm(false);
-      else if (showReport) setShowReport(false);
       else if (detailActivityId != null) setDetailActivityId(null);
       else setDayListDay(null);
     };
@@ -384,7 +379,7 @@ export default function Calendar() {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [showForm, showReport, detailActivityId, dayListDay]);
+  }, [showForm, detailActivityId, dayListDay]);
 
   const groupedCalendarActivities = useMemo(() => groupActivitiesForCalendar(activities), [activities]);
 
@@ -431,16 +426,29 @@ export default function Calendar() {
       return;
     }
     try {
-      await api.activities.create({
-        person_ids: form.person_ids.map((pid) => +pid),
-        project_id: form.project_id || undefined,
-        type: form.type,
-        title: form.title,
-        description: form.description || undefined,
-        location,
-        start_at: form.start_at,
-        end_at: form.end_at,
-      });
+      if (editingActivityId != null) {
+        await api.activities.update(editingActivityId, {
+          person_ids: form.person_ids.map((pid) => +pid),
+          project_id: form.project_id || null,
+          type: form.type,
+          title: form.title,
+          description: form.description || null,
+          location,
+          start_at: form.start_at,
+          end_at: form.end_at,
+        });
+      } else {
+        await api.activities.create({
+          person_ids: form.person_ids.map((pid) => +pid),
+          project_id: form.project_id || undefined,
+          type: form.type,
+          title: form.title,
+          description: form.description || undefined,
+          location,
+          start_at: form.start_at,
+          end_at: form.end_at,
+        });
+      }
       setForm({
         person_ids: [],
         project_id: '',
@@ -454,6 +462,7 @@ export default function Calendar() {
       });
       setPersonSearch('');
       setShowForm(false);
+      setEditingActivityId(null);
       loadActivities(monthFrom, monthTo);
     } catch (err) {
       alert(err.message);
@@ -474,77 +483,6 @@ export default function Calendar() {
     }));
   };
 
-  const buildReportRows = (rawActivities) => {
-    const bucket = new Map();
-    rawActivities.forEach((a) => {
-      const id = String(a.person_id ?? '');
-      if (!id) return;
-      if (!bucket.has(id)) {
-        bucket.set(id, { total: 0, typeCounts: {}, lastAt: null });
-      }
-      const b = bucket.get(id);
-      b.total += 1;
-      b.typeCounts[a.type] = (b.typeCounts[a.type] || 0) + 1;
-      if (!b.lastAt || new Date(a.start_at) > new Date(b.lastAt)) b.lastAt = a.start_at;
-    });
-
-    return nonAdminUsers
-      .map((u) => {
-        const key = String(u.id);
-        const b = bucket.get(key) || { total: 0, typeCounts: {}, lastAt: null };
-        const typeSummary = Object.entries(b.typeCounts)
-          .sort((a, b2) => b2[1] - a[1])
-          .map(([type, count]) => `${activityTypeLabel(type)} (${count})`)
-          .join(', ');
-        return {
-          id: u.id,
-          name: u.name,
-          total: b.total,
-          hasActivity: b.total > 0,
-          types: typeSummary || '—',
-          lastAt: b.lastAt,
-        };
-      })
-      .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name));
-  };
-
-  const openReport = async () => {
-    if (!from || !to) return;
-    try {
-      setReportErr('');
-      setReportLoading(true);
-      const rows = await api.activities.list({ from, to });
-      setReportRows(buildReportRows(rows));
-      setShowReport(true);
-    } catch (e) {
-      setReportErr(e.message || 'Failed to generate report');
-    } finally {
-      setReportLoading(false);
-    }
-  };
-
-  const exportReportCsv = () => {
-    const header = ['Person', 'Has Activity', 'Total Logs', 'Types', 'Last Activity'];
-    const body = reportRows.map((r) => [
-      r.name,
-      r.hasActivity ? 'Yes' : 'No',
-      String(r.total),
-      r.types === '—' ? '' : r.types,
-      r.lastAt ? new Date(r.lastAt).toLocaleString() : '',
-    ]);
-    const esc = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
-    const csv = [header, ...body].map((row) => row.map(esc).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `activity-report-${from}-to-${to}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
   const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); };
   const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); };
   const goToToday = () => { const d = new Date(); setYear(d.getFullYear()); setMonth(d.getMonth() + 1); };
@@ -553,6 +491,47 @@ export default function Calendar() {
   const toggleActivityDetail = (id) => {
     setDayListDay(null);
     setDetailActivityId((prev) => (prev === id ? null : id));
+  };
+
+  const openCreateForm = () => {
+    setEditingActivityId(null);
+    setForm((f) => ({
+      ...f,
+      person_ids: [],
+      project_id: '',
+      type: 'meeting',
+      title: '',
+      description: '',
+      locationPreset: activitySites[0] || f.locationPreset || '',
+      locationOther: '',
+      start_at: '',
+      end_at: '',
+    }));
+    setPersonSearch('');
+    setShowForm(true);
+  };
+
+  const openEditActivity = (a) => {
+    const personIds = Array.isArray(a.person_ids) && a.person_ids.length
+      ? a.person_ids.map((x) => String(x))
+      : (a.person_id != null ? [String(a.person_id)] : []);
+    const { preset, custom } = resolveLocationForForm(a.location, activitySites);
+    setForm({
+      person_ids: personIds,
+      project_id: a.project_id != null ? String(a.project_id) : '',
+      type: a.type === 'task' ? 'outstation' : (ACTIVITY_TYPE_OPTIONS.some((x) => x.value === a.type) ? a.type : 'meeting'),
+      title: a.title || '',
+      description: a.description || '',
+      locationPreset: preset || (activitySites[0] || ''),
+      locationOther: custom,
+      start_at: a.start_at ? String(a.start_at).slice(0, 16) : '',
+      end_at: a.end_at ? String(a.end_at).slice(0, 16) : '',
+    });
+    setPersonSearch('');
+    setEditingActivityId(a.id);
+    setDetailActivityId(null);
+    setDayListDay(null);
+    setShowForm(true);
   };
 
   const detailActivity = detailActivityId != null ? groupedCalendarActivities.find((x) => x.id === detailActivityId) : null;
@@ -567,72 +546,12 @@ export default function Calendar() {
       <div style={{ ...card, marginBottom: '1rem' }} className="filter-bar">
         <label>From <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inputStyle} /></label>
         <label>To <input type="date" value={to} onChange={e => setTo(e.target.value)} style={inputStyle} /></label>
-        <button type="button" onClick={openReport} style={btnSecondary} disabled={reportLoading || !from || !to}>
-          {reportLoading ? 'Generating…' : 'Generate report'}
-        </button>
-        <button type="button" onClick={() => setShowForm(true)} style={btnPrimary}>
+        <button type="button" onClick={openCreateForm} style={btnPrimary}>
           + Log activity
         </button>
-        {reportErr && <div style={{ gridColumn: '1 / -1', color: 'var(--danger)', fontSize: '0.9rem' }}>{reportErr}</div>}
       </div>
-      {showReport && (
-        <div className="modal-backdrop" onClick={() => setShowReport(false)} role="presentation">
-          <div
-            className="modal-dialog modal-dialog--activity-log"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="activity-report-modal-title"
-          >
-            <div className="modal-dialog-header">
-              <h2 id="activity-report-modal-title" className="modal-dialog-title">
-                Activity report ({from} to {to})
-              </h2>
-              <button type="button" className="modal-dialog-close" onClick={() => setShowReport(false)} aria-label="Close dialog">
-                ×
-              </button>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                Check who has activity logs in the selected period.
-              </p>
-              <button type="button" style={btnSecondary} onClick={exportReportCsv}>
-                Export CSV
-              </button>
-            </div>
-            <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                <thead>
-                  <tr style={{ background: 'var(--surface-hover)' }}>
-                    <th style={{ textAlign: 'left', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Person</th>
-                    <th style={{ textAlign: 'center', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Has Activity</th>
-                    <th style={{ textAlign: 'right', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Total</th>
-                    <th style={{ textAlign: 'left', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Types</th>
-                    <th style={{ textAlign: 'left', padding: '0.55rem 0.6rem', borderBottom: '1px solid var(--border)' }}>Last Activity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportRows.map((r) => (
-                    <tr key={r.id}>
-                      <td style={{ padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)' }}>{r.name}</td>
-                      <td style={{ textAlign: 'center', padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', color: r.hasActivity ? 'var(--success)' : 'var(--text-muted)' }}>
-                        {r.hasActivity ? 'Yes' : 'No'}
-                      </td>
-                      <td style={{ textAlign: 'right', padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)' }}>{r.total}</td>
-                      <td style={{ padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)' }}>{r.types}</td>
-                      <td style={{ padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                        {r.lastAt ? new Date(r.lastAt).toLocaleString() : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
       {showForm && (
-        <div className="modal-backdrop" onClick={() => setShowForm(false)} role="presentation">
+        <div className="modal-backdrop" onClick={() => { setShowForm(false); setEditingActivityId(null); }} role="presentation">
           <div
             className="modal-dialog modal-dialog--activity-log"
             onClick={(e) => e.stopPropagation()}
@@ -642,9 +561,9 @@ export default function Calendar() {
           >
             <div className="modal-dialog-header">
               <h2 id="activity-log-modal-title" className="modal-dialog-title">
-                Log activity
+                {editingActivityId != null ? 'Edit activity' : 'Log activity'}
               </h2>
-              <button type="button" className="modal-dialog-close" onClick={() => setShowForm(false)} aria-label="Close dialog">
+              <button type="button" className="modal-dialog-close" onClick={() => { setShowForm(false); setEditingActivityId(null); }} aria-label="Close dialog">
                 ×
               </button>
             </div>
@@ -734,9 +653,9 @@ export default function Calendar() {
               </label>
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="submit" style={btnPrimary}>
-                  Save activity
+                  {editingActivityId != null ? 'Update activity' : 'Save activity'}
                 </button>
-                <button type="button" style={btnSecondary} onClick={() => setShowForm(false)}>
+                <button type="button" style={btnSecondary} onClick={() => { setShowForm(false); setEditingActivityId(null); }}>
                   Cancel
                 </button>
               </div>
@@ -744,16 +663,6 @@ export default function Calendar() {
           </div>
         </div>
       )}
-      <ActivityList
-        from={from}
-        to={to}
-        card={card}
-        users={nonAdminUsers}
-        projects={projects}
-        activitySites={activitySites}
-        onActivitiesChanged={refreshCalendarActivities}
-      />
-
       {/* Calendar */}
       <div style={card} className="calendar-card">
         <div className="calendar-header">
@@ -838,219 +747,7 @@ export default function Calendar() {
         />
       )}
       {detailActivity && (
-        <CalendarActivityDetailSheet activity={detailActivity} onClose={() => setDetailActivityId(null)} />
-      )}
-    </div>
-  );
-}
-
-function ActivityList({ from, to, card, users, projects, activitySites = DEFAULT_ACTIVITY_SITE_LOCATIONS, onActivitiesChanged }) {
-  const [list, setList] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-  const [editPersonSearch, setEditPersonSearch] = useState('');
-  const [editForm, setEditForm] = useState({
-    person_ids: [],
-    project_id: '',
-    type: 'meeting',
-    title: '',
-    description: '',
-    locationPreset: '',
-    locationOther: '',
-    start_at: '',
-    end_at: '',
-  });
-
-  const filteredEditUsers = useMemo(() => {
-    const q = editPersonSearch.trim().toLowerCase();
-    return users.filter((u) => {
-      if (!q) return true;
-      return String(u.name || '').toLowerCase().includes(q);
-    });
-  }, [users, editPersonSearch]);
-
-  useEffect(() => { api.activities.list({ from, to }).then(setList).catch(console.error); }, [from, to]);
-
-  const reload = () => api.activities.list({ from, to }).then(setList).catch(console.error);
-
-  const startEdit = (a) => {
-    const { preset, custom } = resolveLocationForForm(a.location, activitySites);
-    setEditingId(a.id);
-    setEditPersonSearch('');
-    setEditForm({
-      person_ids: a.person_id != null && a.person_id !== '' ? [String(a.person_id)] : [],
-      project_id: a.project_id != null ? String(a.project_id) : '',
-      type: a.type === 'task' ? 'outstation' : (ACTIVITY_TYPE_OPTIONS.some((x) => x.value === a.type) ? a.type : 'meeting'),
-      title: a.title || '',
-      description: a.description || '',
-      locationPreset: preset || (activitySites[0] || ''),
-      locationOther: custom,
-      start_at: a.start_at ? String(a.start_at).slice(0, 16) : '',
-      end_at: a.end_at ? String(a.end_at).slice(0, 16) : '',
-    });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditPersonSearch('');
-    setEditForm({
-      person_ids: [],
-      project_id: '',
-      type: 'meeting',
-      title: '',
-      description: '',
-      locationPreset: '',
-      locationOther: '',
-      start_at: '',
-      end_at: '',
-    });
-  };
-
-  const toggleEditPerson = (userId) => {
-    const sid = String(userId);
-    setEditForm((f) => ({
-      ...f,
-      person_ids: f.person_ids.includes(sid) ? f.person_ids.filter((x) => x !== sid) : [...f.person_ids, sid],
-    }));
-  };
-
-  const saveEdit = async (id) => {
-    if (!editForm.person_ids?.length) {
-      alert('Select at least one person for this activity.');
-      return;
-    }
-    if (!editForm.title || !editForm.start_at || !editForm.end_at) return;
-    const location = composeLocation(editForm.locationPreset, editForm.locationOther);
-    if (!location) {
-      alert('Please select a location or enter a custom one under Others.');
-      return;
-    }
-    try {
-      await api.activities.update(id, {
-        person_ids: editForm.person_ids.map((pid) => +pid),
-        project_id: editForm.project_id ? +editForm.project_id : null,
-        type: editForm.type,
-        title: editForm.title,
-        description: editForm.description || null,
-        location,
-        start_at: editForm.start_at,
-        end_at: editForm.end_at,
-      });
-      cancelEdit();
-      reload();
-      onActivitiesChanged?.();
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
-  const removeActivity = async (id) => {
-    if (!confirm('Delete this activity log?')) return;
-    try {
-      await api.activities.delete(id);
-      if (editingId === id) cancelEdit();
-      reload();
-      onActivitiesChanged?.();
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
-  return (
-    <div style={{ ...card, marginBottom: '1rem' }}>
-      <h3 style={{ margin: '0 0 0.75rem', fontSize: '1rem' }}>Activities in selected period</h3>
-      {list.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No activities in this period.</p> : (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {list.map(a => (
-            <li key={a.id} style={{ padding: '0.65rem 0', borderBottom: '1px solid var(--border)' }}>
-              {editingId === a.id ? (
-                <div style={{ display: 'grid', gap: '0.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-                  <label style={{ gridColumn: '1 / -1' }}>Assignees * (multi-select)
-                    <input
-                      type="text"
-                      value={editPersonSearch}
-                      onChange={(e) => setEditPersonSearch(e.target.value)}
-                      placeholder="Search person name…"
-                      style={inputStyle}
-                    />
-                    <div style={{ marginTop: '0.5rem', maxHeight: 160, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem', background: 'var(--bg)' }}>
-                      {filteredEditUsers.length === 0 ? (
-                        <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No person found.</div>
-                      ) : (
-                        filteredEditUsers.map((u) => (
-                          <label key={u.id} style={{ display: 'block', marginBottom: '0.35rem', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={editForm.person_ids.includes(String(u.id))}
-                              onChange={() => toggleEditPerson(u.id)}
-                              style={{ marginRight: 8 }}
-                            />
-                            {u.name}
-                          </label>
-                        ))
-                      )}
-                    </div>
-                    <div style={{ marginTop: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                      Selected: {editForm.person_ids.length}
-                      {editForm.person_ids.length > 1 ? ' — saves as one row per person' : ''}
-                    </div>
-                  </label>
-                  <label>Project
-                    <select value={editForm.project_id} onChange={e => setEditForm(f => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
-                      <option value="">None</option>
-                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  </label>
-                  <label>Type
-                    <select value={editForm.type} onChange={e => setEditForm(f => ({ ...f, type: e.target.value }))} style={inputStyle}>
-                      {ACTIVITY_TYPE_OPTIONS.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label style={{ gridColumn: '1 / -1' }}>Title
-                    <input type="text" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} style={inputStyle} />
-                  </label>
-                  <label style={{ gridColumn: '1 / -1' }}>Description
-                    <textarea rows={2} value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} style={inputStyle} />
-                  </label>
-                  <ActivityLocationFields
-                    siteLocations={activitySites}
-                    preset={editForm.locationPreset}
-                    other={editForm.locationOther}
-                    onPreset={(v) => setEditForm((f) => ({ ...f, locationPreset: v, locationOther: v === ACTIVITY_LOCATION_OTHERS ? f.locationOther : '' }))}
-                    onOther={(v) => setEditForm((f) => ({ ...f, locationOther: v }))}
-                  />
-                  <label>Start
-                    <input type="datetime-local" value={editForm.start_at} onChange={e => setEditForm(f => ({ ...f, start_at: e.target.value }))} style={inputStyle} />
-                  </label>
-                  <label>End
-                    <input type="datetime-local" value={editForm.end_at} onChange={e => setEditForm(f => ({ ...f, end_at: e.target.value }))} style={inputStyle} />
-                  </label>
-                  <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem' }}>
-                    <button type="button" style={btnPrimary} onClick={() => saveEdit(a.id)}>Save</button>
-                    <button type="button" style={btnSecondary} onClick={cancelEdit}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <div>
-                    <span><strong>{a.person_name}</strong> · [{activityTypeLabel(a.type)}] {a.title}{a.location ? ` · ${a.location}` : ''} {a.project_name && `(${a.project_name})`}</span>
-                    {a.description && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem' }}>{a.description}</div>}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.35rem' }}>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{new Date(a.start_at).toLocaleString()} – {new Date(a.end_at).toLocaleTimeString()}</span>
-                    <div style={{ display: 'flex', gap: '0.4rem' }}>
-                      <button type="button" style={{ ...btnSecondary, padding: '0.25rem 0.55rem', fontSize: '0.85rem' }} onClick={() => startEdit(a)}>Edit</button>
-                      <button type="button" style={{ ...btnSecondary, padding: '0.25rem 0.55rem', fontSize: '0.85rem', color: 'var(--danger)' }} onClick={() => removeActivity(a.id)}>Delete</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+        <CalendarActivityDetailSheet activity={detailActivity} onClose={() => setDetailActivityId(null)} onEdit={openEditActivity} />
       )}
     </div>
   );
