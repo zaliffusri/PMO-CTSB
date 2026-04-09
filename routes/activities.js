@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { store } from '../db/store.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
 import { isMailerConfigured, sendActivityLoggedEmail } from '../lib/mailer.js';
@@ -147,9 +148,11 @@ activitiesRouter.post('/', async (req, res) => {
     });
   }
   const normalizedType = normalizeActivityType(type);
+  const activityGroupId = crypto.randomUUID();
   const created = [];
   for (const uid of resolvedUsers) {
     const id = store.addActivity({
+      activity_group_id: activityGroupId,
       person_id: uid,
       project_id: project_id || null,
       type: normalizedType,
@@ -247,12 +250,14 @@ activitiesRouter.put('/:id', async (req, res) => {
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
+  const activityGroupId = existing.activity_group_id || crypto.randomUUID();
   const previousGroupIds = idsInSameLogicalGroup(store.activities, id);
   await store.deleteActivityLogicalGroupByAnyMemberId(id);
   const createdRows = [];
   const project = store.projects.find(p => p.id === (nextProjectId || null));
   for (const uid of uniqueUids) {
     const newId = store.addActivity({
+      activity_group_id: activityGroupId,
       person_id: uid,
       project_id: nextProjectId || null,
       type: nextType,

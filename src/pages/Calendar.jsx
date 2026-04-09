@@ -188,6 +188,8 @@ function ActivityLocationFields({ siteLocations, preset, other, onPreset, onOthe
 
 function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   const rangeLabel = formatActivityTimeRange(a);
+  const dbStart = a?.start_at != null ? String(a.start_at) : '—';
+  const dbEnd = a?.end_at != null ? String(a.end_at) : '—';
   const label = `${activityTypeLabel(a.type)}: ${a.title}. ${a.location ? `${a.location}. ` : ''}${a.person_name ?? ''}. ${rangeLabel}`;
 
   const handleClick = (e) => {
@@ -214,6 +216,8 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
         {a.project_name && <div className="calendar-activity-popover-meta">{a.project_name}</div>}
         {a.location && <div className="calendar-activity-popover-meta">{a.location}</div>}
         <div className="calendar-activity-popover-meta">{rangeLabel}</div>
+        <div className="calendar-activity-popover-meta">Start: {dbStart}</div>
+        <div className="calendar-activity-popover-meta">End: {dbEnd}</div>
         {a.description && <div className="calendar-activity-popover-desc">{a.description}</div>}
       </div>
     </div>
