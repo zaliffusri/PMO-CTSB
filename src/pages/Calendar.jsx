@@ -641,6 +641,7 @@ export default function Calendar() {
       if (coveredDays.length === 0) continue;
       for (const day of coveredDays) {
         rows.push({
+          sort_date: new Date(year, month - 1, day).getTime(),
           date: new Date(year, month - 1, day).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
           staff_name: a.person_name || '-',
           client: a.project_id != null ? clientByProjectId[String(a.project_id)] || '-' : '-',
@@ -649,6 +650,7 @@ export default function Calendar() {
         });
       }
     }
+    rows.sort((x, y) => x.sort_date - y.sort_date || x.staff_name.localeCompare(y.staff_name));
     return rows;
   }, [activities, clientByProjectId, year, month]);
 
