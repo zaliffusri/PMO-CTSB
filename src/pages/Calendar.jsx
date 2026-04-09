@@ -131,9 +131,32 @@ const DAY_NAMES_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 /** Max activity chips shown per calendar day before "See more". */
 const CALENDAR_DAY_MAX_VISIBLE = 3;
 
+/** Local wall time for `<input type="datetime-local" />`. Never use `.slice(0,16)` on ISO strings (Z/offset shifts the wrong way). */
+function toDatetimeLocalValue(iso) {
+  if (iso == null || iso === '') return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function formatActivityTimeRange(a) {
-  const t = { hour: '2-digit', minute: '2-digit' };
-  return `${new Date(a.start_at).toLocaleTimeString([], t)} – ${new Date(a.end_at).toLocaleTimeString([], t)}`;
+  const start = new Date(a.start_at);
+  const end = new Date(a.end_at);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    return `${a.start_at ?? ''} – ${a.end_at ?? ''}`;
+  }
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+  const dateOpts = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+  const timeOpts = { hour: '2-digit', minute: '2-digit' };
+  if (sameDay) {
+    return `${start.toLocaleDateString(undefined, dateOpts)} · ${start.toLocaleTimeString(undefined, timeOpts)} – ${end.toLocaleTimeString(undefined, timeOpts)}`;
+  }
+  const fullOpts = { ...dateOpts, ...timeOpts };
+  return `${start.toLocaleString(undefined, fullOpts)} – ${end.toLocaleString(undefined, fullOpts)}`;
 }
 
 function shouldUseMobileActivityDetail() {
@@ -546,8 +569,8 @@ export default function Calendar() {
       description: a.description || '',
       locationPreset: preset || (activitySites[0] || ''),
       locationOther: custom,
-      start_at: a.start_at ? String(a.start_at).slice(0, 16) : '',
-      end_at: a.end_at ? String(a.end_at).slice(0, 16) : '',
+      start_at: toDatetimeLocalValue(a.start_at),
+      end_at: toDatetimeLocalValue(a.end_at),
     });
     setPersonSearch('');
     setEditingActivityId(a.id);
