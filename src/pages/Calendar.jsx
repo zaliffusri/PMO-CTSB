@@ -164,10 +164,13 @@ function shouldUseMobileActivityDetail() {
   return window.matchMedia('(max-width: 767px)').matches || window.matchMedia('(hover: none)').matches;
 }
 
-function csvCell(v) {
-  const s = String(v ?? '');
-  if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
-  return s;
+function escapeHtml(v) {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 /** Return each day-of-month covered by activity interval within the visible month. */
@@ -633,7 +636,7 @@ export default function Calendar() {
   );
   const reportRows = useMemo(() => {
     const rows = [];
-    for (const a of groupedCalendarActivities) {
+    for (const a of activities) {
       const coveredDays = activityCoveredDaysInMonth(a, year, month);
       if (coveredDays.length === 0) continue;
       for (const day of coveredDays) {
@@ -647,26 +650,69 @@ export default function Calendar() {
       }
     }
     return rows;
-  }, [groupedCalendarActivities, clientByProjectId, year, month]);
+  }, [activities, clientByProjectId, year, month]);
 
-  const downloadReportCsv = () => {
-    const headers = ['Date', 'Staff Name', 'Client', 'Title', 'Location'];
-    const lines = [headers.join(',')];
-    reportRows.forEach((r) => {
-      lines.push([
-        csvCell(r.date),
-        csvCell(r.staff_name),
-        csvCell(r.client),
-        csvCell(r.title),
-        csvCell(r.location),
-      ].join(','));
-    });
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const downloadReportExcel = () => {
+    const title = `Activity Report - ${MONTH_NAMES[month - 1]} ${year}`;
+    const generatedAt = new Date().toLocaleString();
+    const rowsHtml = reportRows.length
+      ? reportRows
+          .map(
+            (r) => `<tr>
+<td>${escapeHtml(r.date)}</td>
+<td>${escapeHtml(r.staff_name)}</td>
+<td>${escapeHtml(r.client)}</td>
+<td>${escapeHtml(r.title)}</td>
+<td>${escapeHtml(r.location)}</td>
+</tr>`,
+          )
+          .join('')
+      : '<tr><td colspan="5" style="text-align:center;color:#6b7280;">No activity for this month.</td></tr>';
+    const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Calibri, Arial, sans-serif; color: #111827; }
+    .title { font-size: 16pt; font-weight: 700; margin-bottom: 4px; }
+    .meta { font-size: 10pt; color: #4b5563; margin: 2px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #d1d5db; padding: 6px 8px; font-size: 10.5pt; }
+    th { background: #e5e7eb; font-weight: 700; text-align: left; }
+    tr:nth-child(even) td { background: #f9fafb; }
+  </style>
+</head>
+<body>
+  <div class="title">${escapeHtml(title)}</div>
+  <div class="meta">Month: ${escapeHtml(MONTH_NAMES[month - 1])}</div>
+  <div class="meta">Year: ${escapeHtml(year)}</div>
+  <div class="meta">Generated at: ${escapeHtml(generatedAt)}</div>
+  <table>
+    <colgroup>
+      <col style="width: 120px;" />
+      <col style="width: 220px;" />
+      <col style="width: 220px;" />
+      <col style="width: 240px;" />
+      <col style="width: 220px;" />
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Staff Name</th>
+        <th>Client</th>
+        <th>Title</th>
+        <th>Location</th>
+      </tr>
+    </thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+</body>
+</html>`;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `activity_report_${year}_${String(month).padStart(2, '0')}.csv`;
+    a.download = `activity_report_${year}_${String(month).padStart(2, '0')}.xls`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -698,46 +744,65 @@ export default function Calendar() {
           >
             <div className="modal-dialog-header">
               <h2 id="activity-report-modal-title" className="modal-dialog-title">
-                Activity report ({MONTH_NAMES[month - 1]} {year})
+                Activity report (Month: {MONTH_NAMES[month - 1]} | Year: {year})
               </h2>
               <button type="button" className="modal-dialog-close" onClick={() => setShowReport(false)} aria-label="Close dialog">
                 ×
               </button>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-              <button type="button" style={btnPrimary} onClick={downloadReportCsv}>
-                Download CSV
+            <div style={{ display: 'grid', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
+                    Rows: <strong>{reportRows.length}</strong>
+                  </span>
+                  <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
+                    Month: <strong>{MONTH_NAMES[month - 1]}</strong>
+                  </span>
+                  <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
+                    Year: <strong>{year}</strong>
+                  </span>
+                </div>
+              </div>
+              <button type="button" style={btnPrimary} onClick={downloadReportExcel}>
+                Download Excel
               </button>
               <button type="button" style={btnSecondary} onClick={() => setShowReport(false)}>
                 Close
               </button>
             </div>
-            <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                    <th style={{ padding: '0.55rem 0.65rem' }}>Date</th>
-                    <th style={{ padding: '0.55rem 0.65rem' }}>Staff Name</th>
-                    <th style={{ padding: '0.55rem 0.65rem' }}>Client</th>
-                    <th style={{ padding: '0.55rem 0.65rem' }}>Title</th>
-                    <th style={{ padding: '0.55rem 0.65rem' }}>Location</th>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', background: 'var(--surface-hover)' }}>
+                    <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-hover)', padding: '0.6rem 0.7rem', whiteSpace: 'nowrap' }}>Date</th>
+                    <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-hover)', padding: '0.6rem 0.7rem' }}>Staff Name</th>
+                    <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-hover)', padding: '0.6rem 0.7rem' }}>Client</th>
+                    <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-hover)', padding: '0.6rem 0.7rem' }}>Title</th>
+                    <th style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface-hover)', padding: '0.6rem 0.7rem' }}>Location</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reportRows.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>
+                      <td colSpan={5} style={{ padding: '0.9rem', color: 'var(--text-muted)', textAlign: 'center' }}>
                         No activity for this month.
                       </td>
                     </tr>
                   ) : (
                     reportRows.map((r, idx) => (
-                      <tr key={`${r.date}-${r.staff_name}-${r.title}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.date}</td>
-                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.staff_name}</td>
-                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.client}</td>
-                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.title}</td>
-                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.location}</td>
+                      <tr
+                        key={`${r.date}-${r.staff_name}-${r.title}-${idx}`}
+                        style={{
+                          borderBottom: '1px solid var(--border)',
+                          background: idx % 2 === 0 ? 'transparent' : 'var(--surface-hover)',
+                        }}
+                      >
+                        <td style={{ padding: '0.58rem 0.7rem', whiteSpace: 'nowrap' }}>{r.date}</td>
+                        <td style={{ padding: '0.58rem 0.7rem' }}>{r.staff_name}</td>
+                        <td style={{ padding: '0.58rem 0.7rem' }}>{r.client}</td>
+                        <td style={{ padding: '0.58rem 0.7rem' }}>{r.title}</td>
+                        <td style={{ padding: '0.58rem 0.7rem' }}>{r.location}</td>
                       </tr>
                     ))
                   )}
