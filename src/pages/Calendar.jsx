@@ -202,7 +202,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   );
 }
 
-function CalendarActivityDetailSheet({ activity: a, onClose, onEdit }) {
+function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
   return (
@@ -223,6 +223,13 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit }) {
         {a.description && <p className="calendar-detail-sheet-desc">{a.description}</p>}
         <button type="button" style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }} onClick={() => onEdit?.(a)}>
           Edit activity
+        </button>
+        <button
+          type="button"
+          style={{ ...btnSecondary, width: '100%', marginTop: '0.5rem', color: 'var(--danger)' }}
+          onClick={() => onDelete?.(a)}
+        >
+          Delete activity
         </button>
         <button type="button" className="calendar-detail-close" onClick={onClose}>
           Close
@@ -532,6 +539,23 @@ export default function Calendar() {
     setShowForm(true);
   };
 
+  const deleteActivity = async (a) => {
+    if (!a?.id) return;
+    if (!confirm(`Delete activity "${a.title}"?`)) return;
+    try {
+      await api.activities.delete(a.id);
+      setDetailActivityId(null);
+      setDayListDay(null);
+      if (editingActivityId === a.id) {
+        setShowForm(false);
+        setEditingActivityId(null);
+      }
+      loadActivities(monthFrom, monthTo);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const detailActivity = detailActivityId != null ? groupedCalendarActivities.find((x) => x.id === detailActivityId) : null;
   const dayListActivities = dayListDay != null ? (activitiesByDay[dayListDay] ?? []) : [];
 
@@ -743,7 +767,12 @@ export default function Calendar() {
         />
       )}
       {detailActivity && (
-        <CalendarActivityDetailSheet activity={detailActivity} onClose={() => setDetailActivityId(null)} onEdit={openEditActivity} />
+        <CalendarActivityDetailSheet
+          activity={detailActivity}
+          onClose={() => setDetailActivityId(null)}
+          onEdit={openEditActivity}
+          onDelete={deleteActivity}
+        />
       )}
     </div>
   );
