@@ -148,6 +148,17 @@ function formatActivityTimeRange(a) {
   return `${start.toLocaleString(undefined, fullOpts)} – ${end.toLocaleString(undefined, fullOpts)}`;
 }
 
+/**
+ * Convert `datetime-local` value (local wall time) to UTC ISO before saving.
+ * This avoids DB/server timezone defaults shifting the intended user time.
+ */
+function toApiDateTimeValue(localValue) {
+  if (!localValue) return localValue;
+  const d = new Date(localValue);
+  if (!Number.isFinite(d.getTime())) return localValue;
+  return d.toISOString();
+}
+
 function shouldUseMobileActivityDetail() {
   if (typeof window === 'undefined') return false;
   return window.matchMedia('(max-width: 767px)').matches || window.matchMedia('(hover: none)').matches;
@@ -467,8 +478,8 @@ export default function Calendar() {
             title: form.title,
             description: form.description || null,
             location,
-            start_at: form.start_at,
-            end_at: form.end_at,
+            start_at: toApiDateTimeValue(form.start_at),
+            end_at: toApiDateTimeValue(form.end_at),
           });
         } else {
           await api.activities.create({
@@ -478,8 +489,8 @@ export default function Calendar() {
             title: form.title,
             description: form.description || undefined,
             location,
-            start_at: form.start_at,
-            end_at: form.end_at,
+            start_at: toApiDateTimeValue(form.start_at),
+            end_at: toApiDateTimeValue(form.end_at),
           });
         }
         setForm({
