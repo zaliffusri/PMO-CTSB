@@ -164,6 +164,12 @@ function shouldUseMobileActivityDetail() {
   return window.matchMedia('(max-width: 767px)').matches || window.matchMedia('(hover: none)').matches;
 }
 
+function csvCell(v) {
+  const s = String(v ?? '');
+  if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+  return s;
+}
+
 /** Location from Settings → Locations (plus Others). */
 function ActivityLocationFields({ siteLocations, preset, other, onPreset, onOther, style }) {
   return (
@@ -341,6 +347,7 @@ export default function Calendar() {
   const [editingActivityId, setEditingActivityId] = useState(null);
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
+  const [showReport, setShowReport] = useState(false);
   const nonAdminUsers = useMemo(
     () => users.filter((u) => u.role !== 'admin' && u.active !== false),
     [users],
@@ -605,6 +612,45 @@ export default function Calendar() {
 
   const detailActivity = detailActivityId != null ? groupedCalendarActivities.find((x) => x.id === detailActivityId) : null;
   const dayListActivities = dayListDay != null ? (activitiesByDay[dayListDay] ?? []) : [];
+  const clientByProjectId = useMemo(
+    () => Object.fromEntries(projects.map((p) => [String(p.id), p.client_name || '-'])),
+    [projects],
+  );
+  const reportRows = useMemo(
+    () =>
+      groupedCalendarActivities.map((a) => ({
+        date: new Date(a.start_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+        staff_name: a.person_name || '-',
+        client: a.project_id != null ? clientByProjectId[String(a.project_id)] || '-' : '-',
+        title: a.title || '-',
+        location: a.location || '-',
+      })),
+    [groupedCalendarActivities, clientByProjectId],
+  );
+
+  const downloadReportCsv = () => {
+    const headers = ['Date', 'Staff Name', 'Client', 'Title', 'Location'];
+    const lines = [headers.join(',')];
+    reportRows.forEach((r) => {
+      lines.push([
+        csvCell(r.date),
+        csvCell(r.staff_name),
+        csvCell(r.client),
+        csvCell(r.title),
+        csvCell(r.location),
+      ].join(','));
+    });
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `activity_report_${year}_${String(month).padStart(2, '0')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div>
@@ -616,7 +662,70 @@ export default function Calendar() {
         <button type="button" onClick={openCreateForm} style={btnPrimary}>
           + Log activity
         </button>
+        <button type="button" onClick={() => setShowReport(true)} style={btnSecondary}>
+          Generate report
+        </button>
       </div>
+      {showReport && (
+        <div className="modal-backdrop" onClick={() => setShowReport(false)} role="presentation">
+          <div
+            className="modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activity-report-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="activity-report-modal-title" className="modal-dialog-title">
+                Activity report ({MONTH_NAMES[month - 1]} {year})
+              </h2>
+              <button type="button" className="modal-dialog-close" onClick={() => setShowReport(false)} aria-label="Close dialog">
+                ×
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <button type="button" style={btnPrimary} onClick={downloadReportCsv}>
+                Download CSV
+              </button>
+              <button type="button" style={btnSecondary} onClick={() => setShowReport(false)}>
+                Close
+              </button>
+            </div>
+            <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                    <th style={{ padding: '0.55rem 0.65rem' }}>Date</th>
+                    <th style={{ padding: '0.55rem 0.65rem' }}>Staff Name</th>
+                    <th style={{ padding: '0.55rem 0.65rem' }}>Client</th>
+                    <th style={{ padding: '0.55rem 0.65rem' }}>Title</th>
+                    <th style={{ padding: '0.55rem 0.65rem' }}>Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>
+                        No activity for this month.
+                      </td>
+                    </tr>
+                  ) : (
+                    reportRows.map((r, idx) => (
+                      <tr key={`${r.date}-${r.staff_name}-${r.title}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.date}</td>
+                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.staff_name}</td>
+                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.client}</td>
+                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.title}</td>
+                        <td style={{ padding: '0.55rem 0.65rem' }}>{r.location}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
       {showForm && (
         <div className="modal-backdrop" onClick={() => { setShowForm(false); setEditingActivityId(null); }} role="presentation">
           <div
