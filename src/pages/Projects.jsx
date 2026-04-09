@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
+import { useSubmitLock } from '../hooks/useSubmitLock';
 
 const PROJECT_CLASSIFICATION_OPTIONS = [
   'Pre-Sales Project',
@@ -19,6 +20,7 @@ export default function Projects() {
   const [filterTag, setFilterTag] = useState('');
   const [form, setForm] = useState({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
   const [tagInput, setTagInput] = useState('');
+  const { pending: saving, run } = useSubmitLock();
 
   const load = () => api.projects.list(filterTag ? { tag: filterTag } : {}).then(setProjects).catch(console.error).finally(() => setLoading(false));
 
@@ -45,16 +47,18 @@ export default function Projects() {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return;
-    try {
-      await api.projects.create({ ...form, client_id: form.client_id || undefined, tags: form.tags });
-      setForm({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
-      setTagInput('');
-      setShowForm(false);
-      load();
-      api.projects.tagsList().then(setAllTags).catch(console.error);
-    } catch (err) {
-      alert(err.message);
-    }
+    await run(async () => {
+      try {
+        await api.projects.create({ ...form, client_id: form.client_id || undefined, tags: form.tags });
+        setForm({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
+        setTagInput('');
+        setShowForm(false);
+        load();
+        api.projects.tagsList().then(setAllTags).catch(console.error);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   if (loading) return <div style={{ padding: '2rem' }}>Loading...</div>;
@@ -165,8 +169,8 @@ export default function Projects() {
                 </label>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button type="submit" style={btnPrimary}>Create</button>
-                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary}>Cancel</button>
+                <button type="submit" style={btnPrimary} disabled={saving}>{saving ? 'Creating…' : 'Create'}</button>
+                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary} disabled={saving}>Cancel</button>
               </div>
             </form>
           </div>

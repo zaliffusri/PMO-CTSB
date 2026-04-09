@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
+import { useSubmitLock } from '../hooks/useSubmitLock';
 
 export default function Team() {
   const [people, setPeople] = useState([]);
@@ -13,6 +14,7 @@ export default function Team() {
   const [workload, setWorkload] = useState(null);
   const [from, setFrom] = useState(new Date().toISOString().slice(0, 10));
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const { pending: saving, run } = useSubmitLock();
 
   const load = () => api.people.list().then(setPeople).catch(console.error).finally(() => setLoading(false));
 
@@ -35,14 +37,16 @@ export default function Team() {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return;
-    try {
-      await api.people.create(form);
-      setForm({ name: '', email: '', role: '' });
-      setShowForm(false);
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    await run(async () => {
+      try {
+        await api.people.create(form);
+        setForm({ name: '', email: '', role: '' });
+        setShowForm(false);
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   if (loading) return <div style={{ padding: '2rem' }}>Loading...</div>;
@@ -72,7 +76,7 @@ export default function Team() {
             <label>Role
               <input type="text" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} placeholder="e.g. Developer, Analyst" style={inputStyle} />
             </label>
-            <button type="submit" style={btnPrimary}>Add</button>
+            <button type="submit" style={btnPrimary} disabled={saving}>{saving ? 'Adding…' : 'Add'}</button>
           </form>
         </div>
       )}

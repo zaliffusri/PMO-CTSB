@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSubmitLock } from './hooks/useSubmitLock';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from './ThemeContext';
 import { useAuth } from './AuthContext';
@@ -168,20 +169,19 @@ function AuthScreen() {
   const { login } = useAuth();
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, run } = useSubmitLock();
   const [error, setError] = useState('');
 
   const submit = async (e) => {
     e.preventDefault();
     setError('');
-    setBusy(true);
-    try {
-      await login(form.email, form.password);
-    } catch (err) {
-      setError(err.message || 'Authentication failed');
-    } finally {
-      setBusy(false);
-    }
+    await run(async () => {
+      try {
+        await login(form.email, form.password);
+      } catch (err) {
+        setError(err.message || 'Authentication failed');
+      }
+    });
   };
 
   return (

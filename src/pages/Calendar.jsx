@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
+import { useSubmitLock } from '../hooks/useSubmitLock';
 import {
   ACTIVITY_LOCATION_OTHERS,
   DEFAULT_ACTIVITY_SITE_LOCATIONS,
@@ -207,7 +208,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   );
 }
 
-function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete }) {
+function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, actionPending }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
   return (
@@ -226,15 +227,21 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete })
         {a.location && <p className="calendar-detail-sheet-line">{a.location}</p>}
         <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
         {a.description && <p className="calendar-detail-sheet-desc">{a.description}</p>}
-        <button type="button" style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }} onClick={() => onEdit?.(a)}>
+        <button
+          type="button"
+          style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }}
+          onClick={() => onEdit?.(a)}
+          disabled={actionPending}
+        >
           Edit activity
         </button>
         <button
           type="button"
           style={{ ...btnSecondary, width: '100%', marginTop: '0.5rem', color: 'var(--danger)' }}
           onClick={() => onDelete?.(a)}
+          disabled={actionPending}
         >
-          Delete activity
+          {actionPending ? 'Please wait…' : 'Delete activity'}
         </button>
         <button type="button" className="calendar-detail-close" onClick={onClose}>
           Close
@@ -318,6 +325,7 @@ export default function Calendar() {
 
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
   const [dayListDay, setDayListDay] = useState(null);
+  const { pending: mutating, run: runMutation } = useSubmitLock();
 
   const { rangeStartIso, rangeEndExclusiveIso } = useMemo(() => getMonthRange(year, month), [year, month]);
   const grid = useMemo(() => getCalendarGrid(year, month), [year, month]);
@@ -437,48 +445,50 @@ export default function Calendar() {
       alert('Please select a location or enter a custom one under Others.');
       return;
     }
-    try {
-      if (editingActivityId != null) {
-        await api.activities.update(editingActivityId, {
-          person_ids: form.person_ids.map((pid) => +pid),
-          project_id: form.project_id || null,
-          type: form.type,
-          title: form.title,
-          description: form.description || null,
-          location,
-          start_at: form.start_at,
-          end_at: form.end_at,
+    await runMutation(async () => {
+      try {
+        if (editingActivityId != null) {
+          await api.activities.update(editingActivityId, {
+            person_ids: form.person_ids.map((pid) => +pid),
+            project_id: form.project_id || null,
+            type: form.type,
+            title: form.title,
+            description: form.description || null,
+            location,
+            start_at: form.start_at,
+            end_at: form.end_at,
+          });
+        } else {
+          await api.activities.create({
+            person_ids: form.person_ids.map((pid) => +pid),
+            project_id: form.project_id || undefined,
+            type: form.type,
+            title: form.title,
+            description: form.description || undefined,
+            location,
+            start_at: form.start_at,
+            end_at: form.end_at,
+          });
+        }
+        setForm({
+          person_ids: [],
+          project_id: '',
+          type: 'meeting',
+          title: '',
+          description: '',
+          locationPreset: activitySites[0] || '',
+          locationOther: '',
+          start_at: '',
+          end_at: '',
         });
-      } else {
-        await api.activities.create({
-          person_ids: form.person_ids.map((pid) => +pid),
-          project_id: form.project_id || undefined,
-          type: form.type,
-          title: form.title,
-          description: form.description || undefined,
-          location,
-          start_at: form.start_at,
-          end_at: form.end_at,
-        });
+        setPersonSearch('');
+        setShowForm(false);
+        setEditingActivityId(null);
+        loadActivities(rangeStartIso, rangeEndExclusiveIso);
+      } catch (err) {
+        alert(err.message);
       }
-      setForm({
-        person_ids: [],
-        project_id: '',
-        type: 'meeting',
-        title: '',
-        description: '',
-        locationPreset: activitySites[0] || '',
-        locationOther: '',
-        start_at: '',
-        end_at: '',
-      });
-      setPersonSearch('');
-      setShowForm(false);
-      setEditingActivityId(null);
-      loadActivities(rangeStartIso, rangeEndExclusiveIso);
-    } catch (err) {
-      alert(err.message);
-    }
+    });
   };
 
   const filteredUsers = nonAdminUsers.filter((u) => {
@@ -549,18 +559,20 @@ export default function Calendar() {
   const deleteActivity = async (a) => {
     if (!a?.id) return;
     if (!confirm(`Delete activity "${a.title}"?`)) return;
-    try {
-      await api.activities.delete(a.id);
-      setDetailActivityId(null);
-      setDayListDay(null);
-      if (editingActivityId === a.id) {
-        setShowForm(false);
-        setEditingActivityId(null);
+    await runMutation(async () => {
+      try {
+        await api.activities.delete(a.id);
+        setDetailActivityId(null);
+        setDayListDay(null);
+        if (editingActivityId === a.id) {
+          setShowForm(false);
+          setEditingActivityId(null);
+        }
+        loadActivities(rangeStartIso, rangeEndExclusiveIso);
+      } catch (err) {
+        alert(err.message);
       }
-      loadActivities(rangeStartIso, rangeEndExclusiveIso);
-    } catch (err) {
-      alert(err.message);
-    }
+    });
   };
 
   const detailActivity = detailActivityId != null ? groupedCalendarActivities.find((x) => x.id === detailActivityId) : null;
@@ -679,10 +691,10 @@ export default function Calendar() {
                 <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
               </label>
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                <button type="submit" style={btnPrimary}>
-                  {editingActivityId != null ? 'Update activity' : 'Save activity'}
+                <button type="submit" style={btnPrimary} disabled={mutating}>
+                  {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}
                 </button>
-                <button type="button" style={btnSecondary} onClick={() => { setShowForm(false); setEditingActivityId(null); }}>
+                <button type="button" style={btnSecondary} disabled={mutating} onClick={() => { setShowForm(false); setEditingActivityId(null); }}>
                   Cancel
                 </button>
               </div>
@@ -779,6 +791,7 @@ export default function Calendar() {
           onClose={() => setDetailActivityId(null)}
           onEdit={openEditActivity}
           onDelete={deleteActivity}
+          actionPending={mutating}
         />
       )}
     </div>

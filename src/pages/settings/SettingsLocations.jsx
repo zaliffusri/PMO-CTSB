@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
 import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle, mapApiToForm } from './settingsStyles';
+import { useSubmitLock } from '../../hooks/useSubmitLock';
 
 const cardFullWidth = {
   ...card,
@@ -12,7 +13,7 @@ const cardFullWidth = {
 
 export default function SettingsLocations() {
   const { form, setForm } = useOutletContext();
-  const [saving, setSaving] = useState(false);
+  const { pending: saving, run } = useSubmitLock();
   const [msg, setMsg] = useState('');
   /** One row per site: name + optional km from reference office */
   const [rows, setRows] = useState([{ name: '', km: '' }]);
@@ -74,21 +75,20 @@ export default function SettingsLocations() {
       const n = r.km === '' || r.km === undefined ? 0 : Number(r.km);
       mileage_from_office_km[loc] = Number.isFinite(n) && n >= 0 ? n : 0;
     }
-    try {
-      setSaving(true);
-      setMsg('');
-      const s = await api.settings.update({
-        activity_locations,
-        mileage_from_office_km,
-      });
-      setForm(mapApiToForm(s));
-      setMsg('Saved.');
-      return { ok: true };
-    } catch (e2) {
-      return { ok: false, err: e2.message || 'Save failed' };
-    } finally {
-      setSaving(false);
-    }
+    return run(async () => {
+      try {
+        setMsg('');
+        const s = await api.settings.update({
+          activity_locations,
+          mileage_from_office_km,
+        });
+        setForm(mapApiToForm(s));
+        setMsg('Saved.');
+        return { ok: true };
+      } catch (e2) {
+        return { ok: false, err: e2.message || 'Save failed' };
+      }
+    });
   };
 
   const applyModal = async () => {
@@ -104,6 +104,7 @@ export default function SettingsLocations() {
       : rows.map((r, j) => (j === editModal.index ? { name, km } : r));
 
     const result = await persistRows(nextRows);
+    if (result == null) return;
     if (!result.ok) {
       setModalErr(result.err || 'Save failed');
       return;
@@ -117,6 +118,7 @@ export default function SettingsLocations() {
     const i = editModal.index;
     const nextRows = rows.filter((_, j) => j !== i);
     const result = await persistRows(nextRows);
+    if (result == null) return;
     if (!result.ok) {
       setModalErr(result.err || 'Save failed');
       return;

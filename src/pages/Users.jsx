@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
+import { useSubmitLock } from '../hooks/useSubmitLock';
 
 const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', hr: 'HR', user: 'User' };
 const ROLE_OPTIONS = [
@@ -25,7 +26,9 @@ export default function Users() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [togglingId, setTogglingId] = useState(null);
+  const { pending: createPending, run: runCreate } = useSubmitLock();
+  const { pending: editPending, run: runEdit } = useSubmitLock();
+  const { pending: statusBusy, run: runStatus } = useSubmitLock();
   const createFirstFieldRef = useRef(null);
   const editFirstFieldRef = useRef(null);
 
@@ -87,17 +90,19 @@ export default function Users() {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || !form.email.trim()) return;
-    try {
-      await api.users.create({
-        name: form.name.trim(),
-        email: form.email.trim(),
-        role: form.role,
-      });
-      cancelCreate();
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    await runCreate(async () => {
+      try {
+        await api.users.create({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          role: form.role,
+        });
+        cancelCreate();
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   const startEdit = (u) => {
@@ -119,34 +124,35 @@ export default function Users() {
   const saveEdit = async (e) => {
     e.preventDefault();
     if (!editForm.name.trim() || !editForm.email.trim()) return;
-    try {
-      const body = {
-        name: editForm.name.trim(),
-        email: editForm.email.trim(),
-        role: editForm.role,
-        active: editForm.active,
-      };
-      if (editForm.password.trim()) body.password = editForm.password;
-      await api.users.update(editingId, body);
-      cancelEdit();
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    await runEdit(async () => {
+      try {
+        const body = {
+          name: editForm.name.trim(),
+          email: editForm.email.trim(),
+          role: editForm.role,
+          active: editForm.active,
+        };
+        if (editForm.password.trim()) body.password = editForm.password;
+        await api.users.update(editingId, body);
+        cancelEdit();
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   const setUserActiveInline = async (u, nextActive) => {
     const current = u.active !== false;
     if (current === nextActive) return;
-    setTogglingId(u.id);
-    try {
-      await api.users.update(u.id, { active: nextActive });
-      await load();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setTogglingId(null);
-    }
+    await runStatus(async () => {
+      try {
+        await api.users.update(u.id, { active: nextActive });
+        await load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   if (loading) return <div style={{ padding: '2rem' }}>Loading...</div>;
@@ -208,8 +214,8 @@ export default function Users() {
                 New users get default password: <code>P@ssw0rd</code>
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                <button type="submit" style={btnPrimary}>Create</button>
-                <button type="button" style={btnSecondarySm} onClick={cancelCreate}>Cancel</button>
+                <button type="submit" style={btnPrimary} disabled={createPending}>{createPending ? 'Creating…' : 'Create'}</button>
+                <button type="button" style={btnSecondarySm} onClick={cancelCreate} disabled={createPending}>Cancel</button>
               </div>
             </form>
           </div>
@@ -284,8 +290,8 @@ export default function Users() {
                 <span>Account active (inactive users cannot sign in)</span>
               </label>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                <button type="submit" style={btnPrimary}>Save</button>
-                <button type="button" style={btnSecondarySm} onClick={cancelEdit}>
+                <button type="submit" style={btnPrimary} disabled={editPending}>{editPending ? 'Saving…' : 'Save'}</button>
+                <button type="button" style={btnSecondarySm} onClick={cancelEdit} disabled={editPending}>
                   Cancel
                 </button>
               </div>
@@ -401,7 +407,7 @@ export default function Users() {
                       <td style={tdStyle}>
                         <select
                           value={u.active === false ? 'inactive' : 'active'}
-                          disabled={togglingId === u.id}
+                          disabled={statusBusy}
                           onChange={(e) => setUserActiveInline(u, e.target.value === 'active')}
                           aria-label={`Status for ${u.name}`}
                           style={{ ...inputStyle, marginTop: 0, minWidth: '7.5rem', padding: '0.35rem 0.5rem' }}

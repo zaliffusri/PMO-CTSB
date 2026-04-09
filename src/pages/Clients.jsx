@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
+import { useSubmitLock } from '../hooks/useSubmitLock';
 
 export default function Clients() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', contact_name: '', email: '', phone: '' });
+  const { pending: saving, run } = useSubmitLock();
 
   const load = () => api.clients.list().then(setClients).catch(console.error).finally(() => setLoading(false));
 
@@ -18,24 +20,28 @@ export default function Clients() {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return;
-    try {
-      await api.clients.create(form);
-      setForm({ name: '', contact_name: '', email: '', phone: '' });
-      setShowForm(false);
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    await run(async () => {
+      try {
+        await api.clients.create(form);
+        setForm({ name: '', contact_name: '', email: '', phone: '' });
+        setShowForm(false);
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   const remove = async (id, name) => {
     if (!confirm(`Remove client "${name}"? Projects will be unlinked.`)) return;
-    try {
-      await api.clients.delete(id);
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    await run(async () => {
+      try {
+        await api.clients.delete(id);
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   if (loading) return <div style={{ padding: '2rem' }}>Loading...</div>;
@@ -83,8 +89,8 @@ export default function Clients() {
                 <input type="text" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle} />
               </label>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button type="submit" style={btnPrimary}>Add client</button>
-                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary}>Cancel</button>
+                <button type="submit" style={btnPrimary} disabled={saving}>{saving ? 'Adding…' : 'Add client'}</button>
+                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary} disabled={saving}>Cancel</button>
               </div>
             </form>
           </div>
@@ -111,7 +117,7 @@ export default function Clients() {
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <Link to="/projects" style={btnSecondary}>View projects</Link>
-                <button type="button" onClick={() => remove(c.id, c.name)} style={{ ...btnSecondary, color: 'var(--danger)' }}>Remove</button>
+                <button type="button" onClick={() => remove(c.id, c.name)} style={{ ...btnSecondary, color: 'var(--danger)' }} disabled={saving}>Remove</button>
               </div>
             </div>
           ))

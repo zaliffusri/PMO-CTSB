@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
+import { useSubmitLock } from '../hooks/useSubmitLock';
 
 function ProjectDetail() {
   const { id } = useParams();
@@ -34,6 +35,7 @@ function ProjectDetail() {
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState('');
   const [allTags, setAllTags] = useState([]);
+  const { pending: busy, run } = useSubmitLock();
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -70,39 +72,43 @@ function ProjectDetail() {
   const addAssignment = async (e) => {
     e.preventDefault();
     if (!assignForm.person_id) return;
-    try {
-      const created = await api.assignments.create({
-        project_id: +id,
-        person_id: +assignForm.person_id,
-        role_in_project: assignForm.role_in_project || undefined,
-        allocation_percent: 100,
-      });
-      setAssignForm({ person_id: '', role_in_project: '' });
-      setAssignOpen(false);
-      load();
-      const en = created?.email_notification;
-      if (en && en !== 'sent') {
-        const hint = {
-          no_recipient:
-            'Assignment saved. No notification email: add an email for this person on Team, or use the same name as their system user account.',
-          smtp_not_configured: 'Assignment saved. Email is not available until SMTP is configured on the server.',
-          failed: 'Assignment saved, but the notification email could not be sent. Ask an admin to check server logs.',
-        }[en];
-        if (hint) alert(hint);
+    await run(async () => {
+      try {
+        const created = await api.assignments.create({
+          project_id: +id,
+          person_id: +assignForm.person_id,
+          role_in_project: assignForm.role_in_project || undefined,
+          allocation_percent: 100,
+        });
+        setAssignForm({ person_id: '', role_in_project: '' });
+        setAssignOpen(false);
+        load();
+        const en = created?.email_notification;
+        if (en && en !== 'sent') {
+          const hint = {
+            no_recipient:
+              'Assignment saved. No notification email: add an email for this person on Team, or use the same name as their system user account.',
+            smtp_not_configured: 'Assignment saved. Email is not available until SMTP is configured on the server.',
+            failed: 'Assignment saved, but the notification email could not be sent. Ask an admin to check server logs.',
+          }[en];
+          if (hint) alert(hint);
+        }
+      } catch (err) {
+        alert(err.message);
       }
-    } catch (err) {
-      alert(err.message);
-    }
+    });
   };
 
   const removeAssignment = async (assignId) => {
     if (!confirm('Remove this team member from the project?')) return;
-    try {
-      await api.assignments.delete(assignId);
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    await run(async () => {
+      try {
+        await api.assignments.delete(assignId);
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   const resetTaskForm = () => {
@@ -142,49 +148,51 @@ function ProjectDetail() {
         return;
       }
     }
-    try {
-      if (taskAddMode === 'group') {
-        await api.projectTasks.create({
-          project_id: +id,
-          name: taskForm.name.trim(),
-          task_kind: 'group',
-          planned_start_date: taskForm.planned_start_date || undefined,
-          planned_end_date: taskForm.planned_end_date || undefined,
-        });
-      } else if (taskAddMode === 'subtask') {
-        const parentId = parseInt(String(taskForm.parent_id), 10);
-        await api.projectTasks.create({
-          project_id: +id,
-          name: taskForm.name.trim(),
-          task_kind: 'task',
-          parent_id: parentId,
-          planned_start_date: taskForm.planned_start_date || undefined,
-          planned_end_date: taskForm.planned_end_date || undefined,
-          actual_start_date: taskForm.actual_start_date || undefined,
-          actual_end_date: taskForm.actual_end_date || undefined,
-          progress_percent: taskForm.progress_percent ?? 0,
-          status: taskForm.status || 'new',
-          assignee_id: taskForm.assignee_id ? +taskForm.assignee_id : null,
-        });
-      } else {
-        await api.projectTasks.create({
-          project_id: +id,
-          name: taskForm.name.trim(),
-          task_kind: 'task',
-          planned_start_date: taskForm.planned_start_date || undefined,
-          planned_end_date: taskForm.planned_end_date || undefined,
-          actual_start_date: taskForm.actual_start_date || undefined,
-          actual_end_date: taskForm.actual_end_date || undefined,
-          progress_percent: taskForm.progress_percent ?? 0,
-          status: taskForm.status || 'new',
-          assignee_id: taskForm.assignee_id ? +taskForm.assignee_id : null,
-        });
+    await run(async () => {
+      try {
+        if (taskAddMode === 'group') {
+          await api.projectTasks.create({
+            project_id: +id,
+            name: taskForm.name.trim(),
+            task_kind: 'group',
+            planned_start_date: taskForm.planned_start_date || undefined,
+            planned_end_date: taskForm.planned_end_date || undefined,
+          });
+        } else if (taskAddMode === 'subtask') {
+          const parentId = parseInt(String(taskForm.parent_id), 10);
+          await api.projectTasks.create({
+            project_id: +id,
+            name: taskForm.name.trim(),
+            task_kind: 'task',
+            parent_id: parentId,
+            planned_start_date: taskForm.planned_start_date || undefined,
+            planned_end_date: taskForm.planned_end_date || undefined,
+            actual_start_date: taskForm.actual_start_date || undefined,
+            actual_end_date: taskForm.actual_end_date || undefined,
+            progress_percent: taskForm.progress_percent ?? 0,
+            status: taskForm.status || 'new',
+            assignee_id: taskForm.assignee_id ? +taskForm.assignee_id : null,
+          });
+        } else {
+          await api.projectTasks.create({
+            project_id: +id,
+            name: taskForm.name.trim(),
+            task_kind: 'task',
+            planned_start_date: taskForm.planned_start_date || undefined,
+            planned_end_date: taskForm.planned_end_date || undefined,
+            actual_start_date: taskForm.actual_start_date || undefined,
+            actual_end_date: taskForm.actual_end_date || undefined,
+            progress_percent: taskForm.progress_percent ?? 0,
+            status: taskForm.status || 'new',
+            assignee_id: taskForm.assignee_id ? +taskForm.assignee_id : null,
+          });
+        }
+        closeTaskAdd();
+        load();
+      } catch (err) {
+        alert(err.message);
       }
-      closeTaskAdd();
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    });
   };
 
   const deleteTask = async (taskId, taskKind) => {
@@ -192,12 +200,14 @@ function ProjectDetail() {
       ? 'Delete this task group and all of its subtasks?'
       : 'Delete this task?';
     if (!confirm(msg)) return;
-    try {
-      await api.projectTasks.delete(taskId);
-      load();
-    } catch (err) {
-      alert(err.message);
-    }
+    await run(async () => {
+      try {
+        await api.projectTasks.delete(taskId);
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   const patchTask = async (taskId, partial) => {
@@ -215,29 +225,47 @@ function ProjectDetail() {
     const next = [...tags, t];
     setTags(next);
     if (typeof tag === 'string') setTagInput('');
-    api.projects.update(id, { ...project, tags: next }).then(() => setProject(p => p ? { ...p, tags: next } : null)).catch(alert);
+    run(async () => {
+      try {
+        await api.projects.update(id, { ...project, tags: next });
+        setProject((p) => (p ? { ...p, tags: next } : null));
+      } catch (err) {
+        setTags((prev) => prev.filter((x) => x !== t));
+        alert(err.message || String(err));
+      }
+    });
   };
 
   const removeTag = (t) => {
-    const next = tags.filter(x => x !== t);
+    const next = tags.filter((x) => x !== t);
     setTags(next);
-    api.projects.update(id, { ...project, tags: next }).then(() => setProject(p => p ? { ...p, tags: next } : null)).catch(alert);
+    run(async () => {
+      try {
+        await api.projects.update(id, { ...project, tags: next });
+        setProject((p) => (p ? { ...p, tags: next } : null));
+      } catch (err) {
+        setTags((prev) => (prev.includes(t) ? prev : [...prev, t]));
+        alert(err.message || String(err));
+      }
+    });
   };
 
   const saveProjectEdit = async (e) => {
     e.preventDefault();
-    try {
-      const updated = await api.projects.update(id, {
-        name: editForm.name,
-        description: editForm.description || null,
-        status: editForm.status,
-        client_id: editForm.client_id ? +editForm.client_id : null,
-      });
-      setProject(updated);
-      setEditOpen(false);
-    } catch (err) {
-      alert(err.message);
-    }
+    await run(async () => {
+      try {
+        const updated = await api.projects.update(id, {
+          name: editForm.name,
+          description: editForm.description || null,
+          status: editForm.status,
+          client_id: editForm.client_id ? +editForm.client_id : null,
+        });
+        setProject(updated);
+        setEditOpen(false);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   if (loading || !project) return <div style={{ padding: '2rem' }}>Loading...</div>;
@@ -261,10 +289,10 @@ function ProjectDetail() {
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => setAssignOpen(!assignOpen)} style={btnPrimary}>
+          <button type="button" onClick={() => setAssignOpen(!assignOpen)} style={btnPrimary} disabled={busy}>
             {assignOpen ? 'Cancel' : '+ Assign team member'}
           </button>
-          <button type="button" onClick={() => setEditOpen(!editOpen)} style={btnSecondary}>
+          <button type="button" onClick={() => setEditOpen(!editOpen)} style={btnSecondary} disabled={busy}>
             {editOpen ? 'Cancel edit' : 'Edit project'}
           </button>
         </div>
@@ -319,8 +347,8 @@ function ProjectDetail() {
               </select>
             </label>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button type="submit" style={btnPrimary}>Save changes</button>
-              <button type="button" style={btnSecondary} onClick={() => setEditOpen(false)}>Cancel</button>
+              <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+              <button type="button" style={btnSecondary} onClick={() => setEditOpen(false)} disabled={busy}>Cancel</button>
             </div>
           </form>
         </div>
@@ -331,15 +359,17 @@ function ProjectDetail() {
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: '0 0 0.5rem' }}>Group this project with others. Choose existing tags or type a new one.</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
           {tags.map(t => (
-            <span key={t} style={tagChip}>{t} <button type="button" onClick={() => removeTag(t)} aria-label="Remove" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 0 0 4px', fontSize: '1rem' }}>×</button></span>
+            <span key={t} style={tagChip}>{t}{' '}
+              <button type="button" onClick={() => removeTag(t)} aria-label="Remove" disabled={busy} style={{ background: 'none', border: 'none', color: 'inherit', cursor: busy ? 'not-allowed' : 'pointer', padding: '0 0 0 4px', fontSize: '1rem', opacity: busy ? 0.5 : 1 }}>×</button>
+            </span>
           ))}
-          <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput); } }} placeholder="Or type new tag, press Enter" style={{ ...inputStyle, width: 'auto', minWidth: 160, margin: 0 }} />
+          <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput); } }} placeholder="Or type new tag, press Enter" style={{ ...inputStyle, width: 'auto', minWidth: 160, margin: 0 }} disabled={busy} />
         </div>
         {(allTags.filter(t => !tags.includes(t))).length > 0 && (
           <div style={{ marginTop: '0.75rem' }}>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Choose existing: </span>
             {allTags.filter(t => !tags.includes(t)).map(t => (
-              <button key={t} type="button" onClick={() => addTag(t)} style={tagChipButton}>{t}</button>
+              <button key={t} type="button" onClick={() => addTag(t)} style={tagChipButton} disabled={busy}>{t}</button>
             ))}
           </div>
         )}
@@ -368,7 +398,7 @@ function ProjectDetail() {
               Role in project
               <input type="text" value={assignForm.role_in_project} onChange={e => setAssignForm(f => ({ ...f, role_in_project: e.target.value }))} placeholder="e.g. Developer, Lead" style={inputStyle} />
             </label>
-            <button type="submit" style={btnPrimary}>Assign</button>
+            <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Assigning…' : 'Assign'}</button>
           </form>
         </div>
       )}
@@ -395,7 +425,7 @@ function ProjectDetail() {
                   </td>
                   <td style={tdStyle}>{m.role_in_project || '–'}</td>
                   <td style={tdStyle}>
-                    <button type="button" onClick={() => removeAssignment(m.id)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}>Remove</button>
+                    <button type="button" onClick={() => removeAssignment(m.id)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }} disabled={busy}>Remove</button>
                   </td>
                 </tr>
               ))}
@@ -415,19 +445,19 @@ function ProjectDetail() {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
             <Link to="/gantt" style={btnSecondary}>View Gantt</Link>
-            <button type="button" onClick={() => (taskAddMode === 'group' ? closeTaskAdd() : openTaskAdd('group'))} style={btnPrimary}>
+            <button type="button" onClick={() => (taskAddMode === 'group' ? closeTaskAdd() : openTaskAdd('group'))} style={btnPrimary} disabled={busy}>
               {taskAddMode === 'group' ? 'Cancel' : '+ Task group'}
             </button>
             <button
               type="button"
               onClick={() => (taskAddMode === 'subtask' ? closeTaskAdd() : openTaskAdd('subtask'))}
               style={btnSecondary}
-              disabled={taskGroups.length === 0}
+              disabled={busy || taskGroups.length === 0}
               title={taskGroups.length === 0 ? 'Create a task group first' : undefined}
             >
               {taskAddMode === 'subtask' ? 'Cancel' : '+ Subtask'}
             </button>
-            <button type="button" onClick={() => (taskAddMode === 'standalone' ? closeTaskAdd() : openTaskAdd('standalone'))} style={btnSecondary}>
+            <button type="button" onClick={() => (taskAddMode === 'standalone' ? closeTaskAdd() : openTaskAdd('standalone'))} style={btnSecondary} disabled={busy}>
               {taskAddMode === 'standalone' ? 'Cancel' : '+ Standalone task'}
             </button>
           </div>
@@ -492,7 +522,7 @@ function ProjectDetail() {
               )}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-              <button type="submit" style={btnPrimary}>Add</button>
+              <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Adding…' : 'Add'}</button>
               <button type="button" style={btnSecondary} onClick={closeTaskAdd}>Cancel</button>
             </div>
           </form>
@@ -582,7 +612,7 @@ function ProjectDetail() {
                         {isGroup ? <span style={{ color: 'var(--text-muted)' }}>—</span> : <>{t.progress_percent ?? 0}%</>}
                       </td>
                       <td style={tdStyle}>
-                        <button type="button" onClick={() => deleteTask(t.id, t.task_kind)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}>Delete</button>
+                        <button type="button" onClick={() => deleteTask(t.id, t.task_kind)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }} disabled={busy}>Delete</button>
                       </td>
                     </tr>
                   );

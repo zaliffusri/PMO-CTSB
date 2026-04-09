@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import { btnPrimary, card, inputStyle } from '../styles/commonStyles';
+import { useSubmitLock } from '../hooks/useSubmitLock';
 
 const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', hr: 'HR', user: 'User' };
 
 export default function Account() {
   const { user } = useAuth();
   const [form, setForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
-  const [saving, setSaving] = useState(false);
+  const { pending: saving, run } = useSubmitLock();
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
 
@@ -24,19 +25,18 @@ export default function Account() {
       setErr('New password and confirmation do not match.');
       return;
     }
-    try {
-      setSaving(true);
-      await api.auth.changePassword({
-        current_password: form.current_password,
-        new_password: form.new_password,
-      });
-      setMsg('Password changed successfully.');
-      setForm({ current_password: '', new_password: '', confirm_password: '' });
-    } catch (e2) {
-      setErr(e2.message || 'Failed to change password');
-    } finally {
-      setSaving(false);
-    }
+    await run(async () => {
+      try {
+        await api.auth.changePassword({
+          current_password: form.current_password,
+          new_password: form.new_password,
+        });
+        setMsg('Password changed successfully.');
+        setForm({ current_password: '', new_password: '', confirm_password: '' });
+      } catch (e2) {
+        setErr(e2.message || 'Failed to change password');
+      }
+    });
   };
 
   return (
