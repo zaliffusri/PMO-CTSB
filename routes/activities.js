@@ -40,6 +40,29 @@ function activityPersonName(storedId) {
   return person?.name ?? null;
 }
 
+/** Overlap: activity [start,end) vs [from, toExclusive). Supports legacy YYYY-MM-DD (inclusive `to`). */
+function parseActivityRangeFilter(fromRaw, toRaw) {
+  if (fromRaw == null || toRaw == null || fromRaw === '' || toRaw === '') return null;
+  const fromStr = String(fromRaw).trim();
+  const toStr = String(toRaw).trim();
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+  if (dateOnly.test(fromStr) && dateOnly.test(toStr)) {
+    const [fy, fm, fd] = fromStr.split('-').map(Number);
+    const [ty, tm, td] = toStr.split('-').map(Number);
+    const fromMs = Date.UTC(fy, fm - 1, fd, 0, 0, 0, 0);
+    const end = new Date(Date.UTC(ty, tm - 1, td));
+    end.setUTCDate(end.getUTCDate() + 1);
+    const toExclusive = end.getTime();
+    if (toExclusive <= fromMs) return null;
+    return { fromMs, toExclusive };
+  }
+  const fromMs = Date.parse(fromStr);
+  const toExclusive = Date.parse(toStr);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toExclusive)) return null;
+  if (toExclusive <= fromMs) return null;
+  return { fromMs, toExclusive };
+}
+
 function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, loggedBy }) {
   const assignee = store.findUserById(uid);
   let recipientEmail = String(assignee?.email || '').trim();
@@ -82,8 +105,15 @@ activitiesRouter.get('/', (req, res) => {
   });
   if (personId) rows = rows.filter(r => r.person_id === personId);
   if (projectId) rows = rows.filter(r => r.project_id === projectId);
-  if (from) rows = rows.filter(r => r.end_at >= from);
-  if (to) rows = rows.filter(r => r.start_at <= to);
+  const range = parseActivityRangeFilter(from, to);
+  if (range) {
+    const { fromMs, toExclusive } = range;
+    rows = rows.filter((r) => {
+      const s = new Date(r.start_at).getTime();
+      const e = new Date(r.end_at).getTime();
+      return s < toExclusive && e > fromMs;
+    });
+  }
   rows.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
   res.json(rows);
 });

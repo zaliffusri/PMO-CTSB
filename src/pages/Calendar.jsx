@@ -15,7 +15,14 @@ const btnNav = { padding: '0.5rem 0.75rem', background: 'var(--surface-hover)', 
 function getMonthRange(year, month) {
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
-  return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10), firstDayOfWeek: first.getDay(), daysInMonth: last.getDate() };
+  const monthEndExclusive = new Date(year, month, 1);
+  return {
+    /** Full ISO instants for API overlap (avoid UTC day shift from toISOString().slice(0, 10)). */
+    rangeStartIso: first.toISOString(),
+    rangeEndExclusiveIso: monthEndExclusive.toISOString(),
+    firstDayOfWeek: first.getDay(),
+    daysInMonth: last.getDate(),
+  };
 }
 
 function getCalendarGrid(year, month) {
@@ -35,13 +42,11 @@ function getCalendarGrid(year, month) {
 }
 
 function isActivityOnDate(activity, year, month, day) {
-  const start = new Date(activity.start_at);
-  const end = new Date(activity.end_at);
-  const d = new Date(year, month - 1, day);
-  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
-  return (start >= dayStart && start < dayEnd) || (end > dayStart && end <= dayEnd) || (start <= dayStart && end >= dayEnd);
+  const start = new Date(activity.start_at).getTime();
+  const end = new Date(activity.end_at).getTime();
+  const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+  const dayEnd = new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime();
+  return start < dayEnd && end > dayStart;
 }
 
 /** Same instant can come back from the API/DB as different strings (Z vs +00:00, ms vs none). */
@@ -314,7 +319,7 @@ export default function Calendar() {
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
   const [dayListDay, setDayListDay] = useState(null);
 
-  const { from: monthFrom, to: monthTo } = useMemo(() => getMonthRange(year, month), [year, month]);
+  const { rangeStartIso, rangeEndExclusiveIso } = useMemo(() => getMonthRange(year, month), [year, month]);
   const grid = useMemo(() => getCalendarGrid(year, month), [year, month]);
 
   const loadActivities = (f, t) =>
@@ -322,8 +327,8 @@ export default function Calendar() {
 
   useEffect(() => {
     setLoading(true);
-    loadActivities(monthFrom, monthTo).finally(() => setLoading(false));
-  }, [monthFrom, monthTo]);
+    loadActivities(rangeStartIso, rangeEndExclusiveIso).finally(() => setLoading(false));
+  }, [rangeStartIso, rangeEndExclusiveIso]);
 
   useEffect(() => {
     let cancelled = false;
@@ -470,7 +475,7 @@ export default function Calendar() {
       setPersonSearch('');
       setShowForm(false);
       setEditingActivityId(null);
-      loadActivities(monthFrom, monthTo);
+      loadActivities(rangeStartIso, rangeEndExclusiveIso);
     } catch (err) {
       alert(err.message);
     }
@@ -552,7 +557,7 @@ export default function Calendar() {
         setShowForm(false);
         setEditingActivityId(null);
       }
-      loadActivities(monthFrom, monthTo);
+      loadActivities(rangeStartIso, rangeEndExclusiveIso);
     } catch (err) {
       alert(err.message);
     }
