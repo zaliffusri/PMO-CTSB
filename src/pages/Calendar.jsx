@@ -906,6 +906,20 @@ export default function Calendar() {
         <button type="button" onClick={openCreateForm} style={btnPrimary}>
           + Log activity
         </button>
+        <label style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center', cursor: importing ? 'not-allowed' : 'pointer', opacity: importing ? 0.6 : 1 }}>
+          {importing ? 'Importing…' : 'Import Excel'}
+          <input
+            type="file"
+            accept=".xls,.xlsx,.csv"
+            style={{ display: 'none' }}
+            disabled={importing || mutating}
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              await importReportExcel(f);
+            }}
+          />
+        </label>
         <button type="button" onClick={() => setShowReport(true)} style={btnSecondary}>
           Generate report
         </button>
@@ -944,20 +958,6 @@ export default function Calendar() {
               <button type="button" style={btnPrimary} onClick={downloadReportExcel}>
                 Download Excel
               </button>
-              <label style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center', cursor: importing ? 'not-allowed' : 'pointer', opacity: importing ? 0.6 : 1 }}>
-                {importing ? 'Importing…' : 'Import Excel'}
-                <input
-                  type="file"
-                  accept=".xls,.xlsx,.csv"
-                  style={{ display: 'none' }}
-                  disabled={importing || mutating}
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = '';
-                    await importReportExcel(f);
-                  }}
-                />
-              </label>
               <button type="button" style={btnSecondary} onClick={() => setShowReport(false)}>
                 Close
               </button>
