@@ -247,45 +247,10 @@ activitiesRouter.put('/:id', async (req, res) => {
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
-
-  if (uniqueUids.length === 1) {
-    store.updateActivity(id, {
-      person_id: uniqueUids[0],
-      project_id: nextProjectId,
-      type: nextType,
-      title: nextTitle,
-      description: nextDescription,
-      location: nextLocation,
-      start_at: nextStart,
-      end_at: nextEnd,
-    });
-    const a = store.activities.find(x => x.id === id);
-    const project = store.projects.find(p => p.id === a.project_id);
-    store.appendAuditLog(req.user, {
-      action: 'update',
-      target_type: 'activity',
-      target_id: id,
-      summary: `Updated activity "${nextTitle}"`,
-      detail: { person_name: activityPersonName(a.person_id), project_name: project?.name },
-    });
-    try {
-      await store.persistToSupabase();
-    } catch (e) {
-      console.error('activities PUT persistToSupabase failed', e);
-      return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
-    }
-    return res.json({
-      ...a,
-      type: normalizeActivityType(a.type),
-      person_name: activityPersonName(a.person_id),
-      project_name: project?.name,
-      split_into: null,
-    });
-  }
-
-  await store.deleteActivity(id);
+  const previousGroupIds = idsInSameLogicalGroup(store.activities, id);
+  await store.deleteActivityLogicalGroupByAnyMemberId(id);
   const createdRows = [];
-  const project = store.projects.find(p => p.id === nextProjectId);
+  const project = store.projects.find(p => p.id === (nextProjectId || null));
   for (const uid of uniqueUids) {
     const newId = store.addActivity({
       person_id: uid,
@@ -311,14 +276,16 @@ activitiesRouter.put('/:id', async (req, res) => {
   }
 
   const firstNewId = createdRows[0]?.id ?? id;
+  const assigneeNames = createdRows.map((r) => activityPersonName(r.person_id)).filter(Boolean);
   store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'activity',
     target_id: firstNewId,
-    summary: `Edited activity "${nextTitle}" for ${uniqueUids.length} assignees`,
+    summary: `Updated activity "${nextTitle}"`,
     detail: {
-      previous_activity_id: id,
+      previous_activity_ids: previousGroupIds,
       new_activity_ids: createdRows.map((r) => r.id),
+      person_names: assigneeNames,
       project_name: project?.name,
     },
   });
@@ -326,7 +293,7 @@ activitiesRouter.put('/:id', async (req, res) => {
   try {
     await store.persistToSupabase();
   } catch (e) {
-    console.error('activities PUT (split) persistToSupabase failed', e);
+    console.error('activities PUT persistToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save activity to database' });
   }
 
@@ -336,11 +303,11 @@ activitiesRouter.put('/:id', async (req, res) => {
     type: normalizeActivityType(first.type),
     person_name: activityPersonName(first.person_id),
     project_name: project?.name,
-    split_into: createdRows.map((r) => ({
+    split_into: createdRows.length > 1 ? createdRows.map((r) => ({
       id: r.id,
       person_id: r.person_id,
       person_name: activityPersonName(r.person_id),
-    })),
+    })) : null,
     replaced_id: id,
   });
 });
