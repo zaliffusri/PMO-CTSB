@@ -47,6 +47,8 @@ async function request(path, options = {}) {
   try {
     res = await fetch(`${BASE}${path}`, {
       headers,
+      // Avoid stale GET responses (browser/CDN) when data changes outside the app.
+      cache: method === 'GET' ? 'no-store' : 'default',
       ...options,
     });
   } catch (e) {

@@ -89,7 +89,12 @@ function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_a
   }
 }
 
-activitiesRouter.get('/', (req, res) => {
+activitiesRouter.get('/', async (req, res) => {
+  try {
+    await store.refreshActivitiesFromSupabase();
+  } catch (e) {
+    console.warn('activities GET: could not refresh from Supabase', e?.message || e);
+  }
   const personId = req.query.person_id ? +req.query.person_id : null;
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const from = req.query.from;

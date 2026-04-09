@@ -454,6 +454,17 @@ export const store = {
     return true;
   },
 
+  /**
+   * Re-read activities from Supabase into memory. Use before listing so direct DB edits
+   * (e.g. SQL/dashboard deletes) are visible without restarting the server.
+   */
+  async refreshActivitiesFromSupabase() {
+    if (!supabase) return;
+    const { data: rows, error } = await supabase.from('activities').select('*').order('id', { ascending: true });
+    if (error) throw error;
+    data.activities = rows || [];
+  },
+
   addProjectTask(row) {
     const id = nextId(data.project_tasks);
     const created_at = new Date().toISOString();
