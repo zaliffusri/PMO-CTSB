@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
+import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
 import { isMailerConfigured, sendActivityLoggedEmail } from '../lib/mailer.js';
 
 export const activitiesRouter = Router();
@@ -346,14 +347,18 @@ activitiesRouter.put('/:id', async (req, res) => {
 
 activitiesRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.activities.find(a => a.id === id);
+  const existing = store.activities.find((a) => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
-  await store.deleteActivity(id);
+  const deletedIds = idsInSameLogicalGroup(store.activities, id);
+  const { deleted } = await store.deleteActivityLogicalGroupByAnyMemberId(id);
+  if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
+  const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';
   store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'activity',
     target_id: id,
-    summary: `Deleted activity "${existing.title}"`,
+    summary: `Deleted activity "${existing.title}"${suffix}`,
+    detail: { deleted_activity_ids: deletedIds },
   });
   try {
     await store.persistToSupabase();

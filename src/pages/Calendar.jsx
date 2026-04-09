@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import { activityLogicalGroupKey } from '../../lib/activityLogicalGroup.js';
 import {
   ACTIVITY_LOCATION_OTHERS,
   DEFAULT_ACTIVITY_SITE_LOCATIONS,
@@ -50,28 +51,16 @@ function isActivityOnDate(activity, year, month, day) {
   return start < dayEnd && end > dayStart;
 }
 
-/** Same instant can come back from the API/DB as different strings (Z vs +00:00, ms vs none). */
-function activityGroupTimeMs(value) {
-  const n = new Date(value).getTime();
-  return Number.isFinite(n) ? n : String(value ?? '');
-}
-
 /**
  * One "Log activity" with several people creates one DB row per person. For the calendar,
  * merge those rows into a single chip with all assignee names grouped together.
  *
- * Group key uses normalized time (ms), trimmed text, and lowercased type so Postgres/Supabase
- * round-trips do not split one logical event into multiple chips.
+ * Group key is shared with the API (delete whole logical activity) — see lib/activityLogicalGroup.js.
  */
 function groupActivitiesForCalendar(activities) {
   const map = new Map();
   for (const a of activities) {
-    const projectKey = a.project_id != null && a.project_id !== '' ? String(a.project_id) : '';
-    const desc = String(a.description ?? '').trim();
-    const title = String(a.title ?? '').trim();
-    const loc = String(a.location ?? '').trim();
-    const type = String(a.type ?? '').toLowerCase();
-    const key = `${activityGroupTimeMs(a.start_at)}|${activityGroupTimeMs(a.end_at)}|${type}|${title}|${loc}|${projectKey}|${desc}`;
+    const key = activityLogicalGroupKey(a);
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(a);
   }
@@ -581,7 +570,12 @@ export default function Calendar() {
 
   const deleteActivity = async (a) => {
     if (!a?.id) return;
-    if (!confirm(`Delete activity "${a.title}"?`)) return;
+    const assigneeCount = Array.isArray(a.person_ids) && a.person_ids.length > 0 ? a.person_ids.length : 1;
+    const multiHint =
+      assigneeCount > 1
+        ? ` All ${assigneeCount} assignee records for this activity will be removed.`
+        : '';
+    if (!confirm(`Delete activity "${a.title}"?${multiHint}`)) return;
     await runMutation(async () => {
       try {
         await api.activities.delete(a.id);

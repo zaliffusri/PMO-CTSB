@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { normalizeTaskStatus } from '../lib/taskStatus.js';
+import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
 let warnedSupabase = false;
 
@@ -452,6 +453,25 @@ export const store = {
       if (error) throw error;
     }
     return true;
+  },
+
+  /**
+   * Delete every DB row for the same logical activity (multi-assignee creates one row per person).
+   * Uses the same grouping key as the calendar UI.
+   */
+  async deleteActivityLogicalGroupByAnyMemberId(id) {
+    const ids = idsInSameLogicalGroup(data.activities, id);
+    if (ids.length === 0) return { deleted: 0 };
+    const idSet = new Set(ids);
+    const before = data.activities.length;
+    data.activities = data.activities.filter((a) => !idSet.has(a.id));
+    if (data.activities.length === before) return { deleted: 0 };
+    save(data);
+    if (supabase) {
+      const { error } = await supabase.from('activities').delete().in('id', ids);
+      if (error) throw error;
+    }
+    return { deleted: ids.length };
   },
 
   /**
