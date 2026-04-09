@@ -208,6 +208,11 @@ activitiesRouter.post('/', async (req, res) => {
 });
 
 activitiesRouter.put('/:id', async (req, res) => {
+  try {
+    await store.refreshActivitiesFromSupabase();
+  } catch (e) {
+    console.warn('activities PUT: could not refresh from Supabase', e?.message || e);
+  }
   const { person_id, person_ids, project_id, type, title, description, location, start_at, end_at } = req.body;
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
@@ -318,6 +323,11 @@ activitiesRouter.put('/:id', async (req, res) => {
 });
 
 activitiesRouter.delete('/:id', async (req, res) => {
+  try {
+    await store.refreshActivitiesFromSupabase();
+  } catch (e) {
+    console.warn('activities DELETE: could not refresh from Supabase', e?.message || e);
+  }
   const id = +req.params.id;
   const existing = store.activities.find((a) => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
