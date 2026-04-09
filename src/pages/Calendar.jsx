@@ -170,6 +170,21 @@ function csvCell(v) {
   return s;
 }
 
+/** Return each day-of-month covered by activity interval within the visible month. */
+function activityCoveredDaysInMonth(activity, year, month) {
+  const start = new Date(activity.start_at).getTime();
+  const end = new Date(activity.end_at).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+  const { daysInMonth } = getMonthRange(year, month);
+  const result = [];
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+    const dayEnd = new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime();
+    if (start < dayEnd && end > dayStart) result.push(day);
+  }
+  return result;
+}
+
 /** Location from Settings → Locations (plus Others). */
 function ActivityLocationFields({ siteLocations, preset, other, onPreset, onOther, style }) {
   return (
@@ -616,17 +631,23 @@ export default function Calendar() {
     () => Object.fromEntries(projects.map((p) => [String(p.id), p.client_name || '-'])),
     [projects],
   );
-  const reportRows = useMemo(
-    () =>
-      groupedCalendarActivities.map((a) => ({
-        date: new Date(a.start_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
-        staff_name: a.person_name || '-',
-        client: a.project_id != null ? clientByProjectId[String(a.project_id)] || '-' : '-',
-        title: a.title || '-',
-        location: a.location || '-',
-      })),
-    [groupedCalendarActivities, clientByProjectId],
-  );
+  const reportRows = useMemo(() => {
+    const rows = [];
+    for (const a of groupedCalendarActivities) {
+      const coveredDays = activityCoveredDaysInMonth(a, year, month);
+      if (coveredDays.length === 0) continue;
+      for (const day of coveredDays) {
+        rows.push({
+          date: new Date(year, month - 1, day).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+          staff_name: a.person_name || '-',
+          client: a.project_id != null ? clientByProjectId[String(a.project_id)] || '-' : '-',
+          title: a.title || '-',
+          location: a.location || '-',
+        });
+      }
+    }
+    return rows;
+  }, [groupedCalendarActivities, clientByProjectId, year, month]);
 
   const downloadReportCsv = () => {
     const headers = ['Date', 'Staff Name', 'Client', 'Title', 'Location'];
