@@ -173,6 +173,92 @@ function escapeHtml(v) {
     .replaceAll("'", '&#39;');
 }
 
+function parseCsvRows(text) {
+  const rows = [];
+  let i = 0;
+  let field = '';
+  let row = [];
+  let inQuotes = false;
+  const pushField = () => { row.push(field); field = ''; };
+  const pushRow = () => { rows.push(row); row = []; };
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false; i += 1; continue;
+      }
+      field += ch; i += 1; continue;
+    }
+    if (ch === '"') { inQuotes = true; i += 1; continue; }
+    if (ch === ',') { pushField(); i += 1; continue; }
+    if (ch === '\n') { pushField(); pushRow(); i += 1; continue; }
+    if (ch === '\r') { i += 1; continue; }
+    field += ch; i += 1;
+  }
+  if (field.length > 0 || row.length > 0) { pushField(); pushRow(); }
+  return rows;
+}
+
+function normalizeHeader(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function firstNonEmpty(row, keys) {
+  for (const k of keys) {
+    const v = row[k];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+}
+
+function parseReportDateValue(dateLike) {
+  const raw = String(dateLike || '').trim();
+  if (!raw) return null;
+  // Support dd.mm.yyyy / dd-mm-yyyy / dd/mm/yyyy from imported spreadsheets.
+  const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (m) {
+    const dd = Number(m[1]);
+    const mm = Number(m[2]);
+    const yyyy = Number(m[3]);
+    if (yyyy >= 1900 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      const d = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+      if (Number.isFinite(d.getTime())) return d;
+    }
+  }
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d;
+}
+
+function parseImportedReportText(text) {
+  const src = String(text || '');
+  if (!src.trim()) return [];
+  if (src.includes('<table')) {
+    const doc = new DOMParser().parseFromString(src, 'text/html');
+    const trs = [...doc.querySelectorAll('table tr')];
+    if (trs.length === 0) return [];
+    const headers = [...trs[0].querySelectorAll('th,td')].map((x) => normalizeHeader(x.textContent));
+    const out = [];
+    trs.slice(1).forEach((tr) => {
+      const cells = [...tr.querySelectorAll('td')];
+      if (!cells.length) return;
+      const item = {};
+      cells.forEach((c, idx) => { item[headers[idx] || `col_${idx}`] = String(c.textContent || '').trim(); });
+      out.push(item);
+    });
+    return out;
+  }
+  const rows = parseCsvRows(src);
+  if (rows.length <= 1) return [];
+  const headers = rows[0].map(normalizeHeader);
+  return rows.slice(1).filter((r) => r.some((x) => String(x || '').trim() !== '')).map((r) => {
+    const item = {};
+    r.forEach((v, idx) => { item[headers[idx] || `col_${idx}`] = String(v || '').trim(); });
+    return item;
+  });
+}
+
 /** Return each day-of-month covered by activity interval within the visible month. */
 function activityCoveredDaysInMonth(activity, year, month) {
   const start = new Date(activity.start_at).getTime();
@@ -366,6 +452,7 @@ export default function Calendar() {
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
   const [showReport, setShowReport] = useState(false);
+  const [importing, setImporting] = useState(false);
   const nonAdminUsers = useMemo(
     () => users.filter((u) => u.role !== 'admin' && u.active !== false),
     [users],
@@ -721,6 +808,94 @@ export default function Calendar() {
     URL.revokeObjectURL(url);
   };
 
+  const importReportExcel = async (file) => {
+    if (!file) return;
+    const name = String(file.name || '').toLowerCase();
+    if (!(name.endsWith('.xls') || name.endsWith('.csv') || name.endsWith('.xlsx'))) {
+      alert('Please import .xls, .xlsx, or .csv file.');
+      return;
+    }
+    const text = await file.text();
+    const rows = parseImportedReportText(text);
+    if (rows.length === 0) {
+      alert('No rows found in imported file.');
+      return;
+    }
+    const userByName = new Map(nonAdminUsers.map((u) => [String(u.name || '').trim().toLowerCase(), u]));
+    const projectByClient = new Map(
+      projects
+        .filter((p) => String(p.client_name || '').trim() !== '')
+        .map((p) => [String(p.client_name || '').trim().toLowerCase(), p]),
+    );
+    const toIso = (dateLike, hh, mm) => {
+      const d = parseReportDateValue(dateLike);
+      if (!d) return '';
+      const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0);
+      return x.toISOString();
+    };
+    const tasks = [];
+    const skipped = [];
+    rows.forEach((r, idx) => {
+      const dateText = firstNonEmpty(r, ['date', 'activity date', 'day', 'tarikh']);
+      const staffText = firstNonEmpty(r, ['staff name', 'staff', 'person', 'assignee', 'nama staff']);
+      const title = firstNonEmpty(r, ['title', 'activity', 'tujuan']);
+      const location = firstNonEmpty(r, ['location', 'tempat']);
+      const client = firstNonEmpty(r, ['client', 'organisasi', 'organization']);
+      if (!dateText || !staffText || !title || !location) {
+        skipped.push(`Row ${idx + 2}: missing required columns (Date/Staff Name/Title/Location)`);
+        return;
+      }
+      const startIso = toIso(dateText, 9, 0);
+      const endIso = toIso(dateText, 17, 0);
+      if (!startIso || !endIso) {
+        skipped.push(`Row ${idx + 2}: invalid date "${dateText}"`);
+        return;
+      }
+      const personNames = String(staffText).split(',').map((s) => s.trim()).filter(Boolean);
+      const personIds = [];
+      personNames.forEach((nm) => {
+        const u = userByName.get(nm.toLowerCase());
+        if (u?.id != null) personIds.push(Number(u.id));
+      });
+      if (personIds.length === 0) {
+        skipped.push(`Row ${idx + 2}: no matched user for "${staffText}"`);
+        return;
+      }
+      const project = projectByClient.get(String(client).trim().toLowerCase());
+      tasks.push({
+        person_ids: [...new Set(personIds)],
+        project_id: project?.id || undefined,
+        type: 'meeting',
+        title: String(title).trim(),
+        location: String(location).trim(),
+        start_at: startIso,
+        end_at: endIso,
+      });
+    });
+    if (tasks.length === 0) {
+      alert(`No valid rows to import.\n${skipped.slice(0, 6).join('\n')}`);
+      return;
+    }
+    const proceed = confirm(`Import ${tasks.length} activity row(s)?${skipped.length ? `\nSkipped ${skipped.length} row(s).` : ''}`);
+    if (!proceed) return;
+    setImporting(true);
+    try {
+      await runMutation(async () => {
+        for (const body of tasks) {
+          // sequential by design: keeps API pressure low and easy to track failures
+          // eslint-disable-next-line no-await-in-loop
+          await api.activities.create(body);
+        }
+      });
+      await loadActivities(rangeStartIso, rangeEndExclusiveIso);
+      alert(`Imported ${tasks.length} activity row(s).${skipped.length ? ` Skipped ${skipped.length} row(s).` : ''}`);
+    } catch (e) {
+      alert(e?.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div>
       <h1 style={{ marginBottom: '0.5rem', fontSize: 'clamp(1.25rem, 4vw, 1.75rem)' }}>Calendar & Activities</h1>
@@ -769,6 +944,20 @@ export default function Calendar() {
               <button type="button" style={btnPrimary} onClick={downloadReportExcel}>
                 Download Excel
               </button>
+              <label style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center', cursor: importing ? 'not-allowed' : 'pointer', opacity: importing ? 0.6 : 1 }}>
+                {importing ? 'Importing…' : 'Import Excel'}
+                <input
+                  type="file"
+                  accept=".xls,.xlsx,.csv"
+                  style={{ display: 'none' }}
+                  disabled={importing || mutating}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    await importReportExcel(f);
+                  }}
+                />
+              </label>
               <button type="button" style={btnSecondary} onClick={() => setShowReport(false)}>
                 Close
               </button>
