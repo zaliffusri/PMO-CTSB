@@ -201,7 +201,12 @@ function parseCsvRows(text) {
 }
 
 function normalizeHeader(s) {
-  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\\/|]+/g, ' ')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
 }
 
 function firstNonEmpty(row, keys) {
@@ -811,8 +816,12 @@ export default function Calendar() {
   const importReportExcel = async (file) => {
     if (!file) return;
     const name = String(file.name || '').toLowerCase();
-    if (!(name.endsWith('.xls') || name.endsWith('.csv') || name.endsWith('.xlsx'))) {
-      alert('Please import .xls, .xlsx, or .csv file.');
+    if (name.endsWith('.xlsx')) {
+      alert('Please save the file as .xls or .csv before import (current importer does not parse .xlsx binary yet).');
+      return;
+    }
+    if (!(name.endsWith('.xls') || name.endsWith('.csv'))) {
+      alert('Please import .xls or .csv file.');
       return;
     }
     const text = await file.text();
@@ -836,11 +845,11 @@ export default function Calendar() {
     const tasks = [];
     const skipped = [];
     rows.forEach((r, idx) => {
-      const dateText = firstNonEmpty(r, ['date', 'activity date', 'day', 'tarikh']);
-      const staffText = firstNonEmpty(r, ['staff name', 'staff', 'person', 'assignee', 'nama staff']);
-      const title = firstNonEmpty(r, ['title', 'activity', 'tujuan']);
-      const location = firstNonEmpty(r, ['location', 'tempat']);
-      const client = firstNonEmpty(r, ['client', 'organisasi', 'organization']);
+      const dateText = firstNonEmpty(r, ['date', 'activity date', 'day', 'tarikh', 'date tarikh']);
+      const staffText = firstNonEmpty(r, ['staff name', 'staff', 'person', 'assignee', 'nama staff', 'nama staf', 'nama staff staff name']);
+      const title = firstNonEmpty(r, ['title', 'activity', 'tujuan', 'tujuan title']);
+      const location = firstNonEmpty(r, ['location', 'tempat', 'tempat location']);
+      const client = firstNonEmpty(r, ['client', 'organisasi', 'organization', 'organisasi client', 'client organisasi']);
       if (!dateText || !staffText || !title || !location) {
         skipped.push(`Row ${idx + 2}: missing required columns (Date/Staff Name/Title/Location)`);
         return;
