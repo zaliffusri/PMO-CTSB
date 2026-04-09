@@ -1,3 +1,9 @@
+/**
+ * All server calls go through `request()`. Browser DevTools → Console shows:
+ * - `[PMO API] ok …` — successful response (GET includes item count when the body is an array)
+ * - `[PMO API] failed …` — HTTP error response
+ * - `[PMO API] network error …` — fetch did not complete (offline, DNS, CORS, etc.)
+ */
 // VITE_API_BASE overrides everything (e.g. different API port).
 // In `vite` dev, call the API server directly — the /api proxy on :5173 often 404s on some setups
 // (browser hits Vite, which has no /api route). Backend CORS allows localhost origins.
@@ -33,13 +39,26 @@ export function setAuthToken(token) {
 }
 
 async function request(path, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
   const headers = { 'Content-Type': 'application/json', ...options.headers };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
-  const res = await fetch(`${BASE}${path}`, {
-    headers,
-    ...options,
-  });
-  if (res.status === 204) return null;
+
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers,
+      ...options,
+    });
+  } catch (e) {
+    console.error('[PMO API] network error', method, path, e?.message || e);
+    throw e;
+  }
+
+  if (res.status === 204) {
+    console.log('[PMO API] ok', method, path, 204);
+    return null;
+  }
+
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     // Session/token is invalid or expired.
@@ -48,7 +67,16 @@ async function request(path, options = {}) {
       window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
     }
   }
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const msg = data.error || res.statusText;
+    console.error('[PMO API] failed', method, path, res.status, msg);
+    throw new Error(msg);
+  }
+  if (method === 'GET' && Array.isArray(data)) {
+    console.log('[PMO API] ok', method, path, res.status, `(${data.length} items)`);
+  } else {
+    console.log('[PMO API] ok', method, path, res.status);
+  }
   return data;
 }
 

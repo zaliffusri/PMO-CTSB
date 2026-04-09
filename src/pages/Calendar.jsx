@@ -317,7 +317,9 @@ export default function Calendar() {
   const { from: monthFrom, to: monthTo } = useMemo(() => getMonthRange(year, month), [year, month]);
   const grid = useMemo(() => getCalendarGrid(year, month), [year, month]);
 
-  const loadActivities = (f, t) => api.activities.list({ from: f, to: t }).then(setActivities).catch(console.error);
+  const loadActivities = (f, t) =>
+    api.activities.list({ from: f, to: t }).then(setActivities).catch(() => setActivities([]));
+
   useEffect(() => {
     setLoading(true);
     loadActivities(monthFrom, monthTo).finally(() => setLoading(false));

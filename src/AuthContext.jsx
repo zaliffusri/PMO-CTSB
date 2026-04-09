@@ -17,6 +17,7 @@ export function AuthProvider({ children }) {
     api.auth.me()
       .then((res) => setUser(res.user))
       .catch(() => {
+        console.warn('[PMO Auth] session check failed (cleared token)');
         setAuthToken('');
         setUser(null);
       })
@@ -51,8 +52,8 @@ export function AuthProvider({ children }) {
     async logout() {
       try {
         await api.auth.logout();
-      } catch {
-        // swallow network/auth errors on logout
+      } catch (e) {
+        console.warn('[PMO Auth] logout request failed (local session cleared anyway)', e?.message || e);
       }
       setAuthToken('');
       setUser(null);
