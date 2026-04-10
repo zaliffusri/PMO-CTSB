@@ -853,6 +853,7 @@ export default function Calendar() {
           start_at: startIso,
           end_at: endIso,
           description: resolvedNames.length > 0 ? `Imported for: ${[...new Set(resolvedNames)].join(', ')}` : undefined,
+          import_client_name: client || '',
         },
       });
     });
@@ -1026,21 +1027,54 @@ export default function Calendar() {
       }
     };
 
+    const syncImportedClients = async () => {
+      const incoming = [
+        ...new Set(
+          tasks
+            .map((t) => String(t.import_client_name || '').trim())
+            .filter((x) => x !== '' && x !== '-'),
+        ),
+      ];
+      if (incoming.length === 0) return { added: 0, names: [] };
+      try {
+        const existingClients = await api.clients.list();
+        const existingSet = new Set(
+          (Array.isArray(existingClients) ? existingClients : [])
+            .map((c) => String(c?.name || '').trim().toLowerCase())
+            .filter(Boolean),
+        );
+        const toAdd = incoming.filter((name) => !existingSet.has(name.toLowerCase()));
+        for (const name of toAdd) {
+          // eslint-disable-next-line no-await-in-loop
+          await api.clients.create({ name });
+        }
+        return { added: toAdd.length, names: toAdd };
+      } catch (e) {
+        console.warn('import: could not sync new clients', e?.message || e);
+        return { added: 0, names: [], failed: true };
+      }
+    };
+
     setImporting(true);
     try {
       const locationSync = await syncImportedLocations();
+      const clientSync = await syncImportedClients();
       await runMutation(async () => {
         for (const body of tasks) {
+          const { import_client_name: _clientName, ...payload } = body;
           // sequential by design: keeps API pressure low and easy to track failures
           // eslint-disable-next-line no-await-in-loop
-          await api.activities.create(body);
+          await api.activities.create(payload);
         }
       });
       await loadActivities(rangeStartIso, rangeEndExclusiveIso);
       const locationMsg = locationSync.added > 0
         ? ` Added ${locationSync.added} new location(s) to Settings list.`
         : '';
-      alert(`Imported ${tasks.length} activity row(s).${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}${locationMsg}`);
+      const clientMsg = clientSync.added > 0
+        ? ` Added ${clientSync.added} new client(s).`
+        : '';
+      alert(`Imported ${tasks.length} activity row(s).${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}${locationMsg}${clientMsg}`);
       setImportPreview(null);
     } catch (e) {
       alert(e?.message || 'Import failed');
