@@ -209,6 +209,27 @@ function normalizeHeader(s) {
     .replace(/\s+/g, ' ');
 }
 
+let xlsxModulePromise = null;
+async function getXlsxModule() {
+  if (!xlsxModulePromise) {
+    xlsxModulePromise = import('https://esm.sh/xlsx@0.18.5');
+  }
+  return xlsxModulePromise;
+}
+
+function tableRowsToObjects(rows) {
+  const nonEmptyRows = rows
+    .map((r) => (Array.isArray(r) ? r.map((v) => String(v ?? '').trim()) : []))
+    .filter((r) => r.some((v) => v !== ''));
+  if (nonEmptyRows.length <= 1) return [];
+  const headers = nonEmptyRows[0].map(normalizeHeader);
+  return nonEmptyRows.slice(1).map((r) => {
+    const item = {};
+    headers.forEach((h, idx) => { item[h || `col_${idx}`] = String(r[idx] ?? '').trim(); });
+    return item;
+  });
+}
+
 function firstNonEmpty(row, keys) {
   for (const k of keys) {
     const v = row[k];
@@ -262,6 +283,22 @@ function parseImportedReportText(text) {
     r.forEach((v, idx) => { item[headers[idx] || `col_${idx}`] = String(v || '').trim(); });
     return item;
   });
+}
+
+async function parseImportedReportFile(file) {
+  const lower = String(file?.name || '').toLowerCase();
+  if (lower.endsWith('.xlsx')) {
+    const XLSX = await getXlsxModule();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const firstSheetName = wb.SheetNames?.[0];
+    if (!firstSheetName) return [];
+    const ws = wb.Sheets[firstSheetName];
+    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+    return tableRowsToObjects(matrix);
+  }
+  const text = await file.text();
+  return parseImportedReportText(text);
 }
 
 /** Return each day-of-month covered by activity interval within the visible month. */
@@ -817,16 +854,11 @@ export default function Calendar() {
   const importReportExcel = async (file) => {
     if (!file) return;
     const name = String(file.name || '').toLowerCase();
-    if (name.endsWith('.xlsx')) {
-      alert('Please save the file as .xls or .csv before import (current importer does not parse .xlsx binary yet).');
+    if (!(name.endsWith('.xls') || name.endsWith('.csv') || name.endsWith('.xlsx'))) {
+      alert('Please import .xls, .xlsx, or .csv file.');
       return;
     }
-    if (!(name.endsWith('.xls') || name.endsWith('.csv'))) {
-      alert('Please import .xls or .csv file.');
-      return;
-    }
-    const text = await file.text();
-    const rows = parseImportedReportText(text);
+    const rows = await parseImportedReportFile(file);
     if (rows.length === 0) {
       alert('No rows found in imported file.');
       return;
