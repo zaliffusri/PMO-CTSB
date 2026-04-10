@@ -990,8 +990,45 @@ export default function Calendar() {
       alert('No valid rows to import.');
       return;
     }
+
+    const syncImportedLocations = async () => {
+      const incoming = [...new Set(tasks.map((t) => String(t.location || '').trim()).filter(Boolean))];
+      if (incoming.length === 0) return { added: 0, names: [] };
+      try {
+        const settings = await api.settings.get();
+        const existing = Array.isArray(settings?.activity_locations) && settings.activity_locations.length > 0
+          ? settings.activity_locations.map((x) => String(x).trim()).filter(Boolean)
+          : [...DEFAULT_ACTIVITY_SITE_LOCATIONS];
+        const existingSet = new Set(existing.map((x) => x.toLowerCase()));
+        const toAdd = incoming.filter((loc) => !existingSet.has(loc.toLowerCase()));
+        if (toAdd.length === 0) return { added: 0, names: [] };
+        const nextLocations = [...existing, ...toAdd];
+        const nextMileage = settings?.mileage_from_office_km && typeof settings.mileage_from_office_km === 'object'
+          ? { ...settings.mileage_from_office_km }
+          : {};
+        toAdd.forEach((loc) => {
+          if (nextMileage[loc] === undefined || nextMileage[loc] === null || nextMileage[loc] === '') {
+            nextMileage[loc] = 0;
+          }
+        });
+        const saved = await api.settings.update({
+          activity_locations: nextLocations,
+          mileage_from_office_km: nextMileage,
+        });
+        const finalList = Array.isArray(saved?.activity_locations) && saved.activity_locations.length > 0
+          ? saved.activity_locations.map((x) => String(x).trim()).filter(Boolean)
+          : nextLocations;
+        setActivitySites(finalList.length ? finalList : DEFAULT_ACTIVITY_SITE_LOCATIONS);
+        return { added: toAdd.length, names: toAdd };
+      } catch (e) {
+        console.warn('import: could not sync new locations to settings', e?.message || e);
+        return { added: 0, names: [], failed: true };
+      }
+    };
+
     setImporting(true);
     try {
+      const locationSync = await syncImportedLocations();
       await runMutation(async () => {
         for (const body of tasks) {
           // sequential by design: keeps API pressure low and easy to track failures
@@ -1000,7 +1037,10 @@ export default function Calendar() {
         }
       });
       await loadActivities(rangeStartIso, rangeEndExclusiveIso);
-      alert(`Imported ${tasks.length} activity row(s).${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}`);
+      const locationMsg = locationSync.added > 0
+        ? ` Added ${locationSync.added} new location(s) to Settings list.`
+        : '';
+      alert(`Imported ${tasks.length} activity row(s).${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}${locationMsg}`);
       setImportPreview(null);
     } catch (e) {
       alert(e?.message || 'Import failed');
