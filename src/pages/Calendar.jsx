@@ -784,6 +784,82 @@ export default function Calendar() {
     return rows;
   }, [activities, clientByProjectId, year, month]);
 
+  const buildImportPreview = (editableRows, fileName = 'import-file') => {
+    const userByName = new Map(nonAdminUsers.map((u) => [String(u.name || '').trim().toLowerCase(), u]));
+    const userByEmail = new Map(nonAdminUsers.map((u) => [String(u.email || '').trim().toLowerCase(), u]));
+    const projectByClient = new Map(
+      projects
+        .filter((p) => String(p.client_name || '').trim() !== '')
+        .map((p) => [String(p.client_name || '').trim().toLowerCase(), p]),
+    );
+    const toIso = (dateLike, hh, mm) => {
+      const d = parseReportDateValue(dateLike);
+      if (!d) return '';
+      const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0);
+      return x.toISOString();
+    };
+    const rowsOut = [];
+    editableRows.forEach((raw) => {
+      const dateText = String(raw.date || '').trim();
+      const staffText = String(raw.staff_name || '').trim();
+      const title = String(raw.title || '').trim();
+      const location = String(raw.location || '').trim();
+      const client = String(raw.client || '').trim();
+      const base = {
+        row: raw.row,
+        date: dateText,
+        staff_name: staffText,
+        client: client || '-',
+        title,
+        location,
+      };
+      if (!dateText || !staffText || !title || !location) {
+        rowsOut.push({ ...base, status: 'invalid', reason: 'Missing required columns (Date/Staff Name/Title/Location)' });
+        return;
+      }
+      const startIso = toIso(dateText, 9, 0);
+      const endIso = toIso(dateText, 17, 0);
+      if (!startIso || !endIso) {
+        rowsOut.push({ ...base, status: 'invalid', reason: `Invalid date "${dateText}"` });
+        return;
+      }
+      const staffTokens = String(staffText).split(',').map((s) => s.trim()).filter(Boolean);
+      const personIds = [];
+      const resolvedNames = [];
+      staffTokens.forEach((token) => {
+        const key = token.toLowerCase();
+        const u = key.includes('@') ? userByEmail.get(key) : userByName.get(key);
+        if (u?.id != null) {
+          personIds.push(Number(u.id));
+          if (u.name) resolvedNames.push(String(u.name));
+        }
+      });
+      if (personIds.length === 0) {
+        rowsOut.push({ ...base, status: 'invalid', reason: `No matched user name/email for "${staffText}"` });
+        return;
+      }
+      const project = projectByClient.get(String(client).trim().toLowerCase());
+      rowsOut.push({
+        ...base,
+        status: 'valid',
+        reason: '',
+        resolved_staff: [...new Set(resolvedNames)].join(', '),
+        task: {
+          person_ids: [...new Set(personIds)],
+          project_id: project?.id || undefined,
+          type: 'meeting',
+          title,
+          location,
+          start_at: startIso,
+          end_at: endIso,
+          description: resolvedNames.length > 0 ? `Imported for: ${[...new Set(resolvedNames)].join(', ')}` : undefined,
+        },
+      });
+    });
+    const validCount = rowsOut.filter((x) => x.status === 'valid').length;
+    return { fileName, rows: rowsOut, validCount, invalidCount: rowsOut.length - validCount };
+  };
+
   const downloadReportExcel = () => {
     const title = `Activity Report - ${MONTH_NAMES[month - 1]} ${year}`;
     const generatedAt = new Date().toLocaleString();
@@ -863,103 +939,44 @@ export default function Calendar() {
       alert('No rows found in imported file.');
       return;
     }
-    const userByName = new Map(nonAdminUsers.map((u) => [String(u.name || '').trim().toLowerCase(), u]));
-    const userByEmail = new Map(nonAdminUsers.map((u) => [String(u.email || '').trim().toLowerCase(), u]));
-    const projectByClient = new Map(
-      projects
-        .filter((p) => String(p.client_name || '').trim() !== '')
-        .map((p) => [String(p.client_name || '').trim().toLowerCase(), p]),
-    );
-    const toIso = (dateLike, hh, mm) => {
-      const d = parseReportDateValue(dateLike);
-      if (!d) return '';
-      const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0);
-      return x.toISOString();
-    };
-    const previewRows = [];
+    const editableRows = [];
     rows.forEach((r, idx) => {
       const dateText = firstNonEmpty(r, ['date', 'activity date', 'day', 'tarikh', 'date tarikh']);
       const staffText = firstNonEmpty(r, ['staff name', 'staff', 'person', 'assignee', 'nama staff', 'nama staf', 'nama staff staff name']);
       const title = firstNonEmpty(r, ['title', 'activity', 'tujuan', 'tujuan title']);
       const location = firstNonEmpty(r, ['location', 'tempat', 'tempat location']);
       const client = firstNonEmpty(r, ['client', 'organisasi', 'organization', 'organisasi client', 'client organisasi']);
-      const base = {
+      editableRows.push({
         row: idx + 2,
         date: dateText,
         staff_name: staffText,
         client: client || '-',
         title: title || '',
         location: location || '',
-      };
-      if (!dateText || !staffText || !title || !location) {
-        previewRows.push({
-          ...base,
-          status: 'invalid',
-          reason: 'Missing required columns (Date/Staff Name/Title/Location)',
-        });
-        return;
-      }
-      const startIso = toIso(dateText, 9, 0);
-      const endIso = toIso(dateText, 17, 0);
-      if (!startIso || !endIso) {
-        previewRows.push({
-          ...base,
-          status: 'invalid',
-          reason: `Invalid date "${dateText}"`,
-        });
-        return;
-      }
-      const staffTokens = String(staffText)
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const personIds = [];
-      const resolvedNames = [];
-      staffTokens.forEach((token) => {
-        const key = token.toLowerCase();
-        const u = key.includes('@') ? userByEmail.get(key) : userByName.get(key);
-        if (u?.id != null) {
-          personIds.push(Number(u.id));
-          if (u.name) resolvedNames.push(String(u.name));
-        }
-      });
-      if (personIds.length === 0) {
-        previewRows.push({
-          ...base,
-          status: 'invalid',
-          reason: `No matched user name/email for "${staffText}"`,
-        });
-        return;
-      }
-      const project = projectByClient.get(String(client).trim().toLowerCase());
-      previewRows.push({
-        ...base,
-        status: 'valid',
-        reason: '',
-        resolved_staff: [...new Set(resolvedNames)].join(', '),
-        task: {
-        person_ids: [...new Set(personIds)],
-        project_id: project?.id || undefined,
-        type: 'meeting',
-        title: String(title).trim(),
-        location: String(location).trim(),
-        start_at: startIso,
-        end_at: endIso,
-        description: resolvedNames.length > 0 ? `Imported for: ${[...new Set(resolvedNames)].join(', ')}` : undefined,
-        },
       });
     });
-    const validRows = previewRows.filter((x) => x.status === 'valid');
-    const invalidRows = previewRows.filter((x) => x.status !== 'valid');
-    if (validRows.length === 0) {
+    const preview = buildImportPreview(editableRows, file.name || 'import-file');
+    if (preview.validCount === 0) {
+      const invalidRows = preview.rows.filter((x) => x.status !== 'valid');
       alert(`No valid rows to import.\n${invalidRows.slice(0, 6).map((x) => `Row ${x.row}: ${x.reason}`).join('\n')}`);
       return;
     }
-    setImportPreview({
-      fileName: file.name || 'import-file',
-      rows: previewRows,
-      validCount: validRows.length,
-      invalidCount: invalidRows.length,
+    setImportPreview(preview);
+  };
+
+  const updateImportPreviewCell = (rowNo, field, value) => {
+    setImportPreview((prev) => {
+      if (!prev) return prev;
+      const editableRows = prev.rows.map((r) => ({
+        row: r.row,
+        date: r.date,
+        staff_name: r.staff_name,
+        client: r.client,
+        title: r.title,
+        location: r.location,
+      }));
+      const nextRows = editableRows.map((r) => (r.row === rowNo ? { ...r, [field]: value } : r));
+      return buildImportPreview(nextRows, prev.fileName);
     });
   };
 
@@ -1142,11 +1159,52 @@ export default function Calendar() {
                   {importPreview.rows.map((r, idx) => (
                     <tr key={`${r.row}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '0.55rem 0.6rem' }}>{r.row}</td>
-                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.date || '-'}</td>
-                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.resolved_staff || r.staff_name || '-'}</td>
-                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.client || '-'}</td>
-                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.title || '-'}</td>
-                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.location || '-'}</td>
+                      <td style={{ padding: '0.45rem 0.5rem' }}>
+                        <input
+                          type="text"
+                          value={r.date || ''}
+                          onChange={(e) => updateImportPreviewCell(r.row, 'date', e.target.value)}
+                          style={{ ...inputStyle, margin: 0, minWidth: 120 }}
+                          disabled={importing}
+                        />
+                      </td>
+                      <td style={{ padding: '0.45rem 0.5rem' }}>
+                        <input
+                          type="text"
+                          value={r.staff_name || ''}
+                          onChange={(e) => updateImportPreviewCell(r.row, 'staff_name', e.target.value)}
+                          style={{ ...inputStyle, margin: 0, minWidth: 180 }}
+                          disabled={importing}
+                        />
+                        {r.resolved_staff ? <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.78rem' }}>{r.resolved_staff}</div> : null}
+                      </td>
+                      <td style={{ padding: '0.45rem 0.5rem' }}>
+                        <input
+                          type="text"
+                          value={r.client || ''}
+                          onChange={(e) => updateImportPreviewCell(r.row, 'client', e.target.value)}
+                          style={{ ...inputStyle, margin: 0, minWidth: 140 }}
+                          disabled={importing}
+                        />
+                      </td>
+                      <td style={{ padding: '0.45rem 0.5rem' }}>
+                        <input
+                          type="text"
+                          value={r.title || ''}
+                          onChange={(e) => updateImportPreviewCell(r.row, 'title', e.target.value)}
+                          style={{ ...inputStyle, margin: 0, minWidth: 180 }}
+                          disabled={importing}
+                        />
+                      </td>
+                      <td style={{ padding: '0.45rem 0.5rem' }}>
+                        <input
+                          type="text"
+                          value={r.location || ''}
+                          onChange={(e) => updateImportPreviewCell(r.row, 'location', e.target.value)}
+                          style={{ ...inputStyle, margin: 0, minWidth: 140 }}
+                          disabled={importing}
+                        />
+                      </td>
                       <td style={{ padding: '0.55rem 0.6rem', color: r.status === 'valid' ? 'var(--success)' : 'var(--danger)' }}>
                         {r.status === 'valid' ? 'Ready' : r.reason}
                       </td>
