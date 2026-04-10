@@ -458,6 +458,7 @@ export default function Calendar() {
   const [detailActivityId, setDetailActivityId] = useState(null);
   const [showReport, setShowReport] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
   const nonAdminUsers = useMemo(
     () => users.filter((u) => u.role !== 'admin' && u.active !== false),
     [users],
@@ -831,6 +832,7 @@ export default function Calendar() {
       return;
     }
     const userByName = new Map(nonAdminUsers.map((u) => [String(u.name || '').trim().toLowerCase(), u]));
+    const userByEmail = new Map(nonAdminUsers.map((u) => [String(u.email || '').trim().toLowerCase(), u]));
     const projectByClient = new Map(
       projects
         .filter((p) => String(p.client_name || '').trim() !== '')
@@ -842,36 +844,68 @@ export default function Calendar() {
       const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0, 0);
       return x.toISOString();
     };
-    const tasks = [];
-    const skipped = [];
+    const previewRows = [];
     rows.forEach((r, idx) => {
       const dateText = firstNonEmpty(r, ['date', 'activity date', 'day', 'tarikh', 'date tarikh']);
       const staffText = firstNonEmpty(r, ['staff name', 'staff', 'person', 'assignee', 'nama staff', 'nama staf', 'nama staff staff name']);
       const title = firstNonEmpty(r, ['title', 'activity', 'tujuan', 'tujuan title']);
       const location = firstNonEmpty(r, ['location', 'tempat', 'tempat location']);
       const client = firstNonEmpty(r, ['client', 'organisasi', 'organization', 'organisasi client', 'client organisasi']);
+      const base = {
+        row: idx + 2,
+        date: dateText,
+        staff_name: staffText,
+        client: client || '-',
+        title: title || '',
+        location: location || '',
+      };
       if (!dateText || !staffText || !title || !location) {
-        skipped.push(`Row ${idx + 2}: missing required columns (Date/Staff Name/Title/Location)`);
+        previewRows.push({
+          ...base,
+          status: 'invalid',
+          reason: 'Missing required columns (Date/Staff Name/Title/Location)',
+        });
         return;
       }
       const startIso = toIso(dateText, 9, 0);
       const endIso = toIso(dateText, 17, 0);
       if (!startIso || !endIso) {
-        skipped.push(`Row ${idx + 2}: invalid date "${dateText}"`);
+        previewRows.push({
+          ...base,
+          status: 'invalid',
+          reason: `Invalid date "${dateText}"`,
+        });
         return;
       }
-      const personNames = String(staffText).split(',').map((s) => s.trim()).filter(Boolean);
+      const staffTokens = String(staffText)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const personIds = [];
-      personNames.forEach((nm) => {
-        const u = userByName.get(nm.toLowerCase());
-        if (u?.id != null) personIds.push(Number(u.id));
+      const resolvedNames = [];
+      staffTokens.forEach((token) => {
+        const key = token.toLowerCase();
+        const u = key.includes('@') ? userByEmail.get(key) : userByName.get(key);
+        if (u?.id != null) {
+          personIds.push(Number(u.id));
+          if (u.name) resolvedNames.push(String(u.name));
+        }
       });
       if (personIds.length === 0) {
-        skipped.push(`Row ${idx + 2}: no matched user for "${staffText}"`);
+        previewRows.push({
+          ...base,
+          status: 'invalid',
+          reason: `No matched user name/email for "${staffText}"`,
+        });
         return;
       }
       const project = projectByClient.get(String(client).trim().toLowerCase());
-      tasks.push({
+      previewRows.push({
+        ...base,
+        status: 'valid',
+        reason: '',
+        resolved_staff: [...new Set(resolvedNames)].join(', '),
+        task: {
         person_ids: [...new Set(personIds)],
         project_id: project?.id || undefined,
         type: 'meeting',
@@ -879,14 +913,34 @@ export default function Calendar() {
         location: String(location).trim(),
         start_at: startIso,
         end_at: endIso,
+        description: resolvedNames.length > 0 ? `Imported for: ${[...new Set(resolvedNames)].join(', ')}` : undefined,
+        },
       });
     });
-    if (tasks.length === 0) {
-      alert(`No valid rows to import.\n${skipped.slice(0, 6).join('\n')}`);
+    const validRows = previewRows.filter((x) => x.status === 'valid');
+    const invalidRows = previewRows.filter((x) => x.status !== 'valid');
+    if (validRows.length === 0) {
+      alert(`No valid rows to import.\n${invalidRows.slice(0, 6).map((x) => `Row ${x.row}: ${x.reason}`).join('\n')}`);
       return;
     }
-    const proceed = confirm(`Import ${tasks.length} activity row(s)?${skipped.length ? `\nSkipped ${skipped.length} row(s).` : ''}`);
-    if (!proceed) return;
+    setImportPreview({
+      fileName: file.name || 'import-file',
+      rows: previewRows,
+      validCount: validRows.length,
+      invalidCount: invalidRows.length,
+    });
+  };
+
+  const confirmImportPreview = async () => {
+    if (!importPreview) return;
+    const tasks = importPreview.rows
+      .filter((x) => x.status === 'valid')
+      .map((x) => x.task)
+      .filter(Boolean);
+    if (tasks.length === 0) {
+      alert('No valid rows to import.');
+      return;
+    }
     setImporting(true);
     try {
       await runMutation(async () => {
@@ -897,7 +951,8 @@ export default function Calendar() {
         }
       });
       await loadActivities(rangeStartIso, rangeEndExclusiveIso);
-      alert(`Imported ${tasks.length} activity row(s).${skipped.length ? ` Skipped ${skipped.length} row(s).` : ''}`);
+      alert(`Imported ${tasks.length} activity row(s).${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}`);
+      setImportPreview(null);
     } catch (e) {
       alert(e?.message || 'Import failed');
     } finally {
@@ -1008,6 +1063,72 @@ export default function Calendar() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+      {importPreview && (
+        <div className="modal-backdrop" onClick={() => !importing && setImportPreview(null)} role="presentation">
+          <div
+            className="modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activity-import-preview-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="activity-import-preview-modal-title" className="modal-dialog-title">
+                Import preview ({importPreview.fileName})
+              </h2>
+              <button type="button" className="modal-dialog-close" onClick={() => setImportPreview(null)} aria-label="Close dialog" disabled={importing}>
+                ×
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+              <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
+                Valid: <strong>{importPreview.validCount}</strong>
+              </span>
+              <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
+                Skipped: <strong>{importPreview.invalidCount}</strong>
+              </span>
+            </div>
+            <div style={{ maxHeight: '55vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', background: 'var(--surface-hover)' }}>
+                    <th style={{ padding: '0.55rem 0.6rem' }}>Row</th>
+                    <th style={{ padding: '0.55rem 0.6rem' }}>Date</th>
+                    <th style={{ padding: '0.55rem 0.6rem' }}>Staff</th>
+                    <th style={{ padding: '0.55rem 0.6rem' }}>Client</th>
+                    <th style={{ padding: '0.55rem 0.6rem' }}>Title</th>
+                    <th style={{ padding: '0.55rem 0.6rem' }}>Location</th>
+                    <th style={{ padding: '0.55rem 0.6rem' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importPreview.rows.map((r, idx) => (
+                    <tr key={`${r.row}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.row}</td>
+                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.date || '-'}</td>
+                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.resolved_staff || r.staff_name || '-'}</td>
+                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.client || '-'}</td>
+                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.title || '-'}</td>
+                      <td style={{ padding: '0.55rem 0.6rem' }}>{r.location || '-'}</td>
+                      <td style={{ padding: '0.55rem 0.6rem', color: r.status === 'valid' ? 'var(--success)' : 'var(--danger)' }}>
+                        {r.status === 'valid' ? 'Ready' : r.reason}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
+              <button type="button" style={btnPrimary} onClick={confirmImportPreview} disabled={importing || importPreview.validCount === 0}>
+                {importing ? 'Importing…' : `Confirm import (${importPreview.validCount})`}
+              </button>
+              <button type="button" style={btnSecondary} onClick={() => setImportPreview(null)} disabled={importing}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
