@@ -14,6 +14,34 @@ import {
 
 const btnNav = { padding: '0.5rem 0.75rem', background: 'var(--surface-hover)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', cursor: 'pointer', fontSize: '1rem' };
 
+/** Calendar toolbar: same size, weight, and flex alignment for real buttons and file-upload label. */
+const filterBarBtnBase = {
+  padding: '0.5rem 1rem',
+  minHeight: '2.5rem',
+  boxSizing: 'border-box',
+  borderRadius: 8,
+  fontWeight: 600,
+  fontFamily: 'inherit',
+  fontSize: '1rem',
+  lineHeight: 1.25,
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+const filterBarBtnPrimary = {
+  ...filterBarBtnBase,
+  background: 'var(--accent)',
+  color: 'white',
+  border: 'none',
+};
+const filterBarBtnSecondary = {
+  ...filterBarBtnBase,
+  background: 'var(--surface-hover)',
+  color: 'var(--text)',
+  border: '1px solid var(--border)',
+};
+
 function getMonthRange(year, month) {
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
@@ -1277,11 +1305,26 @@ export default function Calendar() {
       <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Log meetings, outstation work, and other activities below; they appear on the calendar and in Team workload.</p>
 
       {/* Activities: filter + add + list */}
-      <div style={{ ...card, marginBottom: '1rem' }} className="filter-bar">
-        <button type="button" onClick={openCreateForm} style={btnPrimary}>
+      <div
+        style={{
+          ...card,
+          marginBottom: '1rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.5rem',
+          alignItems: 'center',
+        }}
+        className="filter-bar"
+      >
+        <button type="button" onClick={openCreateForm} style={filterBarBtnPrimary}>
           + Log activity
         </button>
-        <label style={{ ...btnSecondary, display: 'inline-flex', alignItems: 'center', cursor: importing ? 'not-allowed' : 'pointer', opacity: importing ? 0.6 : 1 }}>
+        <label
+          style={{
+            ...filterBarBtnSecondary,
+            ...(importing || mutating ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+          }}
+        >
           {importing ? 'Importing…' : 'Import Excel'}
           <input
             type="file"
@@ -1295,7 +1338,7 @@ export default function Calendar() {
             }}
           />
         </label>
-        <button type="button" onClick={() => setShowReport(true)} style={btnSecondary}>
+        <button type="button" onClick={() => setShowReport(true)} style={filterBarBtnSecondary}>
           Generate report
         </button>
       </div>
