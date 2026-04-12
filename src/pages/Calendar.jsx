@@ -152,6 +152,18 @@ function formatActivityTimeRange(a) {
   return `${start.toLocaleString(undefined, fullOpts)} – ${end.toLocaleString(undefined, fullOpts)}`;
 }
 
+/** Calendar popovers: omit import audit line; full description remains in edit / API. */
+function activityDescriptionForCalendarDisplay(description) {
+  const raw = String(description || '').trim();
+  if (!raw) return '';
+  const kept = raw
+    .split(/\s*\|\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((seg) => !/^Imported \(accounts\):/i.test(seg));
+  return kept.join(' | ');
+}
+
 /**
  * Convert `datetime-local` value (local wall time) to UTC ISO before saving.
  * This avoids DB/server timezone defaults shifting the intended user time.
@@ -439,6 +451,7 @@ function ActivityLocationFields({ siteLocations, preset, other, onPreset, onOthe
 
 function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   const rangeLabel = formatActivityTimeRange(a);
+  const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
   const label = `${activityTypeLabel(a.type)}: ${a.title}. ${a.location ? `${a.location}. ` : ''}${a.person_name ?? ''}. ${rangeLabel}`;
 
   const handleClick = (e) => {
@@ -465,7 +478,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
         {a.project_name && <div className="calendar-activity-popover-meta">{a.project_name}</div>}
         {a.location && <div className="calendar-activity-popover-meta">{a.location}</div>}
         <div className="calendar-activity-popover-meta">{rangeLabel}</div>
-        {a.description && <div className="calendar-activity-popover-desc">{a.description}</div>}
+        {descForCalendar && <div className="calendar-activity-popover-desc">{descForCalendar}</div>}
       </div>
     </div>
   );
@@ -474,6 +487,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
 function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, actionPending }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
+  const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
   return (
     <div className="calendar-detail-backdrop" onClick={onClose} role="presentation">
       <div
@@ -489,7 +503,7 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, a
         {a.project_name && <p className="calendar-detail-sheet-line">{a.project_name}</p>}
         {a.location && <p className="calendar-detail-sheet-line">{a.location}</p>}
         <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
-        {a.description && <p className="calendar-detail-sheet-desc">{a.description}</p>}
+        {descForCalendar && <p className="calendar-detail-sheet-desc">{descForCalendar}</p>}
         <button
           type="button"
           style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }}
