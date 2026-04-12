@@ -44,10 +44,15 @@ let syncQueued = false;
 let warnedUsersAppActiveColumn = false;
 let warnedActivitiesExternalAttendees = false;
 
-/** DB column `active` is NOT NULL — never upsert null/undefined. */
+/** Values some deployments use for `users_app.status` (NOT NULL in DB). */
+const USER_ROW_STATUSES = new Set(['active', 'inactive', 'pending', 'suspended']);
+
+/** DB: `active` boolean; some DBs also have `status` text NOT NULL — always set a valid default. */
 function normalizeUserRow(u) {
   if (!u || typeof u !== 'object') return u;
-  return { ...u, active: u.active === false ? false : true };
+  const raw = u.status != null ? String(u.status).trim().toLowerCase() : '';
+  const status = USER_ROW_STATUSES.has(raw) ? raw : 'active';
+  return { ...u, active: u.active === false ? false : true, status };
 }
 
 async function upsertAll(table, rows, onConflict = 'id') {

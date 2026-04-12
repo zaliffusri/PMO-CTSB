@@ -86,6 +86,7 @@ create table if not exists users_app (
   name text not null,
   email text not null unique,
   role text not null default 'user',
+  status text not null default 'active',
   active boolean not null default true,
   password_hash text not null,
   created_at timestamptz not null default now()
