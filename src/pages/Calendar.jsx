@@ -152,15 +152,19 @@ function formatActivityTimeRange(a) {
   return `${start.toLocaleString(undefined, fullOpts)} – ${end.toLocaleString(undefined, fullOpts)}`;
 }
 
-/** Calendar popovers: omit import audit line; full description remains in edit / API. */
+/** Calendar popovers / detail sheet: hide import audit text; real notes still show; full description stays in edit & API. */
 function activityDescriptionForCalendarDisplay(description) {
   const raw = String(description || '').trim();
   if (!raw) return '';
+  const isImportAuditSegment = (seg) =>
+    /^Imported \(accounts\):/i.test(seg) ||
+    /^Imported for:/i.test(seg) ||
+    /^Guests:/i.test(seg);
   const kept = raw
     .split(/\s*\|\s*/)
     .map((s) => s.trim())
     .filter(Boolean)
-    .filter((seg) => !/^Imported \(accounts\):/i.test(seg));
+    .filter((seg) => !isImportAuditSegment(seg));
   return kept.join(' | ');
 }
 
