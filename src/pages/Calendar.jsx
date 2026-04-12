@@ -338,17 +338,37 @@ function parseImportedReportText(text) {
   });
 }
 
+/**
+ * Every worksheet with a header row + data rows.
+ * `__sheet` is set only when the workbook has multiple tabs (for preview / error messages).
+ */
+function xlsxWorkbookToImportRows(wb, XLSX) {
+  const names = Array.isArray(wb?.SheetNames) ? wb.SheetNames : [];
+  const tagSheet = names.length > 1;
+  const combined = [];
+  for (const sheetName of names) {
+    try {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) continue;
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+      const objs = tableRowsToObjects(matrix);
+      for (const o of objs) {
+        combined.push(tagSheet ? { ...o, __sheet: sheetName } : { ...o });
+      }
+    } catch (e) {
+      console.warn(`import: skipped sheet "${sheetName}"`, e?.message || e);
+    }
+  }
+  return combined;
+}
+
 async function parseImportedReportFile(file) {
   const lower = String(file?.name || '').toLowerCase();
-  if (lower.endsWith('.xlsx')) {
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
     const XLSX = await getXlsxModule();
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
-    const firstSheetName = wb.SheetNames?.[0];
-    if (!firstSheetName) return [];
-    const ws = wb.Sheets[firstSheetName];
-    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-    return tableRowsToObjects(matrix);
+    return xlsxWorkbookToImportRows(wb, XLSX);
   }
   const text = await file.text();
   return parseImportedReportText(text);
@@ -549,6 +569,10 @@ export default function Calendar() {
   const [showReport, setShowReport] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
+  const importPreviewHasSheetColumn = useMemo(
+    () => Boolean(importPreview?.rows?.some((r) => r.source_sheet)),
+    [importPreview],
+  );
   const nonAdminUsers = useMemo(
     () => users.filter((u) => u.role !== 'admin' && u.active !== false),
     [users],
@@ -858,8 +882,10 @@ export default function Calendar() {
       const title = String(raw.title || '').trim();
       const location = String(raw.location || '').trim();
       const client = String(raw.client || '').trim();
+      const sourceSheet = String(raw.sheet || '').trim();
       const base = {
         row: raw.row,
+        source_sheet: sourceSheet || undefined,
         date: dateText,
         staff_name: staffText,
         client: client || '-',
@@ -1009,6 +1035,7 @@ export default function Calendar() {
       const client = firstNonEmpty(r, ['client', 'organisasi', 'organization', 'organisasi client', 'client organisasi']);
       editableRows.push({
         row: idx + 2,
+        sheet: String(r.__sheet || '').trim(),
         date: dateText,
         staff_name: staffText,
         client: client || '-',
@@ -1019,7 +1046,12 @@ export default function Calendar() {
     const preview = buildImportPreview(editableRows, file.name || 'import-file');
     if (preview.validCount === 0) {
       const invalidRows = preview.rows.filter((x) => x.status !== 'valid');
-      alert(`No valid rows to import.\n${invalidRows.slice(0, 6).map((x) => `Row ${x.row}: ${x.reason}`).join('\n')}`);
+      alert(
+        `No valid rows to import.\n${invalidRows
+          .slice(0, 6)
+          .map((x) => `Row ${x.row}${x.source_sheet ? ` (${x.source_sheet})` : ''}: ${x.reason}`)
+          .join('\n')}`,
+      );
       return;
     }
     setImportPreview(preview);
@@ -1030,6 +1062,7 @@ export default function Calendar() {
       if (!prev) return prev;
       const editableRows = prev.rows.map((r) => ({
         row: r.row,
+        sheet: r.source_sheet || '',
         date: r.date,
         staff_name: r.staff_name,
         client: r.client,
@@ -1294,6 +1327,9 @@ export default function Calendar() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', background: 'var(--surface-hover)' }}>
                     <th style={{ padding: '0.55rem 0.6rem' }}>Row</th>
+                    {importPreviewHasSheetColumn ? (
+                      <th style={{ padding: '0.55rem 0.6rem' }}>Sheet</th>
+                    ) : null}
                     <th style={{ padding: '0.55rem 0.6rem' }}>Date</th>
                     <th style={{ padding: '0.55rem 0.6rem' }}>Staff</th>
                     <th style={{ padding: '0.55rem 0.6rem' }}>Client</th>
@@ -1304,8 +1340,13 @@ export default function Calendar() {
                 </thead>
                 <tbody>
                   {importPreview.rows.map((r, idx) => (
-                    <tr key={`${r.row}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <tr key={`${r.source_sheet || ''}-${r.row}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '0.55rem 0.6rem' }}>{r.row}</td>
+                      {importPreviewHasSheetColumn ? (
+                        <td style={{ padding: '0.55rem 0.6rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                          {r.source_sheet || '—'}
+                        </td>
+                      ) : null}
                       <td style={{ padding: '0.45rem 0.5rem' }}>
                         <input
                           type="text"
