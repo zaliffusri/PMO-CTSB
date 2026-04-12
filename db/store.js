@@ -42,6 +42,7 @@ function save(data) {
 let syncInFlight = false;
 let syncQueued = false;
 let warnedUsersAppActiveColumn = false;
+let warnedActivitiesExternalAttendees = false;
 
 /** DB column `active` is NOT NULL — never upsert null/undefined. */
 function normalizeUserRow(u) {
@@ -81,6 +82,40 @@ async function upsertUsersApp(rows) {
   }
 }
 
+/**
+ * Upsert activities; if `external_attendees` is missing in DB / PostgREST schema cache, retry without it.
+ * Guest-only rows (no person_id) cannot be saved until migration is applied — see error message.
+ * Migration: supabase/migrations/20260412120000_add_activities_external_attendees.sql
+ */
+async function upsertActivitiesApp(rows) {
+  if (!rows || rows.length === 0) return;
+  const prepared = rows.map((r) => ({ ...r }));
+  const { error } = await supabase.from('activities').upsert(prepared, { onConflict: 'id' });
+  if (!error) return;
+  const msg = String(error.message || '');
+  const missingExternal =
+    /external_attendees/i.test(msg) &&
+    /schema cache|column|Could not find|does not exist|PGRST204/i.test(msg);
+  if (!missingExternal) throw error;
+
+  const guestOnly = prepared.some((r) => r.person_id == null || r.person_id === '');
+  if (guestOnly) {
+    throw new Error(
+      'Database needs migration for guest activities: in Supabase → SQL Editor, run `supabase/migrations/20260412120000_add_activities_external_attendees.sql`. Then Dashboard → Settings → API → reload schema (or wait ~1 min).',
+    );
+  }
+
+  const stripped = prepared.map(({ external_attendees: _ext, ...rest }) => rest);
+  const retry = await supabase.from('activities').upsert(stripped, { onConflict: 'id' });
+  if (retry.error) throw retry.error;
+  if (!warnedActivitiesExternalAttendees) {
+    warnedActivitiesExternalAttendees = true;
+    console.warn(
+      'store: activities.external_attendees missing from DB — saved without guest text. Run supabase/migrations/20260412120000_add_activities_external_attendees.sql',
+    );
+  }
+}
+
 async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('clients', snapshot.clients || []);
   await upsertAll('people', snapshot.people || []);
@@ -89,7 +124,7 @@ async function pushSnapshotToSupabase(snapshot) {
     (snapshot.projects || []).map((p) => ({ ...p, tags: Array.isArray(p.tags) ? p.tags : [] })),
   );
   await upsertAll('project_assignments', snapshot.project_assignments || []);
-  await upsertAll('activities', snapshot.activities || []);
+  await upsertActivitiesApp(snapshot.activities || []);
   await upsertAll('project_tasks', snapshot.project_tasks || []);
   await upsertUsersApp(snapshot.users || []);
   await upsertAll('sessions_app', snapshot.sessions || []);
