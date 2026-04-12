@@ -69,7 +69,11 @@ function groupActivitiesForCalendar(activities) {
     group.sort((x, y) => (x.id ?? 0) - (y.id ?? 0));
     const primary = group[0];
     const names = [...new Set(group.map((g) => g.person_name).filter(Boolean))];
-    const person_name = names.length ? names.join(', ') : (primary.person_name ?? '');
+    let person_name = names.length ? names.join(', ') : (primary.person_name ?? '');
+    const ext = String(primary.external_attendees || '').trim();
+    if (ext) {
+      person_name = person_name ? `${person_name}; ${ext}` : ext;
+    }
     const person_ids = [...new Set(group.map((g) => g.person_id).filter((x) => x != null))];
     result.push({ ...primary, person_name, person_ids });
   }
@@ -267,7 +271,9 @@ function importMeetingDedupeKey(row) {
   const end = String(t.end_at || '');
   const proj = t.project_id != null && t.project_id !== '' ? String(t.project_id) : '';
   const client = String(row.client || '').trim().toLowerCase();
-  return `${start}|${end}|${title}|${loc}|${proj}|${client}`;
+  const extPart = String(t.external_attendees || '').trim();
+  const extKey = extPart ? `|${extPart.toLowerCase()}` : '';
+  return `${start}|${end}|${title}|${loc}|${proj}|${client}${extKey}`;
 }
 
 /**
@@ -297,10 +303,19 @@ function mergeValidImportPreviewRows(validRows) {
     ];
     const namesUnique = [...new Set(nameParts)];
     const resolved = namesUnique.join(', ');
+    const extParts = [
+      ...String(acc.task.external_attendees || '').split(',').map((s) => s.trim()).filter(Boolean),
+      ...String(row.task.external_attendees || '').split(',').map((s) => s.trim()).filter(Boolean),
+    ];
+    const extMerged = [...new Set(extParts)].join(', ');
+    const descParts = [];
+    if (resolved) descParts.push(`Imported (accounts): ${resolved}`);
+    if (extMerged) descParts.push(`Guests: ${extMerged}`);
     acc.task = {
       ...acc.task,
       person_ids: [...idSet],
-      description: resolved ? `Imported for: ${resolved}` : undefined,
+      external_attendees: extMerged || undefined,
+      description: descParts.length ? descParts.join(' | ') : undefined,
     };
     acc.resolved_staff = resolved;
     const prevStaff = String(acc.staff_name || '').trim();
@@ -553,6 +568,7 @@ export default function Calendar() {
   const [activitySites, setActivitySites] = useState(DEFAULT_ACTIVITY_SITE_LOCATIONS);
   const [form, setForm] = useState({
     person_ids: [],
+    external_attendees: '',
     project_id: '',
     type: 'meeting',
     title: '',
@@ -683,8 +699,9 @@ export default function Calendar() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.person_ids?.length) {
-      alert('Select at least one person for this activity.');
+    const extTrim = String(form.external_attendees || '').trim();
+    if (!form.person_ids?.length && !extTrim) {
+      alert('Select at least one person with an account, or enter guest names (no login required).');
       return;
     }
     if (!form.title?.trim()) {
@@ -705,6 +722,7 @@ export default function Calendar() {
         if (editingActivityId != null) {
           await api.activities.update(editingActivityId, {
             person_ids: form.person_ids.map((pid) => +pid),
+            external_attendees: extTrim,
             project_id: form.project_id || null,
             type: form.type,
             title: form.title,
@@ -716,6 +734,7 @@ export default function Calendar() {
         } else {
           await api.activities.create({
             person_ids: form.person_ids.map((pid) => +pid),
+            external_attendees: extTrim,
             project_id: form.project_id || undefined,
             type: form.type,
             title: form.title,
@@ -727,6 +746,7 @@ export default function Calendar() {
         }
         setForm({
           person_ids: [],
+          external_attendees: '',
           project_id: '',
           type: 'meeting',
           title: '',
@@ -775,6 +795,7 @@ export default function Calendar() {
     setForm((f) => ({
       ...f,
       person_ids: [],
+      external_attendees: '',
       project_id: '',
       type: 'meeting',
       title: '',
@@ -795,6 +816,7 @@ export default function Calendar() {
     const { preset, custom } = resolveLocationForForm(a.location, activitySites);
     setForm({
       person_ids: personIds,
+      external_attendees: String(a.external_attendees || '').trim(),
       project_id: a.project_id != null ? String(a.project_id) : '',
       type: a.type === 'task' ? 'outstation' : (ACTIVITY_TYPE_OPTIONS.some((x) => x.value === a.type) ? a.type : 'meeting'),
       title: a.title || '',
@@ -850,7 +872,7 @@ export default function Calendar() {
         rows.push({
           sort_date: new Date(year, month - 1, day).getTime(),
           date: new Date(year, month - 1, day).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
-          staff_name: a.person_name || '-',
+          staff_name: [a.person_name, a.external_attendees].filter(Boolean).join(', ') || '-',
           client: a.project_id != null ? clientByProjectId[String(a.project_id)] || '-' : '-',
           title: a.title || '-',
           location: a.location || '-',
@@ -883,7 +905,11 @@ export default function Calendar() {
       const location = String(raw.location || '').trim();
       const client = String(raw.client || '').trim();
       const sourceSheet = String(raw.sheet || '').trim();
+      const previewKey = String(raw.preview_key || '').trim() || `p-${raw.row}-${sourceSheet}`;
+      const omit = Boolean(raw.omit);
       const base = {
+        preview_key: previewKey,
+        omit,
         row: raw.row,
         source_sheet: sourceSheet || undefined,
         date: dateText,
@@ -905,44 +931,63 @@ export default function Calendar() {
       const staffTokens = String(staffText).split(',').map((s) => s.trim()).filter(Boolean);
       const personIds = [];
       const resolvedNames = [];
+      const guestLines = [];
       staffTokens.forEach((token) => {
         const key = token.toLowerCase();
         const u = key.includes('@') ? userByEmail.get(key) : userByName.get(key);
         if (u?.id != null) {
           personIds.push(Number(u.id));
           if (u.name) resolvedNames.push(String(u.name));
+        } else {
+          guestLines.push({ token: String(token).trim(), kind: key.includes('@') ? 'email_unknown' : 'name_unknown' });
         }
       });
-      if (personIds.length === 0) {
-        rowsOut.push({ ...base, status: 'invalid', reason: `No matched user name/email for "${staffText}"` });
+      const externalDisplay = guestLines.map((g) => g.token).filter(Boolean).join(', ');
+      if (personIds.length === 0 && !externalDisplay) {
+        rowsOut.push({ ...base, status: 'invalid', reason: `No matched user and no usable guest text in "${staffText}"` });
         return;
       }
+      const assignee_status =
+        guestLines.length === 0
+          ? ''
+          : [
+              personIds.length ? `${personIds.length} in system` : null,
+              guestLines.some((g) => g.kind === 'email_unknown') ? 'Some emails not in system' : null,
+              guestLines.some((g) => g.kind === 'name_unknown') ? 'Some names not in system' : null,
+            ].filter(Boolean).join(' · ');
       const project = projectByClient.get(String(client).trim().toLowerCase());
+      const descParts = [];
+      if (resolvedNames.length) descParts.push(`Imported (accounts): ${[...new Set(resolvedNames)].join(', ')}`);
+      if (externalDisplay) descParts.push(`Guests: ${externalDisplay}`);
       rowsOut.push({
         ...base,
         status: 'valid',
         reason: '',
         resolved_staff: [...new Set(resolvedNames)].join(', '),
+        assignee_status: assignee_status || undefined,
         task: {
           person_ids: [...new Set(personIds)],
+          external_attendees: externalDisplay || undefined,
           project_id: project?.id || undefined,
           type: 'meeting',
           title,
           location,
           start_at: startIso,
           end_at: endIso,
-          description: resolvedNames.length > 0 ? `Imported for: ${[...new Set(resolvedNames)].join(', ')}` : undefined,
+          description: descParts.length ? descParts.join(' | ') : undefined,
           import_client_name: client || '',
         },
       });
     });
-    const validCount = rowsOut.filter((x) => x.status === 'valid').length;
-    const activityCreateCount = mergeValidImportPreviewRows(rowsOut.filter((x) => x.status === 'valid')).length;
+    const rowsActive = rowsOut.filter((r) => !r.omit);
+    const validCount = rowsActive.filter((x) => x.status === 'valid').length;
+    const invalidCount = rowsActive.filter((x) => x.status !== 'valid').length;
+    const activityCreateCount = mergeValidImportPreviewRows(rowsActive.filter((x) => x.status === 'valid')).length;
     return {
       fileName,
       rows: rowsOut,
       validCount,
-      invalidCount: rowsOut.length - validCount,
+      invalidCount,
       activityCreateCount,
     };
   };
@@ -1036,6 +1081,7 @@ export default function Calendar() {
       editableRows.push({
         row: idx + 2,
         sheet: String(r.__sheet || '').trim(),
+        preview_key: `imp-${String(r.__sheet || 'default')}-${idx}`,
         date: dateText,
         staff_name: staffText,
         client: client || '-',
@@ -1057,10 +1103,12 @@ export default function Calendar() {
     setImportPreview(preview);
   };
 
-  const updateImportPreviewCell = (rowNo, field, value) => {
+  const updateImportPreviewCell = (previewKey, field, value) => {
     setImportPreview((prev) => {
       if (!prev) return prev;
       const editableRows = prev.rows.map((r) => ({
+        preview_key: r.preview_key,
+        omit: r.omit,
         row: r.row,
         sheet: r.source_sheet || '',
         date: r.date,
@@ -1069,14 +1117,38 @@ export default function Calendar() {
         title: r.title,
         location: r.location,
       }));
-      const nextRows = editableRows.map((r) => (r.row === rowNo ? { ...r, [field]: value } : r));
+      const nextRows = editableRows.map((r) => (r.preview_key === previewKey ? { ...r, [field]: value } : r));
       return buildImportPreview(nextRows, prev.fileName);
+    });
+  };
+
+  const omitImportRow = (previewKey) => {
+    setImportPreview((prev) => {
+      if (!prev) return prev;
+      const nextRows = prev.rows.map((r) => (r.preview_key === previewKey ? { ...r, omit: true } : r));
+      const rowsActive = nextRows.filter((r) => !r.omit);
+      const validCount = rowsActive.filter((x) => x.status === 'valid').length;
+      const invalidCount = rowsActive.filter((x) => x.status !== 'valid').length;
+      const activityCreateCount = mergeValidImportPreviewRows(rowsActive.filter((x) => x.status === 'valid')).length;
+      return { ...prev, rows: nextRows, validCount, invalidCount, activityCreateCount };
+    });
+  };
+
+  const restoreImportRow = (previewKey) => {
+    setImportPreview((prev) => {
+      if (!prev) return prev;
+      const nextRows = prev.rows.map((r) => (r.preview_key === previewKey ? { ...r, omit: false } : r));
+      const rowsActive = nextRows.filter((r) => !r.omit);
+      const validCount = rowsActive.filter((x) => x.status === 'valid').length;
+      const invalidCount = rowsActive.filter((x) => x.status !== 'valid').length;
+      const activityCreateCount = mergeValidImportPreviewRows(rowsActive.filter((x) => x.status === 'valid')).length;
+      return { ...prev, rows: nextRows, validCount, invalidCount, activityCreateCount };
     });
   };
 
   const confirmImportPreview = async () => {
     if (!importPreview) return;
-    const validRows = importPreview.rows.filter((x) => x.status === 'valid');
+    const validRows = importPreview.rows.filter((x) => x.status === 'valid' && !x.omit);
     const mergedValid = mergeValidImportPreviewRows(validRows);
     const tasks = mergedValid.map((x) => x.task).filter(Boolean);
     if (tasks.length === 0) {
@@ -1167,8 +1239,8 @@ export default function Calendar() {
         ? ` Added ${clientSync.added} new client(s).`
         : '';
       const mergeNote =
-        importPreview.validCount > tasks.length
-          ? ` Combined ${importPreview.validCount} valid rows that shared the same date, time window, title, location, and client.`
+        validRows.length > tasks.length
+          ? ` Combined ${validRows.length} valid rows that shared the same date, time window, title, location, and client.`
           : '';
       alert(
         `Imported ${tasks.length} ${tasks.length === 1 ? 'activity' : 'activities'}.${mergeNote}${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}${locationMsg}${clientMsg}`,
@@ -1321,6 +1393,11 @@ export default function Calendar() {
               <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
                 Skipped: <strong>{importPreview.invalidCount}</strong>
               </span>
+              {importPreview.rows.some((x) => x.omit) ? (
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Removed from import: {importPreview.rows.filter((x) => x.omit).length} (use Restore to undo)
+                </span>
+              ) : null}
             </div>
             <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
@@ -1336,11 +1413,19 @@ export default function Calendar() {
                     <th style={{ padding: '0.55rem 0.6rem' }}>Title</th>
                     <th style={{ padding: '0.55rem 0.6rem' }}>Location</th>
                     <th style={{ padding: '0.55rem 0.6rem' }}>Status</th>
+                    <th style={{ padding: '0.55rem 0.6rem' }}> </th>
                   </tr>
                 </thead>
                 <tbody>
                   {importPreview.rows.map((r, idx) => (
-                    <tr key={`${r.source_sheet || ''}-${r.row}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <tr
+                      key={r.preview_key || `${r.source_sheet || ''}-${r.row}-${idx}`}
+                      style={{
+                        borderBottom: '1px solid var(--border)',
+                        opacity: r.omit ? 0.45 : 1,
+                        background: r.omit ? 'var(--surface-hover)' : undefined,
+                      }}
+                    >
                       <td style={{ padding: '0.55rem 0.6rem' }}>{r.row}</td>
                       {importPreviewHasSheetColumn ? (
                         <td style={{ padding: '0.55rem 0.6rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
@@ -1351,18 +1436,18 @@ export default function Calendar() {
                         <input
                           type="text"
                           value={r.date || ''}
-                          onChange={(e) => updateImportPreviewCell(r.row, 'date', e.target.value)}
+                          onChange={(e) => updateImportPreviewCell(r.preview_key, 'date', e.target.value)}
                           style={{ ...inputStyle, margin: 0, minWidth: 120 }}
-                          disabled={importing}
+                          disabled={importing || r.omit}
                         />
                       </td>
                       <td style={{ padding: '0.45rem 0.5rem' }}>
                         <input
                           type="text"
                           value={r.staff_name || ''}
-                          onChange={(e) => updateImportPreviewCell(r.row, 'staff_name', e.target.value)}
+                          onChange={(e) => updateImportPreviewCell(r.preview_key, 'staff_name', e.target.value)}
                           style={{ ...inputStyle, margin: 0, minWidth: 180 }}
-                          disabled={importing}
+                          disabled={importing || r.omit}
                         />
                         {r.resolved_staff ? <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.78rem' }}>{r.resolved_staff}</div> : null}
                       </td>
@@ -1370,31 +1455,55 @@ export default function Calendar() {
                         <input
                           type="text"
                           value={r.client || ''}
-                          onChange={(e) => updateImportPreviewCell(r.row, 'client', e.target.value)}
+                          onChange={(e) => updateImportPreviewCell(r.preview_key, 'client', e.target.value)}
                           style={{ ...inputStyle, margin: 0, minWidth: 140 }}
-                          disabled={importing}
+                          disabled={importing || r.omit}
                         />
                       </td>
                       <td style={{ padding: '0.45rem 0.5rem' }}>
                         <input
                           type="text"
                           value={r.title || ''}
-                          onChange={(e) => updateImportPreviewCell(r.row, 'title', e.target.value)}
+                          onChange={(e) => updateImportPreviewCell(r.preview_key, 'title', e.target.value)}
                           style={{ ...inputStyle, margin: 0, minWidth: 180 }}
-                          disabled={importing}
+                          disabled={importing || r.omit}
                         />
                       </td>
                       <td style={{ padding: '0.45rem 0.5rem' }}>
                         <input
                           type="text"
                           value={r.location || ''}
-                          onChange={(e) => updateImportPreviewCell(r.row, 'location', e.target.value)}
+                          onChange={(e) => updateImportPreviewCell(r.preview_key, 'location', e.target.value)}
                           style={{ ...inputStyle, margin: 0, minWidth: 140 }}
-                          disabled={importing}
+                          disabled={importing || r.omit}
                         />
                       </td>
-                      <td style={{ padding: '0.55rem 0.6rem', color: r.status === 'valid' ? 'var(--success)' : 'var(--danger)' }}>
-                        {r.status === 'valid' ? 'Ready' : r.reason}
+                      <td style={{ padding: '0.55rem 0.6rem', color: r.status === 'valid' ? 'var(--success)' : 'var(--danger)', verticalAlign: 'top' }}>
+                        {r.omit ? (
+                          <span style={{ color: 'var(--text-muted)' }}>Not imported</span>
+                        ) : r.status === 'valid' ? (
+                          <div>
+                            <div>Ready</div>
+                            {r.assignee_status ? (
+                              <div style={{ marginTop: 4, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                                {r.assignee_status}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          r.reason
+                        )}
+                      </td>
+                      <td style={{ padding: '0.45rem 0.5rem', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                        {r.omit ? (
+                          <button type="button" style={btnSecondary} disabled={importing} onClick={() => restoreImportRow(r.preview_key)}>
+                            Restore
+                          </button>
+                        ) : (
+                          <button type="button" style={btnSecondary} disabled={importing} onClick={() => omitImportRow(r.preview_key)}>
+                            Remove
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1433,7 +1542,7 @@ export default function Calendar() {
             </div>
             <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
               <label style={{ gridColumn: '1 / -1' }}>
-                Person * (multi-select)
+                People with accounts (multi-select, optional if guests are listed below)
                 <input
                   type="text"
                   value={personSearch}
@@ -1461,6 +1570,16 @@ export default function Calendar() {
                 <div style={{ marginTop: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                   Selected: {form.person_ids.length}
                 </div>
+              </label>
+              <label style={{ gridColumn: '1 / -1' }}>
+                Guests / others (no system account)
+                <textarea
+                  value={form.external_attendees}
+                  onChange={(e) => setForm((f) => ({ ...f, external_attendees: e.target.value }))}
+                  rows={2}
+                  placeholder="Comma-separated names or emails (stored for the record; no login required)"
+                  style={inputStyle}
+                />
               </label>
               <label>
                 Project{' '}

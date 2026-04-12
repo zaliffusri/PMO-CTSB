@@ -36,10 +36,18 @@ function resolveActivityUserId(raw) {
 }
 
 function activityPersonName(storedId) {
+  if (storedId == null) return null;
   const u = store.findUserById(storedId);
   if (u?.name) return u.name;
   const person = store.people.find((p) => Number(p.id) === Number(storedId));
   return person?.name ?? null;
+}
+
+function normalizeExternalAttendees(raw) {
+  if (raw == null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+  return s.length > 2000 ? s.slice(0, 2000) : s;
 }
 
 /** Overlap: activity [start,end) vs [from, toExclusive). Supports legacy YYYY-MM-DD (inclusive `to`). */
@@ -107,6 +115,7 @@ activitiesRouter.get('/', async (req, res) => {
       ...a,
       type: normalizeActivityType(a.type),
       person_name: activityPersonName(a.person_id),
+      external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
       project_name: project?.name,
     };
   });
@@ -126,34 +135,64 @@ activitiesRouter.get('/', async (req, res) => {
 });
 
 activitiesRouter.post('/', async (req, res) => {
-  const { person_id, person_ids, project_id, type, title, description, location, start_at, end_at } = req.body;
-  const rawPersonIds = Array.isArray(person_ids) && person_ids.length > 0 ? person_ids : [person_id];
+  const {
+    person_id,
+    person_ids,
+    project_id,
+    type,
+    title,
+    description,
+    location,
+    start_at,
+    end_at,
+    external_attendees: externalRaw,
+  } = req.body;
+  const external_attendees = normalizeExternalAttendees(externalRaw);
+
+  const rawPersonIds = Array.isArray(person_ids) && person_ids.length > 0
+    ? person_ids
+    : person_id !== undefined && person_id !== null && person_id !== ''
+      ? [person_id]
+      : [];
+
   if (!type || !title || !start_at || !end_at) {
     return res.status(400).json({ error: 'type, title, start_at, end_at are required' });
   }
-  if (!rawPersonIds.length) return res.status(400).json({ error: 'Select at least one person' });
   const loc = location != null ? String(location).trim() : '';
   if (!loc) {
     return res.status(400).json({ error: 'location is required' });
   }
+
   const uniquePersonIds = [...new Set(rawPersonIds.map((x) => Number(x)).filter(Number.isFinite))];
-  if (!uniquePersonIds.length) {
-    return res.status(400).json({ error: 'Invalid person list' });
-  }
-  const resolvedUsers = uniquePersonIds.map((pid) => resolveActivityUserId(pid));
-  if (resolvedUsers.some((uid) => !uid)) {
+  if (!uniquePersonIds.length && !external_attendees) {
     return res.status(400).json({
-      error:
-        'Invalid person: use a system user id, or a team member id whose email matches a user account.',
+      error: 'Select at least one person with an account, or enter guest names (no login required).',
     });
   }
+
+  const resolvedUsers = [];
+  for (const pid of uniquePersonIds) {
+    const uid = resolveActivityUserId(pid);
+    if (!uid) {
+      return res.status(400).json({
+        error:
+          'Invalid person: use a system user id, or a team member id whose email matches a user account.',
+      });
+    }
+    resolvedUsers.push(uid);
+  }
+  const uniqueResolved = [...new Set(resolvedUsers)];
+
   const normalizedType = normalizeActivityType(type);
   const activityGroupId = crypto.randomUUID();
   const created = [];
-  for (const uid of resolvedUsers) {
+  const extForRow = external_attendees || null;
+
+  if (uniqueResolved.length === 0) {
     const id = store.addActivity({
       activity_group_id: activityGroupId,
-      person_id: uid,
+      person_id: null,
+      external_attendees,
       project_id: project_id || null,
       type: normalizedType,
       title,
@@ -164,7 +203,25 @@ activitiesRouter.post('/', async (req, res) => {
     });
     const a = store.activities.find((x) => x.id === id);
     if (a) created.push(a);
+  } else {
+    for (const uid of uniqueResolved) {
+      const id = store.addActivity({
+        activity_group_id: activityGroupId,
+        person_id: uid,
+        external_attendees: extForRow,
+        project_id: project_id || null,
+        type: normalizedType,
+        title,
+        description: description || null,
+        location: loc,
+        start_at,
+        end_at,
+      });
+      const a = store.activities.find((x) => x.id === id);
+      if (a) created.push(a);
+    }
   }
+
   const project = store.projects.find((p) => p.id === (project_id || null));
   store.appendAuditLog(req.user, {
     action: 'create',
@@ -174,6 +231,7 @@ activitiesRouter.post('/', async (req, res) => {
     detail: {
       person_count: created.length,
       person_names: created.map((a) => activityPersonName(a.person_id)).filter(Boolean),
+      external_attendees: external_attendees || null,
       project_name: project?.name,
     },
   });
@@ -186,21 +244,24 @@ activitiesRouter.post('/', async (req, res) => {
 
   const loggedBy = req.user?.name || req.user?.email || '';
   created.forEach((a) => {
-    notifyActivityAssignee(a.person_id, {
-      title,
-      typeKey: normalizedType,
-      location: loc,
-      start_at,
-      end_at,
-      projectName: project?.name || null,
-      loggedBy,
-    });
+    if (a.person_id != null) {
+      notifyActivityAssignee(a.person_id, {
+        title,
+        typeKey: normalizedType,
+        location: loc,
+        start_at,
+        end_at,
+        projectName: project?.name || null,
+        loggedBy,
+      });
+    }
   });
 
   const responseRows = created.map((a) => ({
     ...a,
     type: normalizeActivityType(a.type),
     person_name: activityPersonName(a.person_id),
+    external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
     project_name: project?.name,
   }));
   if (responseRows.length === 1) return res.status(201).json(responseRows[0]);
@@ -213,7 +274,18 @@ activitiesRouter.put('/:id', async (req, res) => {
   } catch (e) {
     console.warn('activities PUT: could not refresh from Supabase', e?.message || e);
   }
-  const { person_id, person_ids, project_id, type, title, description, location, start_at, end_at } = req.body;
+  const {
+    person_id,
+    person_ids,
+    project_id,
+    type,
+    title,
+    description,
+    location,
+    start_at,
+    end_at,
+    external_attendees: externalRaw,
+  } = req.body;
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
@@ -230,8 +302,13 @@ activitiesRouter.put('/:id', async (req, res) => {
   const nextStart = start_at ?? existing.start_at;
   const nextEnd = end_at ?? existing.end_at;
 
+  const nextExternal =
+    externalRaw !== undefined
+      ? normalizeExternalAttendees(externalRaw)
+      : normalizeExternalAttendees(existing.external_attendees);
+
   const resolvedUids = [];
-  if (Array.isArray(person_ids) && person_ids.length > 0) {
+  if (Array.isArray(person_ids)) {
     for (const pid of person_ids) {
       const uid = resolveActivityUserId(pid);
       if (uid) resolvedUids.push(uid);
@@ -246,12 +323,17 @@ activitiesRouter.put('/:id', async (req, res) => {
     }
     resolvedUids.push(resolved);
   } else {
-    resolvedUids.push(existing.person_id);
+    const peerRows = idsInSameLogicalGroup(store.activities, id)
+      .map((pid) => store.activities.find((a) => a.id === pid))
+      .filter(Boolean);
+    peerRows.forEach((row) => {
+      if (row.person_id != null) resolvedUids.push(row.person_id);
+    });
   }
 
   const uniqueUids = [...new Set(resolvedUids)];
-  if (uniqueUids.length === 0) {
-    return res.status(400).json({ error: 'Select at least one valid assignee.' });
+  if (uniqueUids.length === 0 && !nextExternal) {
+    return res.status(400).json({ error: 'Select at least one valid assignee or enter guest names.' });
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
@@ -260,10 +342,13 @@ activitiesRouter.put('/:id', async (req, res) => {
   await store.deleteActivityLogicalGroupByAnyMemberId(id);
   const createdRows = [];
   const project = store.projects.find(p => p.id === (nextProjectId || null));
+  const extForRow = nextExternal || null;
+
   for (const uid of uniqueUids) {
     const newId = store.addActivity({
       activity_group_id: activityGroupId,
       person_id: uid,
+      external_attendees: extForRow,
       project_id: nextProjectId || null,
       type: nextType,
       title: nextTitle,
@@ -285,6 +370,23 @@ activitiesRouter.put('/:id', async (req, res) => {
     });
   }
 
+  if (uniqueUids.length === 0) {
+    const newId = store.addActivity({
+      activity_group_id: activityGroupId,
+      person_id: null,
+      external_attendees: nextExternal,
+      project_id: nextProjectId || null,
+      type: nextType,
+      title: nextTitle,
+      description: nextDescription || null,
+      location: nextLocation,
+      start_at: nextStart,
+      end_at: nextEnd,
+    });
+    const row = store.activities.find((x) => x.id === newId);
+    if (row) createdRows.push(row);
+  }
+
   const firstNewId = createdRows[0]?.id ?? id;
   const assigneeNames = createdRows.map((r) => activityPersonName(r.person_id)).filter(Boolean);
   store.appendAuditLog(req.user, {
@@ -296,6 +398,7 @@ activitiesRouter.put('/:id', async (req, res) => {
       previous_activity_ids: previousGroupIds,
       new_activity_ids: createdRows.map((r) => r.id),
       person_names: assigneeNames,
+      external_attendees: nextExternal || null,
       project_name: project?.name,
     },
   });
@@ -312,6 +415,7 @@ activitiesRouter.put('/:id', async (req, res) => {
     ...first,
     type: normalizeActivityType(first.type),
     person_name: activityPersonName(first.person_id),
+    external_attendees: first.external_attendees != null ? String(first.external_attendees) : null,
     project_name: project?.name,
     split_into: createdRows.length > 1 ? createdRows.map((r) => ({
       id: r.id,
