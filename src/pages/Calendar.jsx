@@ -257,6 +257,59 @@ function parseReportDateValue(dateLike) {
   return d;
 }
 
+/** Key for rows that describe the same meeting (import uses fixed 9:00–17:00 local per date). */
+function importMeetingDedupeKey(row) {
+  const t = row?.task;
+  if (!t) return '';
+  const title = String(t.title || '').trim().toLowerCase();
+  const loc = String(t.location || '').trim().toLowerCase();
+  const start = String(t.start_at || '');
+  const end = String(t.end_at || '');
+  const proj = t.project_id != null && t.project_id !== '' ? String(t.project_id) : '';
+  const client = String(row.client || '').trim().toLowerCase();
+  return `${start}|${end}|${title}|${loc}|${proj}|${client}`;
+}
+
+/**
+ * Combine valid import rows that share the same meeting into one row (one activity group on confirm).
+ * Order follows first occurrence in the file.
+ */
+function mergeValidImportPreviewRows(validRows) {
+  const map = new Map();
+  for (const row of validRows) {
+    const k = importMeetingDedupeKey(row);
+    if (!k) continue;
+    if (!map.has(k)) {
+      map.set(k, {
+        ...row,
+        task: {
+          ...row.task,
+          person_ids: [...(row.task.person_ids || [])],
+        },
+      });
+      continue;
+    }
+    const acc = map.get(k);
+    const idSet = new Set([...(acc.task.person_ids || []), ...(row.task.person_ids || [])]);
+    const nameParts = [
+      ...String(acc.resolved_staff || '').split(',').map((s) => s.trim()).filter(Boolean),
+      ...String(row.resolved_staff || '').split(',').map((s) => s.trim()).filter(Boolean),
+    ];
+    const namesUnique = [...new Set(nameParts)];
+    const resolved = namesUnique.join(', ');
+    acc.task = {
+      ...acc.task,
+      person_ids: [...idSet],
+      description: resolved ? `Imported for: ${resolved}` : undefined,
+    };
+    acc.resolved_staff = resolved;
+    const prevStaff = String(acc.staff_name || '').trim();
+    const nextStaff = String(row.staff_name || '').trim();
+    acc.staff_name = [prevStaff, nextStaff].filter(Boolean).join('; ');
+  }
+  return [...map.values()];
+}
+
 function parseImportedReportText(text) {
   const src = String(text || '');
   if (!src.trim()) return [];
@@ -858,7 +911,14 @@ export default function Calendar() {
       });
     });
     const validCount = rowsOut.filter((x) => x.status === 'valid').length;
-    return { fileName, rows: rowsOut, validCount, invalidCount: rowsOut.length - validCount };
+    const activityCreateCount = mergeValidImportPreviewRows(rowsOut.filter((x) => x.status === 'valid')).length;
+    return {
+      fileName,
+      rows: rowsOut,
+      validCount,
+      invalidCount: rowsOut.length - validCount,
+      activityCreateCount,
+    };
   };
 
   const downloadReportExcel = () => {
@@ -983,10 +1043,9 @@ export default function Calendar() {
 
   const confirmImportPreview = async () => {
     if (!importPreview) return;
-    const tasks = importPreview.rows
-      .filter((x) => x.status === 'valid')
-      .map((x) => x.task)
-      .filter(Boolean);
+    const validRows = importPreview.rows.filter((x) => x.status === 'valid');
+    const mergedValid = mergeValidImportPreviewRows(validRows);
+    const tasks = mergedValid.map((x) => x.task).filter(Boolean);
     if (tasks.length === 0) {
       alert('No valid rows to import.');
       return;
@@ -1074,7 +1133,13 @@ export default function Calendar() {
       const clientMsg = clientSync.added > 0
         ? ` Added ${clientSync.added} new client(s).`
         : '';
-      alert(`Imported ${tasks.length} activity row(s).${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}${locationMsg}${clientMsg}`);
+      const mergeNote =
+        importPreview.validCount > tasks.length
+          ? ` Combined ${importPreview.validCount} valid rows that shared the same date, time window, title, location, and client.`
+          : '';
+      alert(
+        `Imported ${tasks.length} ${tasks.length === 1 ? 'activity' : 'activities'}.${mergeNote}${importPreview.invalidCount ? ` Skipped ${importPreview.invalidCount} row(s).` : ''}${locationMsg}${clientMsg}`,
+      );
       setImportPreview(null);
     } catch (e) {
       alert(e?.message || 'Import failed');
@@ -1208,10 +1273,18 @@ export default function Calendar() {
                 ×
               </button>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem', alignItems: 'center' }}>
               <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
-                Valid: <strong>{importPreview.validCount}</strong>
+                Valid rows: <strong>{importPreview.validCount}</strong>
               </span>
+              <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
+                Activities to create: <strong>{importPreview.activityCreateCount ?? importPreview.validCount}</strong>
+              </span>
+              {importPreview.validCount > (importPreview.activityCreateCount ?? importPreview.validCount) ? (
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '42rem' }}>
+                  Rows with the same date, title, location, and client (and same time window) are merged into one calendar activity with all staff.
+                </span>
+              ) : null}
               <span style={{ padding: '0.3rem 0.6rem', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-hover)', fontSize: '0.82rem' }}>
                 Skipped: <strong>{importPreview.invalidCount}</strong>
               </span>
@@ -1289,7 +1362,9 @@ export default function Calendar() {
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
               <button type="button" style={btnPrimary} onClick={confirmImportPreview} disabled={importing || importPreview.validCount === 0}>
-                {importing ? 'Importing…' : `Confirm import (${importPreview.validCount})`}
+                {importing
+                  ? 'Importing…'
+                  : `Confirm import (${importPreview.activityCreateCount ?? importPreview.validCount} ${(importPreview.activityCreateCount ?? importPreview.validCount) === 1 ? 'activity' : 'activities'})`}
               </button>
               <button type="button" style={btnSecondary} onClick={() => setImportPreview(null)} disabled={importing}>
                 Cancel
