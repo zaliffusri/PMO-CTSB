@@ -89,6 +89,8 @@ export const api = {
     me: () => request('/auth/me'),
     logout: () => request('/auth/logout', { method: 'POST' }),
     changePassword: (body) => request('/auth/change-password', { method: 'POST', body: JSON.stringify(body) }),
+    uploadAvatar: (avatar_url) => request('/auth/avatar', { method: 'POST', body: JSON.stringify({ avatar_url }) }),
+    deleteAvatar: () => request('/auth/avatar', { method: 'DELETE' }),
   },
   users: {
     list: () => request('/users'),

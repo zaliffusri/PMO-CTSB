@@ -42,6 +42,7 @@ function save(data) {
 let syncInFlight = false;
 let syncQueued = false;
 let warnedUsersAppActiveColumn = false;
+let warnedUsersAppAvatarColumn = false;
 let warnedActivitiesExternalAttendees = false;
 
 /** Values some deployments use for `users_app.status` (NOT NULL in DB). */
@@ -64,27 +65,54 @@ async function upsertAll(table, rows, onConflict = 'id') {
 }
 
 /**
- * Upsert users; if DB has no `active` column yet, retry without it (run migration to persist status).
- * See supabase/migrations/*_add_users_app_active.sql
+ * Upsert users with graceful fallbacks for missing optional columns.
+ *  - `active`  → migration: supabase/migrations/*_add_users_app_active.sql
+ *  - `avatar_url` → migration: supabase/migrations/*_add_users_app_avatar_url.sql
  */
 async function upsertUsersApp(rows) {
   if (!rows || rows.length === 0) return;
   const prepared = rows.map((u) => normalizeUserRow(u));
-  const { error } = await supabase.from('users_app').upsert(prepared, { onConflict: 'id' });
+
+  const tryUpsert = async (payload) => supabase.from('users_app').upsert(payload, { onConflict: 'id' });
+
+  let { error } = await tryUpsert(prepared);
   if (!error) return;
-  const msg = String(error.message || '');
-  const missingActive =
-    /active/i.test(msg) && (/users_app|schema cache/i.test(msg) || /column/i.test(msg));
-  if (!missingActive) throw error;
-  const stripped = prepared.map(({ active: _a, ...rest }) => rest);
-  const retry = await supabase.from('users_app').upsert(stripped, { onConflict: 'id' });
-  if (retry.error) throw retry.error;
-  if (!warnedUsersAppActiveColumn) {
-    warnedUsersAppActiveColumn = true;
-    console.warn(
-      'store: users_app has no `active` column — saved users without it. Run SQL: alter table public.users_app add column if not exists active boolean not null default true;',
-    );
+
+  const isMissingColumn = (err, column) => {
+    const msg = String(err?.message || '');
+    return new RegExp(column, 'i').test(msg) &&
+      /users_app|schema cache|column|Could not find|does not exist|PGRST204/i.test(msg);
+  };
+
+  if (isMissingColumn(error, 'avatar_url')) {
+    const stripped = prepared.map(({ avatar_url: _a, ...rest }) => rest);
+    ({ error } = await tryUpsert(stripped));
+    if (!error) {
+      if (!warnedUsersAppAvatarColumn) {
+        warnedUsersAppAvatarColumn = true;
+        console.warn(
+          'store: users_app has no `avatar_url` column — saved without it. Run supabase/migrations/20260512170000_add_users_app_avatar_url.sql',
+        );
+      }
+      return;
+    }
   }
+
+  if (isMissingColumn(error, 'active')) {
+    const stripped = prepared.map(({ active: _a, avatar_url: _b, ...rest }) => rest);
+    ({ error } = await tryUpsert(stripped));
+    if (!error) {
+      if (!warnedUsersAppActiveColumn) {
+        warnedUsersAppActiveColumn = true;
+        console.warn(
+          'store: users_app has no `active` column — saved users without it. Run SQL: alter table public.users_app add column if not exists active boolean not null default true;',
+        );
+      }
+      return;
+    }
+  }
+
+  throw error;
 }
 
 /**

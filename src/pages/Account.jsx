@@ -1,8 +1,48 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
-import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
+import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+
+const AVATAR_MAX_DIM = 256;
+const AVATAR_QUALITY = 0.85;
+const AVATAR_INPUT_MAX_BYTES = 5 * 1024 * 1024;
+const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
+
+async function resizeImageToDataUrl(file) {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Please select an image file (PNG, JPG, WebP, or GIF).');
+  }
+  if (file.size > AVATAR_INPUT_MAX_BYTES) {
+    throw new Error('Image is too large. Please choose a file under 5 MB.');
+  }
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Selected file is not a valid image.'));
+    image.src = dataUrl;
+  });
+  const { width: w, height: h } = img;
+  const size = Math.min(w, h);
+  const sx = Math.max(0, Math.floor((w - size) / 2));
+  const sy = Math.max(0, Math.floor((h - size) / 2));
+  const target = Math.min(AVATAR_MAX_DIM, size);
+  const canvas = document.createElement('canvas');
+  canvas.width = target;
+  canvas.height = target;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Browser does not support image processing.');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, sx, sy, size, size, 0, 0, target, target);
+  return canvas.toDataURL('image/jpeg', AVATAR_QUALITY);
+}
 
 const ROLE_LABELS = {
   admin: 'Administrator',
@@ -113,7 +153,7 @@ function PasswordField({ label, value, onChange, show, onToggleShow, autoComplet
 }
 
 export default function Account() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [form, setForm] = useState({
     current_password: '',
     new_password: '',
@@ -124,6 +164,11 @@ export default function Account() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [copied, setCopied] = useState(false);
+
+  const fileInputRef = useRef(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarMsg, setAvatarMsg] = useState('');
+  const [avatarErr, setAvatarErr] = useState('');
 
   const role = user?.role || 'user';
   const roleColor = ROLE_COLORS[role] || ROLE_COLORS.user;
@@ -181,6 +226,47 @@ export default function Account() {
     }
   };
 
+  const handleAvatarFile = async (file) => {
+    if (!file) return;
+    setAvatarMsg('');
+    setAvatarErr('');
+    setAvatarBusy(true);
+    try {
+      const dataUrl = await resizeImageToDataUrl(file);
+      const res = await api.auth.uploadAvatar(dataUrl);
+      updateUser({ avatar_url: res?.user?.avatar_url ?? dataUrl });
+      setAvatarMsg('Profile picture updated.');
+    } catch (e) {
+      setAvatarErr(e.message || 'Failed to update profile picture.');
+    } finally {
+      setAvatarBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const openFilePicker = () => {
+    setAvatarMsg('');
+    setAvatarErr('');
+    fileInputRef.current?.click();
+  };
+
+  const removeAvatar = async () => {
+    if (!user?.avatar_url) return;
+    if (!window.confirm('Remove your profile picture?')) return;
+    setAvatarMsg('');
+    setAvatarErr('');
+    setAvatarBusy(true);
+    try {
+      await api.auth.deleteAvatar();
+      updateUser({ avatar_url: null });
+      setAvatarMsg('Profile picture removed.');
+    } catch (e) {
+      setAvatarErr(e.message || 'Failed to remove profile picture.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   if (!user) return null;
 
   const statusColor = user.active ? 'var(--success)' : 'var(--danger)';
@@ -209,24 +295,86 @@ export default function Account() {
           flexWrap: 'wrap',
         }}
       >
-        <div
-          aria-hidden
-          style={{
-            width: 80,
-            height: 80,
-            borderRadius: '50%',
-            background: `linear-gradient(135deg, ${roleColor}, ${roleColor}cc)`,
-            color: 'white',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.75rem',
-            fontWeight: 700,
-            flexShrink: 0,
-            boxShadow: `0 4px 14px ${roleColor}33`,
-          }}
-        >
-          {initials}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            type="button"
+            onClick={openFilePicker}
+            disabled={avatarBusy}
+            title={user.avatar_url ? 'Change profile picture' : 'Add profile picture'}
+            aria-label={user.avatar_url ? 'Change profile picture' : 'Add profile picture'}
+            style={{
+              width: 88,
+              height: 88,
+              borderRadius: '50%',
+              padding: 0,
+              border: `2px solid ${tint(roleColor, 35)}`,
+              background: user.avatar_url
+                ? 'var(--surface)'
+                : `linear-gradient(135deg, ${roleColor}, ${roleColor}cc)`,
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.85rem',
+              fontWeight: 700,
+              flexShrink: 0,
+              cursor: avatarBusy ? 'wait' : 'pointer',
+              overflow: 'hidden',
+              boxShadow: `0 4px 14px ${roleColor}33`,
+              position: 'relative',
+            }}
+          >
+            {user.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt={`${user.name || 'User'} profile picture`}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
+            ) : (
+              <span>{initials}</span>
+            )}
+            {avatarBusy && (
+              <span
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(0,0,0,0.45)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  borderRadius: '50%',
+                }}
+              >
+                Saving…
+              </span>
+            )}
+          </button>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button type="button" onClick={openFilePicker} style={btnSecondarySm} disabled={avatarBusy}>
+              {user.avatar_url ? 'Change' : 'Upload'}
+            </button>
+            {user.avatar_url && (
+              <button
+                type="button"
+                onClick={removeAvatar}
+                style={{ ...btnSecondarySm, color: 'var(--danger)' }}
+                disabled={avatarBusy}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={AVATAR_ACCEPT}
+            onChange={(e) => handleAvatarFile(e.target.files?.[0])}
+            style={{ display: 'none' }}
+          />
         </div>
         <div style={{ flex: '1 1 280px', minWidth: 0 }}>
           <div
@@ -296,6 +444,23 @@ export default function Account() {
           {copied ? '✓ Copied' : 'Copy email'}
         </button>
       </div>
+
+      {(avatarMsg || avatarErr) && (
+        <div
+          role={avatarErr ? 'alert' : 'status'}
+          style={{
+            padding: '0.6rem 0.85rem',
+            marginBottom: '1rem',
+            background: tint(avatarErr ? 'var(--danger)' : 'var(--success)', 12),
+            color: avatarErr ? 'var(--danger)' : 'var(--success)',
+            border: `1px solid ${avatarErr ? 'var(--danger)' : 'var(--success)'}`,
+            borderRadius: 8,
+            fontSize: '0.9rem',
+          }}
+        >
+          {avatarErr || avatarMsg}
+        </div>
+      )}
 
       <div
         style={{

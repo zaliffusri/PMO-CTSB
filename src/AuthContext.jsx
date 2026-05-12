@@ -37,6 +37,9 @@ export function AuthProvider({ children }) {
     user,
     checking,
     isAuthenticated: !!user,
+    updateUser(partial) {
+      setUser((prev) => (prev ? { ...prev, ...partial } : prev));
+    },
     async login(email, password) {
       const res = await api.auth.login({ email, password });
       setAuthToken(res.token);

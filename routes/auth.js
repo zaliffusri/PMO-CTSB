@@ -17,8 +17,12 @@ function sanitizeUser(user) {
     role: user.role,
     active: user.active !== false,
     created_at: user.created_at,
+    avatar_url: user.avatar_url || null,
   };
 }
+
+const MAX_AVATAR_BYTES = 1_500_000;
+const AVATAR_DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
 function getTokenFromHeader(req) {
   const auth = req.headers.authorization || '';
@@ -110,6 +114,66 @@ authRouter.post('/logout', (req, res) => {
   const token = getTokenFromHeader(req);
   if (token) store.deleteSessionByToken(token);
   res.status(204).send();
+});
+
+authRouter.post('/avatar', requireAuth, async (req, res) => {
+  try {
+    const { avatar_url } = req.body || {};
+    if (typeof avatar_url !== 'string' || !AVATAR_DATA_URL_RE.test(avatar_url)) {
+      return res.status(400).json({ error: 'avatar_url must be a base64 image data URL' });
+    }
+    if (avatar_url.length > MAX_AVATAR_BYTES) {
+      return res.status(413).json({ error: 'Avatar is too large. Please choose a smaller image.' });
+    }
+    const user = store.findUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    store.updateUser(user.id, { avatar_url });
+    store.appendAuditLog(req.user, {
+      action: 'update',
+      target_type: 'user',
+      target_id: user.id,
+      summary: 'Updated profile picture',
+    });
+    try {
+      await store.persistToSupabase();
+    } catch (e) {
+      console.error('auth /avatar POST persistToSupabase failed', e);
+      return res.status(500).json({ error: e.message || 'Failed to save avatar' });
+    }
+    const updated = store.findUserById(user.id);
+    return res.json({ user: sanitizeUser(updated) });
+  } catch (e) {
+    console.error('auth /avatar POST failed', e);
+    return res.status(500).json({ error: 'Failed to update avatar' });
+  }
+});
+
+authRouter.delete('/avatar', requireAuth, async (req, res) => {
+  try {
+    const user = store.findUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.avatar_url) {
+      return res.json({ user: sanitizeUser(user) });
+    }
+    store.updateUser(user.id, { avatar_url: null });
+    store.appendAuditLog(req.user, {
+      action: 'update',
+      target_type: 'user',
+      target_id: user.id,
+      summary: 'Removed profile picture',
+    });
+    try {
+      await store.persistToSupabase();
+    } catch (e) {
+      console.error('auth /avatar DELETE persistToSupabase failed', e);
+      return res.status(500).json({ error: e.message || 'Failed to remove avatar' });
+    }
+    const updated = store.findUserById(user.id);
+    return res.json({ user: sanitizeUser(updated) });
+  } catch (e) {
+    console.error('auth /avatar DELETE failed', e);
+    return res.status(500).json({ error: 'Failed to remove avatar' });
+  }
 });
 
 authRouter.post('/change-password', requireAuth, (req, res) => {

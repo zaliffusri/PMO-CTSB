@@ -27,7 +27,7 @@ if (process.env.ALLOW_LOCAL_STORE === '1') {
 export const app = express();
 app.use(cors({ origin: true }));
 app.options('*', cors({ origin: true }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 app.use('/api/auth', authRouter);
 app.get('/api/health', (req, res) => res.json({ ok: true }));

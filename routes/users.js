@@ -13,6 +13,7 @@ function safeUser(u) {
     role: u.role,
     active: u.active !== false,
     created_at: u.created_at,
+    avatar_url: u.avatar_url || null,
   };
 }
 
