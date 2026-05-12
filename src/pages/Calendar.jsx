@@ -1346,6 +1346,7 @@ export default function Calendar() {
         <div className="modal-backdrop" onClick={() => setShowReport(false)} role="presentation">
           <div
             className="modal-dialog"
+            style={{ width: 'min(1200px, 95vw)', maxWidth: '95vw' }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1380,7 +1381,7 @@ export default function Calendar() {
                 Close
               </button>
             </div>
-            <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
+            <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', background: 'var(--surface-hover)' }}>
