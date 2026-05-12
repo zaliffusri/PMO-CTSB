@@ -59,10 +59,9 @@ export default function Clients() {
       </div>
 
       {showForm && (
-        <div className="modal-backdrop" onClick={() => setShowForm(false)} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog"
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="client-create-modal-title"
@@ -90,7 +89,6 @@ export default function Clients() {
               </label>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="submit" style={btnPrimary} disabled={saving}>{saving ? 'Adding…' : 'Add client'}</button>
-                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary} disabled={saving}>Cancel</button>
               </div>
             </form>
           </div>

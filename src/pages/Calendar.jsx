@@ -705,9 +705,8 @@ export default function Calendar() {
     if (!anyOpen) return;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      if (showForm) setShowForm(false);
-      else if (detailActivityId != null) setDetailActivityId(null);
-      else setDayListDay(null);
+      if (detailActivityId != null) setDetailActivityId(null);
+      else if (dayListDay != null) setDayListDay(null);
     };
     document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
@@ -1343,11 +1342,10 @@ export default function Calendar() {
         </button>
       </div>
       {showReport && (
-        <div className="modal-backdrop" onClick={() => setShowReport(false)} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog"
             style={{ width: 'min(1200px, 95vw)', maxWidth: '95vw' }}
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="activity-report-modal-title"
@@ -1376,9 +1374,6 @@ export default function Calendar() {
               </div>
               <button type="button" style={btnPrimary} onClick={downloadReportExcel}>
                 Download Excel
-              </button>
-              <button type="button" style={btnSecondary} onClick={() => setShowReport(false)}>
-                Close
               </button>
             </div>
             <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
@@ -1423,11 +1418,10 @@ export default function Calendar() {
         </div>
       )}
       {importPreview && (
-        <div className="modal-backdrop" onClick={() => !importing && setImportPreview(null)} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog"
             style={{ width: 'min(1200px, 95vw)', maxWidth: '95vw' }}
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="activity-import-preview-modal-title"
@@ -1578,18 +1572,14 @@ export default function Calendar() {
                   ? 'Importing…'
                   : `Confirm import (${importPreview.activityCreateCount ?? importPreview.validCount} ${(importPreview.activityCreateCount ?? importPreview.validCount) === 1 ? 'activity' : 'activities'})`}
               </button>
-              <button type="button" style={btnSecondary} onClick={() => setImportPreview(null)} disabled={importing}>
-                Cancel
-              </button>
             </div>
           </div>
         </div>
       )}
       {showForm && (
-        <div className="modal-backdrop" onClick={() => { setShowForm(false); setEditingActivityId(null); }} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog modal-dialog--activity-log"
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="activity-log-modal-title"
@@ -1699,9 +1689,6 @@ export default function Calendar() {
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="submit" style={btnPrimary} disabled={mutating}>
                   {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}
-                </button>
-                <button type="button" style={btnSecondary} disabled={mutating} onClick={() => { setShowForm(false); setEditingActivityId(null); }}>
-                  Cancel
                 </button>
               </div>
             </form>

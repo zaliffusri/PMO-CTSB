@@ -54,23 +54,6 @@ export default function Users() {
   }, []);
 
   useEffect(() => {
-    if (editingId == null && !showForm) return;
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        if (editingId != null) {
-          setEditingId(null);
-          setEditForm({ name: '', email: '', role: 'user', password: '', active: true });
-        } else {
-          setShowForm(false);
-          setForm({ name: '', email: '', role: 'user' });
-        }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [editingId, showForm]);
-
-  useEffect(() => {
     if (editingId != null) {
       editFirstFieldRef.current?.focus();
     }
@@ -170,10 +153,9 @@ export default function Users() {
       </div>
 
       {showForm && (
-        <div className="modal-backdrop" onClick={cancelCreate} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog"
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-user-modal-title"
@@ -215,7 +197,6 @@ export default function Users() {
               </p>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="submit" style={btnPrimary} disabled={createPending}>{createPending ? 'Creating…' : 'Create'}</button>
-                <button type="button" style={btnSecondarySm} onClick={cancelCreate} disabled={createPending}>Cancel</button>
               </div>
             </form>
           </div>
@@ -223,10 +204,9 @@ export default function Users() {
       )}
 
       {editingId != null && (
-        <div className="modal-backdrop" onClick={cancelEdit} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog"
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-user-modal-title"
@@ -291,9 +271,6 @@ export default function Users() {
               </label>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="submit" style={btnPrimary} disabled={editPending}>{editPending ? 'Saving…' : 'Save'}</button>
-                <button type="button" style={btnSecondarySm} onClick={cancelEdit} disabled={editPending}>
-                  Cancel
-                </button>
               </div>
             </form>
           </div>

@@ -86,10 +86,9 @@ export default function Projects() {
       )}
 
       {showForm && (
-        <div className="modal-backdrop" onClick={() => setShowForm(false)} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog"
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="project-create-modal-title"
@@ -170,7 +169,6 @@ export default function Projects() {
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="submit" style={btnPrimary} disabled={saving}>{saving ? 'Creating…' : 'Create'}</button>
-                <button type="button" onClick={() => setShowForm(false)} style={btnSecondary} disabled={saving}>Cancel</button>
               </div>
             </form>
           </div>

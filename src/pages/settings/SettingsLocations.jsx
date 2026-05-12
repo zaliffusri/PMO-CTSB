@@ -138,10 +138,9 @@ export default function SettingsLocations() {
   return (
     <>
       {editModal && (
-        <div className="modal-backdrop" onClick={closeModal} role="presentation">
+        <div className="modal-backdrop" role="presentation">
           <div
             className="modal-dialog"
-            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="location-modal-title"
@@ -183,9 +182,6 @@ export default function SettingsLocations() {
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="button" style={btnPrimary} onClick={applyModal} disabled={saving}>
                   {saving ? 'Saving…' : editModal.isNew ? 'Add' : 'Save'}
-                </button>
-                <button type="button" style={btnSecondarySm} onClick={closeModal} disabled={saving}>
-                  Cancel
                 </button>
                 {!editModal.isNew && rows.length > 1 && (
                   <button
