@@ -113,6 +113,58 @@ function tint(varName, pct = 15) {
   return `color-mix(in srgb, ${varName} ${pct}%, transparent)`;
 }
 
+function MessagePopup({ open, kind, message, onClose }) {
+  if (!open) return null;
+  const isError = kind === 'error';
+  const color = isError ? 'var(--danger)' : 'var(--success)';
+  const title = isError ? 'Something went wrong' : 'Success';
+  const icon = isError ? '!' : '✓';
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div
+        className="modal-dialog"
+        style={{ width: 'min(420px, 92vw)', maxWidth: '92vw' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-message-title"
+      >
+        <div className="modal-dialog-header">
+          <h2 id="account-message-title" className="modal-dialog-title">
+            {title}
+          </h2>
+          <button type="button" className="modal-dialog-close" onClick={onClose} aria-label="Close dialog">
+            ×
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start', padding: '0.25rem 0 0.25rem' }}>
+          <span
+            aria-hidden
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: tint(color, 18),
+              color,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.1rem',
+              fontWeight: 700,
+              flexShrink: 0,
+              border: `1px solid ${tint(color, 35)}`,
+            }}
+          >
+            {icon}
+          </span>
+          <p style={{ margin: 0, lineHeight: 1.5, color: 'var(--text)', fontSize: '0.95rem' }}>
+            {message}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PasswordField({ label, value, onChange, show, onToggleShow, autoComplete, children }) {
   return (
     <label>
@@ -161,14 +213,15 @@ export default function Account() {
   });
   const [showPw, setShowPw] = useState({ current: false, next: false, confirm: false });
   const { pending: saving, run } = useSubmitLock();
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
+  const [popup, setPopup] = useState({ open: false, kind: 'success', message: '' });
   const [copied, setCopied] = useState(false);
 
   const fileInputRef = useRef(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
-  const [avatarMsg, setAvatarMsg] = useState('');
-  const [avatarErr, setAvatarErr] = useState('');
+
+  const showSuccess = (message) => setPopup({ open: true, kind: 'success', message });
+  const showError = (message) => setPopup({ open: true, kind: 'error', message });
+  const closePopup = () => setPopup((p) => ({ ...p, open: false }));
 
   const role = user?.role || 'user';
   const roleColor = ROLE_COLORS[role] || ROLE_COLORS.user;
@@ -183,22 +236,20 @@ export default function Account() {
 
   const submit = async (e) => {
     e.preventDefault();
-    setMsg('');
-    setErr('');
     if (!form.current_password || !form.new_password || !form.confirm_password) {
-      setErr('Please fill in all password fields.');
+      showError('Please fill in all password fields.');
       return;
     }
     if (form.new_password.length < 6) {
-      setErr('New password must be at least 6 characters.');
+      showError('New password must be at least 6 characters.');
       return;
     }
     if (form.new_password !== form.confirm_password) {
-      setErr('New password and confirmation do not match.');
+      showError('New password and confirmation do not match.');
       return;
     }
     if (form.new_password === form.current_password) {
-      setErr('New password must be different from your current password.');
+      showError('New password must be different from your current password.');
       return;
     }
     await run(async () => {
@@ -207,10 +258,10 @@ export default function Account() {
           current_password: form.current_password,
           new_password: form.new_password,
         });
-        setMsg('Password updated successfully. Please use your new password on next sign-in.');
+        showSuccess('Password updated successfully. Please use your new password on next sign-in.');
         setForm({ current_password: '', new_password: '', confirm_password: '' });
       } catch (e2) {
-        setErr(e2.message || 'Failed to change password.');
+        showError(e2.message || 'Failed to change password.');
       }
     });
   };
@@ -228,16 +279,14 @@ export default function Account() {
 
   const handleAvatarFile = async (file) => {
     if (!file) return;
-    setAvatarMsg('');
-    setAvatarErr('');
     setAvatarBusy(true);
     try {
       const dataUrl = await resizeImageToDataUrl(file);
       const res = await api.auth.uploadAvatar(dataUrl);
       updateUser({ avatar_url: res?.user?.avatar_url ?? dataUrl });
-      setAvatarMsg('Profile picture updated.');
+      showSuccess('Profile picture updated.');
     } catch (e) {
-      setAvatarErr(e.message || 'Failed to update profile picture.');
+      showError(e.message || 'Failed to update profile picture.');
     } finally {
       setAvatarBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -245,23 +294,19 @@ export default function Account() {
   };
 
   const openFilePicker = () => {
-    setAvatarMsg('');
-    setAvatarErr('');
     fileInputRef.current?.click();
   };
 
   const removeAvatar = async () => {
     if (!user?.avatar_url) return;
     if (!window.confirm('Remove your profile picture?')) return;
-    setAvatarMsg('');
-    setAvatarErr('');
     setAvatarBusy(true);
     try {
       await api.auth.deleteAvatar();
       updateUser({ avatar_url: null });
-      setAvatarMsg('Profile picture removed.');
+      showSuccess('Profile picture removed.');
     } catch (e) {
-      setAvatarErr(e.message || 'Failed to remove profile picture.');
+      showError(e.message || 'Failed to remove profile picture.');
     } finally {
       setAvatarBusy(false);
     }
@@ -445,23 +490,6 @@ export default function Account() {
         </button>
       </div>
 
-      {(avatarMsg || avatarErr) && (
-        <div
-          role={avatarErr ? 'alert' : 'status'}
-          style={{
-            padding: '0.6rem 0.85rem',
-            marginBottom: '1rem',
-            background: tint(avatarErr ? 'var(--danger)' : 'var(--success)', 12),
-            color: avatarErr ? 'var(--danger)' : 'var(--success)',
-            border: `1px solid ${avatarErr ? 'var(--danger)' : 'var(--success)'}`,
-            borderRadius: 8,
-            fontSize: '0.9rem',
-          }}
-        >
-          {avatarErr || avatarMsg}
-        </div>
-      )}
-
       <div
         style={{
           display: 'grid',
@@ -523,39 +551,6 @@ export default function Account() {
           <p style={{ color: 'var(--text-muted)', marginTop: 0, marginBottom: '1rem', fontSize: '0.88rem' }}>
             Update your password regularly. Use at least 8 characters with a mix of letters, numbers, and symbols.
           </p>
-
-          {msg && (
-            <div
-              role="status"
-              style={{
-                padding: '0.65rem 0.85rem',
-                marginBottom: '0.85rem',
-                background: tint('var(--success)', 12),
-                color: 'var(--success)',
-                border: '1px solid var(--success)',
-                borderRadius: 8,
-                fontSize: '0.9rem',
-              }}
-            >
-              {msg}
-            </div>
-          )}
-          {err && (
-            <div
-              role="alert"
-              style={{
-                padding: '0.65rem 0.85rem',
-                marginBottom: '0.85rem',
-                background: tint('var(--danger)', 12),
-                color: 'var(--danger)',
-                border: '1px solid var(--danger)',
-                borderRadius: 8,
-                fontSize: '0.9rem',
-              }}
-            >
-              {err}
-            </div>
-          )}
 
           <form onSubmit={submit} style={{ display: 'grid', gap: '0.85rem' }}>
             <PasswordField
@@ -640,6 +635,13 @@ export default function Account() {
           <li>Always sign out when using shared or public devices.</li>
         </ul>
       </section>
+
+      <MessagePopup
+        open={popup.open}
+        kind={popup.kind}
+        message={popup.message}
+        onClose={closePopup}
+      />
     </div>
   );
 }
