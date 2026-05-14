@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
-import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle } from '../styles/commonStyles';
+import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 
 const AVATAR_MAX_DIM = 256;
@@ -340,79 +340,87 @@ export default function Account() {
           flexWrap: 'wrap',
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-          <button
-            type="button"
-            onClick={openFilePicker}
-            disabled={avatarBusy}
-            title={user.avatar_url ? 'Change profile picture' : 'Add profile picture'}
-            aria-label={user.avatar_url ? 'Change profile picture' : 'Add profile picture'}
+        <div
+          className="account-avatar-shell"
+          style={{
+            border: `2px solid ${tint(roleColor, 35)}`,
+            boxShadow: `0 4px 14px ${roleColor}33`,
+          }}
+          role="group"
+          aria-label={`${user.name || user.email || 'Your'} profile picture`}
+        >
+          <div
             style={{
-              width: 88,
-              height: 88,
-              borderRadius: '50%',
-              padding: 0,
-              border: `2px solid ${tint(roleColor, 35)}`,
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               background: user.avatar_url
                 ? 'var(--surface)'
                 : `linear-gradient(135deg, ${roleColor}, ${roleColor}cc)`,
               color: 'white',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
               fontSize: '1.85rem',
               fontWeight: 700,
-              flexShrink: 0,
-              cursor: avatarBusy ? 'wait' : 'pointer',
-              overflow: 'hidden',
-              boxShadow: `0 4px 14px ${roleColor}33`,
-              position: 'relative',
             }}
           >
             {user.avatar_url ? (
               <img
                 src={user.avatar_url}
-                alt={`${user.name || 'User'} profile picture`}
+                alt=""
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
               />
             ) : (
-              <span>{initials}</span>
+              <span aria-hidden>{initials}</span>
             )}
-            {avatarBusy && (
-              <span
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  background: 'rgba(0,0,0,0.45)',
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  borderRadius: '50%',
-                }}
-              >
-                Saving…
-              </span>
-            )}
-          </button>
-          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-            <button type="button" onClick={openFilePicker} style={btnSecondarySm} disabled={avatarBusy}>
-              {user.avatar_url ? 'Change' : 'Upload'}
+          </div>
+          <div className="account-avatar-overlay">
+            <button
+              type="button"
+              onClick={openFilePicker}
+              disabled={avatarBusy}
+              title={user.avatar_url ? 'Change profile picture' : 'Add profile picture'}
+              style={{
+                padding: '0.28rem 0.55rem',
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                border: 'none',
+                borderRadius: 6,
+                cursor: avatarBusy ? 'wait' : 'pointer',
+                background: 'rgba(255, 255, 255, 0.22)',
+                color: '#fff',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {user.avatar_url ? 'Change' : 'Add photo'}
             </button>
             {user.avatar_url && (
               <button
                 type="button"
                 onClick={removeAvatar}
-                style={{ ...btnSecondarySm, color: 'var(--danger)' }}
                 disabled={avatarBusy}
+                title="Remove profile picture"
+                style={{
+                  padding: '0.28rem 0.55rem',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: avatarBusy ? 'wait' : 'pointer',
+                  background: 'rgba(239, 68, 68, 0.4)',
+                  color: '#fecaca',
+                  whiteSpace: 'nowrap',
+                }}
               >
                 Remove
               </button>
             )}
           </div>
+          {avatarBusy && (
+            <div className="account-avatar-busy" aria-live="polite">
+              Saving…
+            </div>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -515,18 +523,6 @@ export default function Account() {
               <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem', lineHeight: 1.5 }}>
                 {ROLE_DESCRIPTIONS[role] || 'Standard access.'}
               </div>
-            </dd>
-
-            <dt style={labelStyle}>User ID</dt>
-            <dd
-              style={{
-                margin: 0,
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                fontSize: '0.85rem',
-                color: 'var(--text-muted)',
-              }}
-            >
-              #{user.id}
             </dd>
 
             <dt style={labelStyle}>Status</dt>
