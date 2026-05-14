@@ -24,5 +24,13 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- Flow360 AI chatbot (domain may need whitelisting on the chatbot server) -->
+    <script>
+      window.AI_WIDGET_CONFIG = {
+        chatbotId: "b8bb3ceb-5dfa-4762-96ee-cc02ce8ab1e2",
+        baseUrl: "https://epbtstaging.mbpg.gov.my",
+      };
+    </script>
+    <script src="https://epbtstaging.mbpg.gov.my/flow360/widget.js"></script>
   </body>
 </html>
