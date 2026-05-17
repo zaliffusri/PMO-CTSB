@@ -1,17 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
+import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+
+function clientMatchesSearch(client, q) {
+  if (!q) return true;
+  const haystack = [
+    client.name,
+    client.contact_name,
+    client.email,
+    client.phone,
+    ...(client.projects || []).map((p) => p.name),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(q);
+}
 
 export default function Clients() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState({ name: '', contact_name: '', email: '', phone: '' });
   const { pending: saving, run } = useSubmitLock();
 
   const load = () => api.clients.list().then(setClients).catch(console.error).finally(() => setLoading(false));
+
+  const filteredClients = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return clients.filter((c) => clientMatchesSearch(c, q));
+  }, [clients, searchQuery]);
+
+  const searchActive = Boolean(searchQuery.trim());
 
   useEffect(() => {
     load();
@@ -95,35 +118,84 @@ export default function Clients() {
         </div>
       )}
 
+      {clients.length > 0 && (
+        <div
+          className="filter-bar"
+          style={{ ...card, marginBottom: '0.75rem', padding: '1rem' }}
+        >
+          <label style={{ flex: '1 1 240px', minWidth: 0, maxWidth: '400px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Search</span>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Name, contact, email, phone, or project…"
+              aria-label="Search clients"
+              style={{ ...inputStyle, marginTop: 0 }}
+            />
+          </label>
+          {searchActive && (
+            <button
+              type="button"
+              style={{ ...btnSecondary, alignSelf: 'flex-end', whiteSpace: 'nowrap' }}
+              onClick={() => setSearchQuery('')}
+            >
+              Clear search
+            </button>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         {clients.length === 0 && !showForm ? (
           <div style={card}>
             <p style={{ color: 'var(--text-muted)' }}>No clients yet. Add a client to link to projects.</p>
           </div>
+        ) : !filteredClients.length ? (
+          <div style={card}>
+            <p style={{ color: 'var(--text-muted)' }}>
+              No clients match your search.
+              {searchActive && (
+                <>
+                  {' '}
+                  <button type="button" style={{ ...btnSecondarySm, verticalAlign: 'baseline' }} onClick={() => setSearchQuery('')}>
+                    Clear search
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
         ) : (
-          clients.map(c => (
-            <div key={c.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{c.name}</div>
-                {(c.contact_name || c.email || c.phone) && (
-                  <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                    {c.contact_name && <span>{c.contact_name}</span>}
-                    {c.email && <span>{c.contact_name ? ' · ' : ''}{c.email}</span>}
-                    {c.phone && <span>{c.contact_name || c.email ? ' · ' : ''}{c.phone}</span>}
-                  </p>
-                )}
+          <>
+            {searchActive && (
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Showing {filteredClients.length} of {clients.length} client{clients.length !== 1 ? 's' : ''}
+              </p>
+            )}
+            {filteredClients.map((c) => (
+              <div key={c.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{c.name}</div>
+                  {(c.contact_name || c.email || c.phone) && (
+                    <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                      {c.contact_name && <span>{c.contact_name}</span>}
+                      {c.email && <span>{c.contact_name ? ' · ' : ''}{c.email}</span>}
+                      {c.phone && <span>{c.contact_name || c.email ? ' · ' : ''}{c.phone}</span>}
+                    </p>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {(c.projects?.length ?? 0) > 0 &&
+                    c.projects.map((p) => (
+                      <Link key={p.id} to={`/projects/${p.id}`} style={btnSecondary}>
+                        {c.projects.length === 1 ? 'View project' : p.name}
+                      </Link>
+                    ))}
+                  <button type="button" onClick={() => remove(c.id, c.name)} style={{ ...btnSecondary, color: 'var(--danger)' }} disabled={saving}>Remove</button>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                {(c.projects?.length ?? 0) > 0 &&
-                  c.projects.map((p) => (
-                    <Link key={p.id} to={`/projects/${p.id}`} style={btnSecondary}>
-                      {c.projects.length === 1 ? 'View project' : p.name}
-                    </Link>
-                  ))}
-                <button type="button" onClick={() => remove(c.id, c.name)} style={{ ...btnSecondary, color: 'var(--danger)' }} disabled={saving}>Remove</button>
-              </div>
-            </div>
-          ))
+            ))}
+          </>
         )}
       </div>
     </div>
