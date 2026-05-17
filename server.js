@@ -17,6 +17,7 @@ import { requireAuth } from './middleware/requireAuth.js';
 import { usersRouter } from './routes/users.js';
 import { settingsRouter } from './routes/settings.js';
 import { auditLogRouter } from './routes/auditLog.js';
+import { adminDbRouter } from './routes/adminDb.js';
 
 initDb();
 // Seed demo data only for local runs that explicitly allow local store.
@@ -43,6 +44,7 @@ app.use('/api/project-tasks', projectTasksRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/audit-log', auditLogRouter);
+app.use('/api/admin/db', adminDbRouter);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -11,13 +11,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { getSupabaseDbUrl } from '../lib/dbConnection.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 
 dotenv.config({ path: path.join(root, '.env') });
 
-const dbUrl = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+const dbUrl = getSupabaseDbUrl();
 
 if (!dbUrl) {
   console.error(

@@ -5,11 +5,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { getSupabaseDbUrl } from '../lib/dbConnection.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: path.join(root, '.env') });
 
-const dbUrl = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+const dbUrl = getSupabaseDbUrl();
 if (!dbUrl) {
   console.error('Missing SUPABASE_DB_URL in .env');
   process.exit(1);
