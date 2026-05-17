@@ -10,17 +10,24 @@ create table if not exists public.project_clients (
 create index if not exists idx_project_clients_project_id on public.project_clients(project_id);
 create index if not exists idx_project_clients_client_id on public.project_clients(client_id);
 
-insert into public.project_clients (project_id, client_id, created_at)
-select
-  p.id,
-  p.client_id,
-  coalesce(p.created_at, now())
-from public.projects p
-where p.client_id is not null
-  and not exists (
-    select 1
-    from public.project_clients pc
-    where pc.project_id = p.id and pc.client_id = p.client_id
-  );
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'projects' and column_name = 'client_id'
+  ) then
+    insert into public.project_clients (project_id, client_id, created_at)
+    select
+      p.id,
+      p.client_id,
+      coalesce(p.created_at, now())
+    from public.projects p
+    where p.client_id is not null
+      and not exists (
+        select 1 from public.project_clients pc
+        where pc.project_id = p.id and pc.client_id = p.client_id
+      );
 
-alter table public.projects drop column if exists client_id;
+    alter table public.projects drop column client_id;
+  end if;
+end $$;

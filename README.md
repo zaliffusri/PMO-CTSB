@@ -64,3 +64,24 @@ For local run, the root scripts automatically use `ALLOW_LOCAL_STORE=1` so you c
 After deploy:
 - Frontend is served from `/`
 - Backend API is served from `/api/*`
+
+## Database schema (Supabase)
+
+The app expects **`client_contacts`** (PICs per company) and **`project_clients`** (many clients per project). Vercel deploy does not change the database automatically.
+
+**Option A — SQL Editor (recommended)**
+
+1. Open Supabase → **SQL Editor**.
+2. Paste and run the full script: [`supabase/push_schema_updates.sql`](supabase/push_schema_updates.sql)  
+   (Idempotent: safe to run again if already partially applied.)
+
+**Option B — CLI from your machine**
+
+1. In `.env`, set `SUPABASE_DB_URL` to the Postgres URI from Supabase → **Settings** → **Database** → Connection string (Session pooler).
+2. Run:
+
+```bash
+npm install
+npm run db:migrate
+npm run db:verify
+```

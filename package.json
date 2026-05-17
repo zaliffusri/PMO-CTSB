@@ -8,7 +8,9 @@
     "build": "vite build",
     "start": "npm run build && cross-env ALLOW_LOCAL_STORE=1 node server.js",
     "start:backend": "cross-env ALLOW_LOCAL_STORE=1 node server.js",
-    "email:test": "node scripts/email-test.mjs"
+    "email:test": "node scripts/email-test.mjs",
+    "db:migrate": "node scripts/applyDbMigrations.mjs",
+    "db:verify": "node scripts/verifyDbSchema.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
@@ -22,6 +24,7 @@
     "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
+    "pg": "^8.13.1",
     "@vitejs/plugin-react": "^4.3.3",
     "concurrently": "^9.1.2",
     "cross-env": "^10.0.0",

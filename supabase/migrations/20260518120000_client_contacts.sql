@@ -10,24 +10,31 @@ create table if not exists public.client_contacts (
 
 create index if not exists idx_client_contacts_client_id on public.client_contacts(client_id);
 
--- Move legacy contact fields from clients into client_contacts
-insert into public.client_contacts (client_id, contact_name, email, phone, created_at)
-select
-  c.id,
-  c.contact_name,
-  c.email,
-  c.phone,
-  coalesce(c.created_at, now())
-from public.clients c
-where (
-    coalesce(c.contact_name, '') <> ''
-    or coalesce(c.email, '') <> ''
-    or coalesce(c.phone, '') <> ''
-  )
-  and not exists (
-    select 1 from public.client_contacts cc where cc.client_id = c.id
-  );
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'clients' and column_name = 'contact_name'
+  ) then
+    insert into public.client_contacts (client_id, contact_name, email, phone, created_at)
+    select
+      c.id,
+      c.contact_name,
+      c.email,
+      c.phone,
+      coalesce(c.created_at, now())
+    from public.clients c
+    where (
+        coalesce(c.contact_name, '') <> ''
+        or coalesce(c.email, '') <> ''
+        or coalesce(c.phone, '') <> ''
+      )
+      and not exists (
+        select 1 from public.client_contacts cc where cc.client_id = c.id
+      );
 
-alter table public.clients drop column if exists contact_name;
-alter table public.clients drop column if exists email;
-alter table public.clients drop column if exists phone;
+    alter table public.clients drop column contact_name;
+    alter table public.clients drop column email;
+    alter table public.clients drop column phone;
+  end if;
+end $$;
