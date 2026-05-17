@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, card, inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import ClientMultiSelect from '../components/ClientMultiSelect';
 
 function ProjectDetail() {
   const { id } = useParams();
@@ -42,7 +43,7 @@ function ProjectDetail() {
     name: '',
     description: '',
     status: 'active',
-    client_id: '',
+    client_ids: [],
   });
 
   const load = () => {
@@ -56,7 +57,7 @@ function ProjectDetail() {
           name: p?.name || '',
           description: p?.description || '',
           status: p?.status || 'active',
-          client_id: p?.client_id ?? '',
+          client_ids: Array.isArray(p?.client_ids) ? [...p.client_ids] : p?.client_id ? [p.client_id] : [],
         });
         setAllPeople(peopleList);
         setPeople(peopleList.filter(pe => !p.members?.some(m => m.person_id === pe.id)));
@@ -258,7 +259,7 @@ function ProjectDetail() {
           name: editForm.name,
           description: editForm.description || null,
           status: editForm.status,
-          client_id: editForm.client_id ? +editForm.client_id : null,
+          client_ids: editForm.client_ids,
         });
         setProject(updated);
         setEditOpen(false);
@@ -280,7 +281,7 @@ function ProjectDetail() {
           <h1 style={{ margin: 0 }}>{project.name}</h1>
           {project.description && <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>{project.description}</p>}
           <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-            {project.client_name && <span>Client: {project.client_name} · </span>}Status: {project.status} {project.start_date && ` · ${project.start_date} – ${project.end_date || '–'}`}
+            {project.client_name && <span>Clients: {project.client_name} · </span>}Status: {project.status} {project.start_date && ` · ${project.start_date} – ${project.end_date || '–'}`}
           </p>
           {tags.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.5rem' }}>
@@ -334,17 +335,13 @@ function ProjectDetail() {
               </select>
             </label>
             <label>
-              Client
-              <select
-                value={editForm.client_id}
-                onChange={e => setEditForm(f => ({ ...f, client_id: e.target.value }))}
-                style={inputStyle}
-              >
-                <option value="">No client</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+              Clients (companies involved)
+              <ClientMultiSelect
+                clients={clients}
+                value={editForm.client_ids}
+                onChange={(client_ids) => setEditForm((f) => ({ ...f, client_ids }))}
+                idPrefix="project-edit-client"
+              />
             </label>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>

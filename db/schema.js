@@ -54,8 +54,10 @@ export function seedDemo() {
   ];
   people.forEach(p => store.addPerson(p));
 
-  store.addProject({ name: 'Project Alpha', description: 'Main digital transformation', status: 'active', start_date: '2025-01-01', end_date: '2025-06-30', client_id: 1, tags: ['digital-transformation', 'government'] });
-  store.addProject({ name: 'Project Beta', description: 'Internal portal upgrade', status: 'active', start_date: '2025-02-01', end_date: '2025-08-31', client_id: 2, tags: ['internal', 'portal'] });
+  const alphaId = store.addProject({ name: 'Project Alpha', description: 'Main digital transformation', status: 'active', start_date: '2025-01-01', end_date: '2025-06-30', tags: ['digital-transformation', 'government'] });
+  store.setProjectClients(alphaId, [1]);
+  const betaId = store.addProject({ name: 'Project Beta', description: 'Internal portal upgrade', status: 'active', start_date: '2025-02-01', end_date: '2025-08-31', tags: ['internal', 'portal'] });
+  store.setProjectClients(betaId, [2, 3]);
 
   store.addAssignment({ project_id: 1, person_id: 1, role_in_project: 'Lead', allocation_percent: 80 });
   store.addAssignment({ project_id: 1, person_id: 2, role_in_project: 'Member', allocation_percent: 60 });

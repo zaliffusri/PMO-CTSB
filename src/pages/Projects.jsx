@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import ClientMultiSelect from '../components/ClientMultiSelect';
 
 const PROJECT_CLASSIFICATION_OPTIONS = [
   'Pre-Sales Project',
@@ -18,7 +19,7 @@ export default function Projects() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [filterTag, setFilterTag] = useState('');
-  const [form, setForm] = useState({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
+  const [form, setForm] = useState({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_ids: [], tags: [] });
   const [tagInput, setTagInput] = useState('');
   const { pending: saving, run } = useSubmitLock();
 
@@ -49,8 +50,8 @@ export default function Projects() {
     if (!form.name.trim()) return;
     await run(async () => {
       try {
-        await api.projects.create({ ...form, client_id: form.client_id || undefined, tags: form.tags });
-        setForm({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_id: '', tags: [] });
+        await api.projects.create({ ...form, client_ids: form.client_ids, tags: form.tags });
+        setForm({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_ids: [], tags: [] });
         setTagInput('');
         setShowForm(false);
         load();
@@ -143,11 +144,13 @@ export default function Projects() {
                 )}
               </label>
               <label>
-                Client
-                <select value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))} style={inputStyle}>
-                  <option value="">No client</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                Clients (companies involved)
+                <ClientMultiSelect
+                  clients={clients}
+                  value={form.client_ids}
+                  onChange={(client_ids) => setForm((f) => ({ ...f, client_ids }))}
+                  idPrefix="project-create-client"
+                />
               </label>
               <label>
                 Status

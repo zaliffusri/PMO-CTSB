@@ -40,8 +40,12 @@ async function main() {
   await upsert('people', raw.people || []);
   await upsert(
     'projects',
-    (raw.projects || []).map((p) => ({ ...p, tags: Array.isArray(p.tags) ? p.tags : [] })),
+    (raw.projects || []).map((p) => {
+      const { client_id: _c, tags, ...rest } = p;
+      return { ...rest, tags: Array.isArray(tags) ? tags : [] };
+    }),
   );
+  await upsert('project_clients', raw.project_clients || []);
   await upsert('project_assignments', raw.project_assignments || []);
   await upsert('activities', raw.activities || []);
   const tasks = (raw.project_tasks || []).map((t, idx) => ({

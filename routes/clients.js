@@ -4,8 +4,13 @@ import { store } from '../db/store.js';
 export const clientsRouter = Router();
 
 function companyProjects(clientId) {
+  const projectIds = new Set(
+    (store.project_clients || [])
+      .filter((pc) => pc.client_id === clientId)
+      .map((pc) => pc.project_id),
+  );
   return store.projects
-    .filter((p) => p.client_id === clientId)
+    .filter((p) => projectIds.has(p.id))
     .map((p) => ({ id: p.id, name: p.name, status: p.status }))
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }

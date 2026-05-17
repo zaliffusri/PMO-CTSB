@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { normalizeTaskStatus } from '../lib/taskStatus.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
+import { formatClientNames } from '../lib/projectClients.js';
 let warnedSupabase = false;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -28,6 +29,7 @@ function emptyData() {
     project_tasks: [],
     clients: [],
     client_contacts: [],
+    project_clients: [],
     users: [],
     sessions: [],
     settings: defaultSettings(),
@@ -46,6 +48,7 @@ let warnedUsersAppActiveColumn = false;
 let warnedUsersAppAvatarColumn = false;
 let warnedActivitiesExternalAttendees = false;
 let warnedClientContactsTable = false;
+let warnedProjectClientsTable = false;
 
 /** Values some deployments use for `users_app.status` (NOT NULL in DB). */
 const USER_ROW_STATUSES = new Set(['active', 'inactive', 'pending', 'suspended']);
@@ -159,6 +162,28 @@ function companyRowForDb(c) {
   };
 }
 
+function projectRowForDb(p) {
+  const { client_id: _c, tags, ...rest } = p;
+  return { ...rest, tags: Array.isArray(tags) ? tags : [] };
+}
+
+async function upsertProjectClients(rows) {
+  if (!rows?.length) return;
+  const { error } = await supabase.from('project_clients').upsert(rows, { onConflict: 'id' });
+  if (!error) return;
+  const msg = String(error?.message || '');
+  if (/project_clients|schema cache|column|Could not find|does not exist|PGRST204/i.test(msg)) {
+    if (!warnedProjectClientsTable) {
+      warnedProjectClientsTable = true;
+      console.warn(
+        'store: project_clients table missing — run supabase/migrations/20260518130000_project_clients.sql',
+      );
+    }
+    return;
+  }
+  throw error;
+}
+
 async function upsertClientContacts(rows) {
   if (!rows?.length) return;
   const { error } = await supabase.from('client_contacts').upsert(rows, { onConflict: 'id' });
@@ -180,10 +205,8 @@ async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('clients', (snapshot.clients || []).map(companyRowForDb));
   await upsertClientContacts(snapshot.client_contacts || []);
   await upsertAll('people', snapshot.people || []);
-  await upsertAll(
-    'projects',
-    (snapshot.projects || []).map((p) => ({ ...p, tags: Array.isArray(p.tags) ? p.tags : [] })),
-  );
+  await upsertAll('projects', (snapshot.projects || []).map(projectRowForDb));
+  await upsertProjectClients(snapshot.project_clients || []);
   await upsertAll('project_assignments', snapshot.project_assignments || []);
   await upsertActivitiesApp(snapshot.activities || []);
   await upsertAll('project_tasks', snapshot.project_tasks || []);
@@ -226,6 +249,7 @@ async function loadFromSupabase() {
     const [
       clientsRes,
       clientContactsRes,
+      projectClientsRes,
       peopleRes,
       projectsRes,
       assignRes,
@@ -238,6 +262,7 @@ async function loadFromSupabase() {
     ] = await Promise.all([
       supabase.from('clients').select('*').order('id', { ascending: true }),
       supabase.from('client_contacts').select('*').order('id', { ascending: true }),
+      supabase.from('project_clients').select('*').order('id', { ascending: true }),
       supabase.from('people').select('*').order('id', { ascending: true }),
       supabase.from('projects').select('*').order('id', { ascending: true }),
       supabase.from('project_assignments').select('*').order('id', { ascending: true }),
@@ -251,10 +276,14 @@ async function loadFromSupabase() {
     const clientContactsMissing =
       clientContactsRes.error &&
       /client_contacts|schema cache|Could not find|does not exist|PGRST204/i.test(String(clientContactsRes.error.message || ''));
+    const projectClientsMissing =
+      projectClientsRes.error &&
+      /project_clients|schema cache|Could not find|does not exist|PGRST204/i.test(String(projectClientsRes.error.message || ''));
 
     const errs = [
       clientsRes.error,
       clientContactsMissing ? null : clientContactsRes.error,
+      projectClientsMissing ? null : projectClientsRes.error,
       peopleRes.error,
       projectsRes.error,
       assignRes.error,
@@ -272,6 +301,7 @@ async function loadFromSupabase() {
     const remote = {
       clients: clientsRes.data || [],
       client_contacts: clientContactsMissing ? [] : clientContactsRes.data || [],
+      project_clients: projectClientsMissing ? [] : projectClientsRes.data || [],
       people: peopleRes.data || [],
       projects: projectsRes.data || [],
       project_assignments: assignRes.data || [],
@@ -330,10 +360,32 @@ function migrateLegacyClientContacts(snapshot) {
   return snapshot;
 }
 
+function migrateLegacyProjectClients(snapshot) {
+  if (!snapshot.project_clients) snapshot.project_clients = [];
+  for (const p of snapshot.projects || []) {
+    if (p.client_id == null || p.client_id === '') continue;
+    const clientId = +p.client_id;
+    if (!Number.isFinite(clientId)) continue;
+    const exists = snapshot.project_clients.some(
+      (pc) => pc.project_id === p.id && pc.client_id === clientId,
+    );
+    if (!exists) {
+      snapshot.project_clients.push({
+        id: nextId(snapshot.project_clients),
+        project_id: p.id,
+        client_id: clientId,
+        created_at: p.created_at || new Date().toISOString(),
+      });
+    }
+    delete p.client_id;
+  }
+  return snapshot;
+}
+
 async function loadInitialData() {
   const remote = await loadFromSupabase();
   const base = remote || emptyData();
-  return migrateLegacyClientContacts(base);
+  return migrateLegacyProjectClients(migrateLegacyClientContacts(base));
 }
 
 let data = await loadInitialData();
@@ -346,7 +398,69 @@ export const store = {
   get project_tasks() { return [...data.project_tasks]; },
   get clients() { return [...data.clients]; },
   get client_contacts() { return [...(data.client_contacts || [])]; },
+  get project_clients() { return [...(data.project_clients || [])]; },
   get users() { return [...data.users]; },
+
+  getClientsForProject(projectId) {
+    const links = (data.project_clients || []).filter((pc) => pc.project_id === projectId);
+    return links
+      .map((pc) => data.clients.find((c) => c.id === pc.client_id))
+      .filter(Boolean)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  },
+
+  getClientIdsForProject(projectId) {
+    return this.getClientsForProject(projectId).map((c) => c.id);
+  },
+
+  linkProjectClient(projectId, clientId) {
+    if (!data.project_clients) data.project_clients = [];
+    const pid = +projectId;
+    const cid = +clientId;
+    if (!Number.isFinite(pid) || !Number.isFinite(cid)) return false;
+    if (data.project_clients.some((pc) => pc.project_id === pid && pc.client_id === cid)) return true;
+    data.project_clients.push({
+      id: nextId(data.project_clients),
+      project_id: pid,
+      client_id: cid,
+      created_at: new Date().toISOString(),
+    });
+    save(data);
+    return true;
+  },
+
+  setProjectClients(projectId, clientIds) {
+    if (!data.project_clients) data.project_clients = [];
+    const pid = +projectId;
+    const ids = [...new Set((clientIds || []).map((id) => +id).filter((id) => Number.isFinite(id) && id > 0))];
+    data.project_clients = data.project_clients.filter((pc) => pc.project_id !== pid);
+    ids.forEach((cid) => {
+      if (data.clients.some((c) => c.id === cid)) {
+        data.project_clients.push({
+          id: nextId(data.project_clients),
+          project_id: pid,
+          client_id: cid,
+          created_at: new Date().toISOString(),
+        });
+      }
+    });
+    save(data);
+  },
+
+  projectWithClients(project) {
+    if (!project) return project;
+    const clients = this.getClientsForProject(project.id);
+    const client_ids = clients.map((c) => c.id);
+    const client_name = formatClientNames(clients);
+    const { client_id: _legacy, ...rest } = project;
+    return {
+      ...rest,
+      clients,
+      client_ids,
+      client_name,
+      client_id: client_ids[0] ?? null,
+    };
+  },
   get sessions() { return [...data.sessions]; },
   get audit_log() { return [...(data.audit_log || [])]; },
 
@@ -511,7 +625,9 @@ export const store = {
     if (data.client_contacts) {
       data.client_contacts = data.client_contacts.filter((cc) => cc.client_id !== id);
     }
-    data.projects.forEach(p => { if (p.client_id === id) p.client_id = null; });
+    if (data.project_clients) {
+      data.project_clients = data.project_clients.filter((pc) => pc.client_id !== id);
+    }
     save(data);
     return true;
   },
@@ -550,7 +666,7 @@ export const store = {
   addProject(row) {
     const id = nextId(data.projects);
     const created_at = new Date().toISOString();
-    const { client_id, tags, classification, ...rest } = row;
+    const { client_id, client_ids, tags, classification, ...rest } = row;
     const tagList = Array.isArray(tags) ? tags.filter(t => t != null && String(t).trim()) : [];
     const normalizedClassification = classification != null && String(classification).trim()
       ? String(classification).trim()
@@ -558,37 +674,53 @@ export const store = {
     data.projects.push({
       id,
       status: 'active',
-      client_id: client_id || null,
       classification: normalizedClassification,
       tags: tagList,
       ...rest,
       created_at,
     });
-    save(data);
+    const ids = Array.isArray(client_ids)
+      ? client_ids
+      : client_id != null && client_id !== ''
+        ? [client_id]
+        : [];
+    if (ids.length) this.setProjectClients(id, ids);
+    else save(data);
     return id;
   },
   updateProject(id, row) {
     const i = data.projects.findIndex(p => p.id === id);
     if (i === -1) return false;
-    if (row.tags !== undefined) {
-      row.tags = Array.isArray(row.tags) ? row.tags.filter(t => t != null && String(t).trim()) : [];
+    const { client_id, client_ids, ...patch } = row;
+    if (patch.tags !== undefined) {
+      patch.tags = Array.isArray(patch.tags) ? patch.tags.filter(t => t != null && String(t).trim()) : [];
     }
-    if (row.classification !== undefined) {
-      row.classification =
-        row.classification != null && String(row.classification).trim()
-          ? String(row.classification).trim()
+    if (patch.classification !== undefined) {
+      patch.classification =
+        patch.classification != null && String(patch.classification).trim()
+          ? String(patch.classification).trim()
           : null;
     }
-    data.projects[i] = { ...data.projects[i], ...row, client_id: row.client_id ?? data.projects[i].client_id };
-    if (data.projects[i].client_id === undefined || data.projects[i].client_id === '') data.projects[i].client_id = null;
+    delete patch.client_id;
+    delete patch.client_ids;
+    data.projects[i] = { ...data.projects[i], ...patch };
     if (!Array.isArray(data.projects[i].tags)) data.projects[i].tags = [];
-    save(data);
+    if (client_ids !== undefined) {
+      this.setProjectClients(id, client_ids);
+    } else if (client_id !== undefined) {
+      this.setProjectClients(id, client_id != null && client_id !== '' ? [client_id] : []);
+    } else {
+      save(data);
+    }
     return true;
   },
   deleteProject(id) {
     const i = data.projects.findIndex(p => p.id === id);
     if (i === -1) return false;
     data.projects.splice(i, 1);
+    if (data.project_clients) {
+      data.project_clients = data.project_clients.filter((pc) => pc.project_id !== id);
+    }
     data.project_assignments = data.project_assignments.filter(a => a.project_id !== id);
     data.project_tasks = data.project_tasks.filter(t => t.project_id !== id);
     data.activities.forEach(a => { if (a.project_id === id) a.project_id = null; });

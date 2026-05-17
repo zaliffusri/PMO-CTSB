@@ -931,11 +931,19 @@ export default function Calendar() {
   const buildImportPreview = (editableRows, fileName = 'import-file') => {
     const userByName = new Map(nonAdminUsers.map((u) => [String(u.name || '').trim().toLowerCase(), u]));
     const userByEmail = new Map(nonAdminUsers.map((u) => [String(u.email || '').trim().toLowerCase(), u]));
-    const projectByClient = new Map(
-      projects
-        .filter((p) => String(p.client_name || '').trim() !== '')
-        .map((p) => [String(p.client_name || '').trim().toLowerCase(), p]),
-    );
+    const projectByClient = new Map();
+    projects.forEach((p) => {
+      const names = (p.clients || []).map((c) => c.name).filter(Boolean);
+      if (names.length) {
+        names.forEach((n) => projectByClient.set(String(n).trim().toLowerCase(), p));
+      } else if (String(p.client_name || '').trim()) {
+        String(p.client_name)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((n) => projectByClient.set(n.toLowerCase(), p));
+      }
+    });
     const toIso = (dateLike, hh, mm) => {
       const d = parseReportDateValue(dateLike);
       if (!d) return '';
