@@ -173,6 +173,7 @@ export default function Clients() {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingPic, setEditingPic] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState(emptyForm);
   const { pending: saving, run } = useSubmitLock();
@@ -198,9 +199,24 @@ export default function Clients() {
   const resetForm = () => setForm(emptyForm);
 
   const openForm = (preset = {}) => {
+    setEditingPic(null);
     setForm({ ...emptyForm, ...preset });
     setShowForm(true);
   };
+
+  const openEditPic = (pic, companyName) => {
+    setShowForm(false);
+    resetForm();
+    setEditingPic({
+      id: pic.id,
+      companyName,
+      contact_name: pic.contact_name || '',
+      email: pic.email || '',
+      phone: pic.phone || '',
+    });
+  };
+
+  const closeEditPic = () => setEditingPic(null);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -252,6 +268,24 @@ export default function Clients() {
     });
   };
 
+  const saveEditPic = async (e) => {
+    e.preventDefault();
+    if (!editingPic) return;
+    await run(async () => {
+      try {
+        await api.clients.updateContact(editingPic.id, {
+          contact_name: editingPic.contact_name,
+          email: editingPic.email,
+          phone: editingPic.phone,
+        });
+        closeEditPic();
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  };
+
   const removeContact = async (contactId, companyName, picLabel) => {
     if (!confirm(`Remove contact "${picLabel}" from ${companyName}?`)) return;
     await run(async () => {
@@ -275,10 +309,78 @@ export default function Clients() {
             Manage companies and their persons in charge (PIC). Projects link to the company, not individual PICs.
           </p>
         </div>
-        <button type="button" onClick={() => (showForm ? (setShowForm(false), resetForm()) : openForm())} style={btnPrimary}>
-          {showForm ? 'Cancel' : '+ Add PIC'}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" onClick={() => (showForm ? (setShowForm(false), resetForm()) : openForm())} style={btnPrimary}>
+            {showForm ? 'Cancel' : '+ Add PIC'}
+          </button>
+        </div>
       </div>
+
+      {editingPic && (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-edit-pic-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="client-edit-pic-modal-title" className="modal-dialog-title">
+                Edit person in charge (PIC)
+              </h2>
+              <button
+                type="button"
+                className="modal-dialog-close"
+                onClick={closeEditPic}
+                aria-label="Close dialog"
+              >
+                ×
+              </button>
+            </div>
+            <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Company: <strong style={{ color: 'var(--text)' }}>{editingPic.companyName}</strong>
+            </p>
+            <form onSubmit={saveEditPic} style={{ display: 'grid', gap: '0.75rem' }}>
+              <label>
+                Contact person (PIC)
+                <input
+                  type="text"
+                  value={editingPic.contact_name}
+                  onChange={(e) => setEditingPic((p) => ({ ...p, contact_name: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="Name"
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={editingPic.email}
+                  onChange={(e) => setEditingPic((p) => ({ ...p, email: e.target.value }))}
+                  style={inputStyle}
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  type="text"
+                  value={editingPic.phone}
+                  onChange={(e) => setEditingPic((p) => ({ ...p, phone: e.target.value }))}
+                  style={inputStyle}
+                />
+              </label>
+              <div className="form-actions">
+                <button type="submit" style={btnPrimary} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+                <button type="button" style={btnSecondary} onClick={closeEditPic} disabled={saving}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="modal-backdrop" role="presentation">
@@ -386,7 +488,7 @@ export default function Clients() {
                   style={inputStyle}
                 />
               </label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div className="form-actions">
                 <button type="submit" style={btnPrimary} disabled={saving}>
                   {saving ? 'Saving…' : 'Save PIC'}
                 </button>
@@ -523,16 +625,26 @@ export default function Clients() {
                         }}
                       >
                         <span>{formatPicLine(pic) || 'Unnamed contact'}</span>
-                        <button
-                          type="button"
-                          style={{ ...btnSecondarySm, color: 'var(--danger)' }}
-                          disabled={saving}
-                          onClick={() =>
-                            removeContact(pic.id, company.name, pic.contact_name || pic.email || 'this contact')
-                          }
-                        >
-                          Remove PIC
-                        </button>
+                        <div className="card-actions">
+                          <button
+                            type="button"
+                            style={btnSecondarySm}
+                            disabled={saving}
+                            onClick={() => openEditPic(pic, company.name)}
+                          >
+                            Edit PIC
+                          </button>
+                          <button
+                            type="button"
+                            style={{ ...btnSecondarySm, color: 'var(--danger)' }}
+                            disabled={saving}
+                            onClick={() =>
+                              removeContact(pic.id, company.name, pic.contact_name || pic.email || 'this contact')
+                            }
+                          >
+                            Remove PIC
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
