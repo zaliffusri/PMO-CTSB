@@ -27,6 +27,7 @@ function emptyData() {
     activities: [],
     project_tasks: [],
     clients: [],
+    client_contacts: [],
     users: [],
     sessions: [],
     settings: defaultSettings(),
@@ -44,6 +45,7 @@ let syncQueued = false;
 let warnedUsersAppActiveColumn = false;
 let warnedUsersAppAvatarColumn = false;
 let warnedActivitiesExternalAttendees = false;
+let warnedClientContactsTable = false;
 
 /** Values some deployments use for `users_app.status` (NOT NULL in DB). */
 const USER_ROW_STATUSES = new Set(['active', 'inactive', 'pending', 'suspended']);
@@ -149,8 +151,34 @@ async function upsertActivitiesApp(rows) {
   }
 }
 
+function companyRowForDb(c) {
+  return {
+    id: c.id,
+    name: c.name,
+    created_at: c.created_at,
+  };
+}
+
+async function upsertClientContacts(rows) {
+  if (!rows?.length) return;
+  const { error } = await supabase.from('client_contacts').upsert(rows, { onConflict: 'id' });
+  if (!error) return;
+  const msg = String(error?.message || '');
+  if (/client_contacts|schema cache|column|Could not find|does not exist|PGRST204/i.test(msg)) {
+    if (!warnedClientContactsTable) {
+      warnedClientContactsTable = true;
+      console.warn(
+        'store: client_contacts table missing — run supabase/migrations/20260518120000_client_contacts.sql',
+      );
+    }
+    return;
+  }
+  throw error;
+}
+
 async function pushSnapshotToSupabase(snapshot) {
-  await upsertAll('clients', snapshot.clients || []);
+  await upsertAll('clients', (snapshot.clients || []).map(companyRowForDb));
+  await upsertClientContacts(snapshot.client_contacts || []);
   await upsertAll('people', snapshot.people || []);
   await upsertAll(
     'projects',
@@ -197,6 +225,7 @@ async function loadFromSupabase() {
   try {
     const [
       clientsRes,
+      clientContactsRes,
       peopleRes,
       projectsRes,
       assignRes,
@@ -208,6 +237,7 @@ async function loadFromSupabase() {
       auditRes,
     ] = await Promise.all([
       supabase.from('clients').select('*').order('id', { ascending: true }),
+      supabase.from('client_contacts').select('*').order('id', { ascending: true }),
       supabase.from('people').select('*').order('id', { ascending: true }),
       supabase.from('projects').select('*').order('id', { ascending: true }),
       supabase.from('project_assignments').select('*').order('id', { ascending: true }),
@@ -218,8 +248,13 @@ async function loadFromSupabase() {
       supabase.from('settings_app').select('*').eq('id', 1).maybeSingle(),
       supabase.from('audit_log').select('*').order('id', { ascending: true }),
     ]);
+    const clientContactsMissing =
+      clientContactsRes.error &&
+      /client_contacts|schema cache|Could not find|does not exist|PGRST204/i.test(String(clientContactsRes.error.message || ''));
+
     const errs = [
       clientsRes.error,
+      clientContactsMissing ? null : clientContactsRes.error,
       peopleRes.error,
       projectsRes.error,
       assignRes.error,
@@ -236,6 +271,7 @@ async function loadFromSupabase() {
     const { id: _id, updated_at: _updatedAt, ...settings } = settingsRow;
     const remote = {
       clients: clientsRes.data || [],
+      client_contacts: clientContactsMissing ? [] : clientContactsRes.data || [],
       people: peopleRes.data || [],
       projects: projectsRes.data || [],
       project_assignments: assignRes.data || [],
@@ -267,18 +303,40 @@ async function loadFromSupabase() {
   }
 }
 
-async function loadInitialData() {
-  const remote = await loadFromSupabase();
-  if (remote) return remote;
-  return emptyData();
-}
-
-let data = await loadInitialData();
-
 function nextId(arr) {
   const ids = arr.map(x => x.id).filter(Boolean);
   return ids.length ? Math.max(...ids) + 1 : 1;
 }
+
+function migrateLegacyClientContacts(snapshot) {
+  if (!snapshot.client_contacts) snapshot.client_contacts = [];
+  for (const c of snapshot.clients || []) {
+    if (!c.contact_name && !c.email && !c.phone) continue;
+    const hasContact = snapshot.client_contacts.some((cc) => cc.client_id === c.id);
+    if (!hasContact) {
+      snapshot.client_contacts.push({
+        id: nextId(snapshot.client_contacts),
+        client_id: c.id,
+        contact_name: c.contact_name || null,
+        email: c.email || null,
+        phone: c.phone || null,
+        created_at: c.created_at || new Date().toISOString(),
+      });
+    }
+    delete c.contact_name;
+    delete c.email;
+    delete c.phone;
+  }
+  return snapshot;
+}
+
+async function loadInitialData() {
+  const remote = await loadFromSupabase();
+  const base = remote || emptyData();
+  return migrateLegacyClientContacts(base);
+}
+
+let data = await loadInitialData();
 
 export const store = {
   get people() { return [...data.people]; },
@@ -287,6 +345,7 @@ export const store = {
   get activities() { return [...data.activities]; },
   get project_tasks() { return [...data.project_tasks]; },
   get clients() { return [...data.clients]; },
+  get client_contacts() { return [...(data.client_contacts || [])]; },
   get users() { return [...data.users]; },
   get sessions() { return [...data.sessions]; },
   get audit_log() { return [...(data.audit_log || [])]; },
@@ -370,27 +429,95 @@ export const store = {
     save(data);
   },
 
+  findClientByName(name) {
+    const q = (name || '').trim().toLowerCase();
+    if (!q) return null;
+    return data.clients.find((c) => (c.name || '').trim().toLowerCase() === q) || null;
+  },
+
+  findOrCreateClient(name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    const existing = this.findClientByName(trimmed);
+    if (existing) return existing.id;
+    return this.addClient({ name: trimmed });
+  },
+
   addClient(row) {
     const id = nextId(data.clients);
     const created_at = new Date().toISOString();
-    data.clients.push({ id, ...row, created_at });
+    const { contact_name: _cn, email: _e, phone: _p, ...company } = row;
+    data.clients.push({ id, name: (company.name || '').trim(), created_at });
     save(data);
     return id;
   },
+
+  addClientContact(row) {
+    if (!data.client_contacts) data.client_contacts = [];
+    const id = nextId(data.client_contacts);
+    const created_at = new Date().toISOString();
+    data.client_contacts.push({
+      id,
+      client_id: row.client_id,
+      contact_name: row.contact_name || null,
+      email: row.email || null,
+      phone: row.phone || null,
+      created_at,
+    });
+    save(data);
+    return id;
+  },
+
   updateClient(id, row) {
     const i = data.clients.findIndex(c => c.id === id);
     if (i === -1) return false;
-    data.clients[i] = { ...data.clients[i], ...row };
+    const patch = { ...row };
+    delete patch.contact_name;
+    delete patch.email;
+    delete patch.phone;
+    if (patch.name !== undefined) patch.name = (patch.name || '').trim();
+    data.clients[i] = { ...data.clients[i], ...patch };
     save(data);
     return true;
   },
+
+  updateClientContact(id, row) {
+    if (!data.client_contacts) data.client_contacts = [];
+    const i = data.client_contacts.findIndex((cc) => cc.id === id);
+    if (i === -1) return false;
+    data.client_contacts[i] = {
+      ...data.client_contacts[i],
+      contact_name: row.contact_name !== undefined ? row.contact_name || null : data.client_contacts[i].contact_name,
+      email: row.email !== undefined ? row.email || null : data.client_contacts[i].email,
+      phone: row.phone !== undefined ? row.phone || null : data.client_contacts[i].phone,
+    };
+    save(data);
+    return true;
+  },
+
+  deleteClientContact(id) {
+    if (!data.client_contacts) return false;
+    const i = data.client_contacts.findIndex((cc) => cc.id === id);
+    if (i === -1) return false;
+    data.client_contacts.splice(i, 1);
+    save(data);
+    return true;
+  },
+
   deleteClient(id) {
     const i = data.clients.findIndex(c => c.id === id);
     if (i === -1) return false;
     data.clients.splice(i, 1);
+    if (data.client_contacts) {
+      data.client_contacts = data.client_contacts.filter((cc) => cc.client_id !== id);
+    }
     data.projects.forEach(p => { if (p.client_id === id) p.client_id = null; });
     save(data);
     return true;
+  },
+
+  getClientContacts(clientId) {
+    return (data.client_contacts || []).filter((cc) => cc.client_id === clientId);
   },
 
   addPerson(row) {

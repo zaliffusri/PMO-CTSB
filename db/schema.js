@@ -16,9 +16,33 @@ export function seedDemo() {
   }
 
   if (store.clients.length === 0) {
-    store.addClient({ name: 'Ministry of Health', contact_name: 'Dr. Sarah Lim', email: 'sarah.lim@moh.gov.my', phone: '+60-3-12345678' });
-    store.addClient({ name: 'UTHM', contact_name: 'Prof. Ahmad', email: 'ahmad@uthm.edu.my', phone: '+60-7-4567890' });
-    store.addClient({ name: 'Tech Solutions Sdn Bhd', contact_name: 'Lee Ming', email: 'lee@techsolutions.my', phone: '+60-3-9876543' });
+    const mohId = store.addClient({ name: 'Ministry of Health' });
+    store.addClientContact({
+      client_id: mohId,
+      contact_name: 'Dr. Sarah Lim',
+      email: 'sarah.lim@moh.gov.my',
+      phone: '+60-3-12345678',
+    });
+    const uthmId = store.addClient({ name: 'UTHM' });
+    store.addClientContact({
+      client_id: uthmId,
+      contact_name: 'Prof. Ahmad',
+      email: 'ahmad@uthm.edu.my',
+      phone: '+60-7-4567890',
+    });
+    const techId = store.addClient({ name: 'Tech Solutions Sdn Bhd' });
+    store.addClientContact({
+      client_id: techId,
+      contact_name: 'Lee Ming',
+      email: 'lee@techsolutions.my',
+      phone: '+60-3-9876543',
+    });
+    store.addClientContact({
+      client_id: techId,
+      contact_name: 'Nurul Izza',
+      email: 'izza@techsolutions.my',
+      phone: '+60-3-9876544',
+    });
   }
   if (store.people.length === 0) {
   const people = [

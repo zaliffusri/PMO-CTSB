@@ -28,7 +28,15 @@ async function upsert(table, rows, on = 'id') {
 }
 
 async function main() {
-  await upsert('clients', raw.clients || []);
+  await upsert(
+    'clients',
+    (raw.clients || []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      created_at: c.created_at,
+    })),
+  );
+  await upsert('client_contacts', raw.client_contacts || []);
   await upsert('people', raw.people || []);
   await upsert(
     'projects',

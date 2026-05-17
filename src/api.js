@@ -102,6 +102,9 @@ export const api = {
     get: (id) => request(`/clients/${id}`),
     create: (body) => request('/clients', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    updateContact: (contactId, body) =>
+      request(`/clients/contacts/${contactId}`, { method: 'PUT', body: JSON.stringify(body) }),
+    deleteContact: (contactId) => request(`/clients/contacts/${contactId}`, { method: 'DELETE' }),
     delete: (id) => request(`/clients/${id}`, { method: 'DELETE' }),
   },
   projects: {
