@@ -289,7 +289,7 @@ function ProjectDetail() {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div className="page-header-actions">
           <button type="button" onClick={() => setAssignOpen(!assignOpen)} style={btnPrimary} disabled={busy}>
             {assignOpen ? 'Cancel' : '+ Assign team member'}
           </button>
@@ -343,7 +343,7 @@ function ProjectDetail() {
                 idPrefix="project-edit-client"
               />
             </label>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div className="form-actions">
               <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
               <button type="button" style={btnSecondary} onClick={() => setEditOpen(false)} disabled={busy}>Cancel</button>
             </div>
@@ -395,7 +395,9 @@ function ProjectDetail() {
               Role in project
               <input type="text" value={assignForm.role_in_project} onChange={e => setAssignForm(f => ({ ...f, role_in_project: e.target.value }))} placeholder="e.g. Developer, Lead" style={inputStyle} />
             </label>
-            <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Assigning…' : 'Assign'}</button>
+            <div className="form-actions">
+              <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Assigning…' : 'Assign'}</button>
+            </div>
           </form>
         </div>
       )}
@@ -411,7 +413,7 @@ function ProjectDetail() {
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>Role</th>
-                <th style={thStyle}></th>
+                <th className="table-actions-col" style={thStyle}></th>
               </tr>
             </thead>
             <tbody>
@@ -421,7 +423,7 @@ function ProjectDetail() {
                     <Link to="/team" style={{ color: 'var(--accent)' }}>{m.name}</Link>
                   </td>
                   <td style={tdStyle}>{m.role_in_project || '–'}</td>
-                  <td style={tdStyle}>
+                  <td className="table-actions-col" style={tdStyle}>
                     <button type="button" onClick={() => removeAssignment(m.id)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }} disabled={busy}>Remove</button>
                   </td>
                 </tr>
@@ -433,14 +435,14 @@ function ProjectDetail() {
       </div>
 
       <div style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <div>
+        <div className="card-section-header">
+          <div className="card-section-header__title">
             <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Tasks (Gantt)</h2>
             <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: 560 }}>
               Use <strong>+ Task group</strong> first to create a parent row. Then use <strong>+ Subtask</strong> under that group (assignee only on subtasks). <strong>+ Standalone task</strong> is a normal task without a parent—those rows are not groups, so they do not unlock subtasks.
             </p>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+          <div className="card-actions">
             <Link to="/gantt" style={btnSecondary}>View Gantt</Link>
             <button type="button" onClick={() => (taskAddMode === 'group' ? closeTaskAdd() : openTaskAdd('group'))} style={btnPrimary} disabled={busy}>
               {taskAddMode === 'group' ? 'Cancel' : '+ Task group'}
@@ -518,7 +520,7 @@ function ProjectDetail() {
                 </>
               )}
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+            <div className="form-actions" style={{ marginTop: '0.75rem' }}>
               <button type="submit" style={btnPrimary} disabled={busy}>{busy ? 'Adding…' : 'Add'}</button>
               <button type="button" style={btnSecondary} onClick={closeTaskAdd}>Cancel</button>
             </div>
@@ -537,7 +539,7 @@ function ProjectDetail() {
                   <th style={thStyle}>Planned</th>
                   <th style={thStyle}>Actual</th>
                   <th style={thStyle}>Progress</th>
-                  <th style={thStyle}></th>
+                  <th className="table-actions-col" style={thStyle}></th>
                 </tr>
               </thead>
               <tbody>
@@ -608,7 +610,7 @@ function ProjectDetail() {
                       <td style={tdStyle}>
                         {isGroup ? <span style={{ color: 'var(--text-muted)' }}>—</span> : <>{t.progress_percent ?? 0}%</>}
                       </td>
-                      <td style={tdStyle}>
+                      <td className="table-actions-col" style={tdStyle}>
                         <button type="button" onClick={() => deleteTask(t.id, t.task_kind)} style={{ ...btnSecondary, padding: '0.25rem 0.5rem', fontSize: '0.85rem' }} disabled={busy}>Delete</button>
                       </td>
                     </tr>

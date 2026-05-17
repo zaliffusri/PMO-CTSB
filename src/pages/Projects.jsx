@@ -71,9 +71,11 @@ export default function Projects() {
           <h1>Projects</h1>
           <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>Create and manage projects. Use tags to group projects.</p>
         </div>
-        <button type="button" onClick={() => setShowForm(!showForm)} style={btnPrimary}>
-          {showForm ? 'Cancel' : '+ New project'}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" onClick={() => setShowForm(!showForm)} style={btnPrimary}>
+            {showForm ? 'Cancel' : '+ New project'}
+          </button>
+        </div>
       </div>
 
       {allTags.length > 0 && (
@@ -170,7 +172,7 @@ export default function Projects() {
                   <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} style={inputStyle} />
                 </label>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div className="form-actions">
                 <button type="submit" style={btnPrimary} disabled={saving}>{saving ? 'Creating…' : 'Create'}</button>
               </div>
             </form>
@@ -185,8 +187,8 @@ export default function Projects() {
           </div>
         ) : (
           projects.map(p => (
-            <div key={p.id} style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <div>
+            <div key={p.id} className="card-list-row" style={card}>
+              <div className="card-list-row__content">
                 <Link to={`/projects/${p.id}`} style={{ fontWeight: 600, fontSize: '1.05rem', color: 'inherit' }}>{p.name}</Link>
                 {(p.tags || []).length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.35rem' }}>
@@ -202,7 +204,9 @@ export default function Projects() {
                   {p.member_count} members · {p.status} {p.start_date && `· ${p.start_date} – ${p.end_date || '–'}`}
                 </p>
               </div>
-              <Link to={`/projects/${p.id}`} style={btnSecondary}>View & assign team</Link>
+              <div className="card-actions">
+                <Link to={`/projects/${p.id}`} style={btnSecondary}>View & assign team</Link>
+              </div>
             </div>
           ))
         )}

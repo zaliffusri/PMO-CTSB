@@ -339,10 +339,62 @@ input, select, textarea {
   margin: 0;
   font-size: 1.5rem;
 }
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 @media (min-width: 480px) {
   .page-header h1 {
     font-size: 1.75rem;
   }
+}
+
+.card-list-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.card-list-row__content {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.card-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.card-section-header__title {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.table-actions-col {
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* Settings: sidebar subnav + content */
