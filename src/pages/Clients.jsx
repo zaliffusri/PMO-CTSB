@@ -113,8 +113,13 @@ export default function Clients() {
                   </p>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <Link to="/projects" style={btnSecondary}>View projects</Link>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {(c.projects?.length ?? 0) > 0 &&
+                  c.projects.map((p) => (
+                    <Link key={p.id} to={`/projects/${p.id}`} style={btnSecondary}>
+                      {c.projects.length === 1 ? 'View project' : p.name}
+                    </Link>
+                  ))}
                 <button type="button" onClick={() => remove(c.id, c.name)} style={{ ...btnSecondary, color: 'var(--danger)' }} disabled={saving}>Remove</button>
               </div>
             </div>

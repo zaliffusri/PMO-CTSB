@@ -4,7 +4,15 @@ import { store } from '../db/store.js';
 export const clientsRouter = Router();
 
 clientsRouter.get('/', (req, res) => {
-  const clients = store.clients.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const clients = store.clients
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    .map((c) => {
+      const projects = store.projects
+        .filter((p) => p.client_id === c.id)
+        .map((p) => ({ id: p.id, name: p.name, status: p.status }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      return { ...c, project_count: projects.length, projects };
+    });
   res.json(clients);
 });
 
