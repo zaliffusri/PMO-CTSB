@@ -774,6 +774,12 @@ input, select, textarea {
   align-items: flex-end;
 }
 
+.client-project-menu-link:hover,
+.client-project-menu-link:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
 /* Calendar */
 .calendar-card {
   overflow: visible;

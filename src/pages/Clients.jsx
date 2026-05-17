@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle } from '../styles/commonStyles';
@@ -33,6 +33,141 @@ const emptyForm = {
   email: '',
   phone: '',
 };
+
+const projectMenuPanel = {
+  position: 'absolute',
+  right: 0,
+  top: 'calc(100% + 0.35rem)',
+  zIndex: 40,
+  minWidth: 'min(320px, 90vw)',
+  maxWidth: '360px',
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius)',
+  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
+  padding: '0.65rem',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.5rem',
+};
+
+function ProjectViewMenu({ projects }) {
+  const [open, setOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
+  const wrapRef = useRef(null);
+
+  const filteredProjects = useMemo(() => {
+    const q = projectSearch.trim().toLowerCase();
+    const list = projects || [];
+    if (!q) return list;
+    return list.filter((p) => (p.name || '').toLowerCase().includes(q));
+  }, [projects, projectSearch]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+        setProjectSearch('');
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        setProjectSearch('');
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    setProjectSearch('');
+  };
+
+  if (!projects?.length) return null;
+
+  const label =
+    projects.length === 1 ? 'View project' : `View projects (${projects.length})`;
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        style={btnSecondary}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        {label}
+        <span aria-hidden="true" style={{ marginLeft: '0.35rem', opacity: 0.7 }}>
+          {open ? '▴' : '▾'}
+        </span>
+      </button>
+      {open && (
+        <div style={projectMenuPanel} role="listbox" aria-label="Linked projects">
+          <input
+            type="search"
+            value={projectSearch}
+            onChange={(e) => setProjectSearch(e.target.value)}
+            placeholder="Search projects…"
+            aria-label="Search linked projects"
+            style={{ ...inputStyle, marginTop: 0 }}
+            autoFocus
+          />
+          <ul
+            style={{
+              margin: 0,
+              padding: 0,
+              listStyle: 'none',
+              maxHeight: '240px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.25rem',
+            }}
+          >
+            {filteredProjects.length === 0 ? (
+              <li style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                No projects match your search.
+              </li>
+            ) : (
+              filteredProjects.map((p) => (
+                <li key={p.id}>
+                  <Link
+                    to={`/projects/${p.id}`}
+                    onClick={close}
+                    style={{
+                      display: 'block',
+                      padding: '0.5rem 0.65rem',
+                      borderRadius: 6,
+                      color: 'var(--text)',
+                      textDecoration: 'none',
+                      fontSize: '0.9rem',
+                    }}
+                    className="client-project-menu-link"
+                  >
+                    <span style={{ fontWeight: 500 }}>{p.name}</span>
+                    {p.status && (
+                      <span style={{ marginLeft: '0.35rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                        · {p.status}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Clients() {
   const [companies, setCompanies] = useState([]);
@@ -349,12 +484,7 @@ export default function Clients() {
                     >
                       + Add PIC
                     </button>
-                    {(company.projects?.length ?? 0) > 0 &&
-                      company.projects.map((p) => (
-                        <Link key={p.id} to={`/projects/${p.id}`} style={btnSecondary}>
-                          {company.projects.length === 1 ? 'View project' : p.name}
-                        </Link>
-                      ))}
+                    <ProjectViewMenu projects={company.projects} />
                     <button
                       type="button"
                       onClick={() => removeCompany(company.id, company.name)}
