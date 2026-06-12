@@ -3,10 +3,18 @@ import crypto from 'crypto';
 import { store } from '../db/store.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
 import { isMailerConfigured, sendActivityLoggedEmail } from '../lib/mailer.js';
+import { canEditCalendarUser } from '../lib/permissions.js';
 
 export const activitiesRouter = Router();
 
 const ALLOWED_TYPES = new Set(['meeting', 'outstation', 'other', 'uat', 'urs', 'fat', 'demo', 'training', 'go-live', 'tender']);
+
+function requireCalendarEditor(req, res, next) {
+  if (!canEditCalendarUser(req.user)) {
+    return res.status(403).json({ error: 'Calendar edit access requires PMO or admin role' });
+  }
+  next();
+}
 
 function normalizeActivityType(type) {
   if (type === 'task') return 'outstation';
@@ -134,7 +142,7 @@ activitiesRouter.get('/', async (req, res) => {
   res.json(rows);
 });
 
-activitiesRouter.post('/', async (req, res) => {
+activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   const {
     person_id,
     person_ids,
@@ -268,7 +276,7 @@ activitiesRouter.post('/', async (req, res) => {
   return res.status(201).json(responseRows);
 });
 
-activitiesRouter.put('/:id', async (req, res) => {
+activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   try {
     await store.refreshActivitiesFromSupabase();
   } catch (e) {
@@ -426,7 +434,7 @@ activitiesRouter.put('/:id', async (req, res) => {
   });
 });
 
-activitiesRouter.delete('/:id', async (req, res) => {
+activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   try {
     await store.refreshActivitiesFromSupabase();
   } catch (e) {

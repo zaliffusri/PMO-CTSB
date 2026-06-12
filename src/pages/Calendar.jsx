@@ -5,6 +5,7 @@ import { useAuth } from '../AuthContext';
 import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import { activityLogicalGroupKey } from '../../lib/activityLogicalGroup.js';
+import { canEditCalendarUser } from '../../lib/permissions.js';
 import {
   ACTIVITY_LOCATION_OTHERS,
   DEFAULT_ACTIVITY_SITE_LOCATIONS,
@@ -516,7 +517,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   );
 }
 
-function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, actionPending }) {
+function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, actionPending, canEdit }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
   const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
@@ -536,22 +537,26 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, a
         {a.location && <p className="calendar-detail-sheet-line">{a.location}</p>}
         <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
         {descForCalendar && <p className="calendar-detail-sheet-desc">{descForCalendar}</p>}
-        <button
-          type="button"
-          style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }}
-          onClick={() => onEdit?.(a)}
-          disabled={actionPending}
-        >
-          Edit activity
-        </button>
-        <button
-          type="button"
-          style={{ ...btnSecondary, width: '100%', marginTop: '0.5rem', color: 'var(--danger)' }}
-          onClick={() => onDelete?.(a)}
-          disabled={actionPending}
-        >
-          {actionPending ? 'Please wait…' : 'Delete activity'}
-        </button>
+        {canEdit && (
+          <>
+            <button
+              type="button"
+              style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }}
+              onClick={() => onEdit?.(a)}
+              disabled={actionPending}
+            >
+              Edit activity
+            </button>
+            <button
+              type="button"
+              style={{ ...btnSecondary, width: '100%', marginTop: '0.5rem', color: 'var(--danger)' }}
+              onClick={() => onDelete?.(a)}
+              disabled={actionPending}
+            >
+              {actionPending ? 'Please wait…' : 'Delete activity'}
+            </button>
+          </>
+        )}
         <button type="button" className="calendar-detail-close" onClick={onClose}>
           Close
         </button>
@@ -635,6 +640,7 @@ export default function Calendar() {
     () => Boolean(importPreview?.rows?.some((r) => r.source_sheet)),
     [importPreview],
   );
+  const canEditCalendar = canEditCalendarUser(user);
   const nonAdminUsers = useMemo(
     () => users.filter((u) => u.role !== 'admin' && u.active !== false),
     [users],
@@ -744,6 +750,10 @@ export default function Calendar() {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!canEditCalendar) {
+      alert('Calendar edit access requires PMO or admin role.');
+      return;
+    }
     const extTrim = String(form.external_attendees || '').trim();
     if (!form.person_ids?.length && !extTrim) {
       alert('Select at least one person with an account, or enter guest names (no login required).');
@@ -836,6 +846,7 @@ export default function Calendar() {
   };
 
   const openCreateForm = () => {
+    if (!canEditCalendar) return;
     setEditingActivityId(null);
     setForm((f) => ({
       ...f,
@@ -855,6 +866,7 @@ export default function Calendar() {
   };
 
   const openEditActivity = (a) => {
+    if (!canEditCalendar) return;
     const personIds = Array.isArray(a.person_ids) && a.person_ids.length
       ? a.person_ids.map((x) => String(x))
       : (a.person_id != null ? [String(a.person_id)] : []);
@@ -879,6 +891,7 @@ export default function Calendar() {
   };
 
   const deleteActivity = async (a) => {
+    if (!canEditCalendar) return;
     if (!a?.id) return;
     const assigneeCount = Array.isArray(a.person_ids) && a.person_ids.length > 0 ? a.person_ids.length : 1;
     const multiHint =
@@ -1323,28 +1336,32 @@ export default function Calendar() {
         }}
         className="filter-bar"
       >
-        <button type="button" onClick={openCreateForm} style={filterBarBtnPrimary}>
-          + Log activity
-        </button>
-        <label
-          style={{
-            ...filterBarBtnSecondary,
-            ...(importing || mutating ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
-          }}
-        >
-          {importing ? 'Importing…' : 'Import Excel'}
-          <input
-            type="file"
-            accept=".xls,.xlsx,.csv"
-            style={{ display: 'none' }}
-            disabled={importing || mutating}
-            onChange={async (e) => {
-              const f = e.target.files?.[0];
-              e.target.value = '';
-              await importReportExcel(f);
-            }}
-          />
-        </label>
+        {canEditCalendar && (
+          <>
+            <button type="button" onClick={openCreateForm} style={filterBarBtnPrimary}>
+              + Log activity
+            </button>
+            <label
+              style={{
+                ...filterBarBtnSecondary,
+                ...(importing || mutating ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+              }}
+            >
+              {importing ? 'Importing…' : 'Import Excel'}
+              <input
+                type="file"
+                accept=".xls,.xlsx,.csv"
+                style={{ display: 'none' }}
+                disabled={importing || mutating}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  await importReportExcel(f);
+                }}
+              />
+            </label>
+          </>
+        )}
         <button type="button" onClick={() => setShowReport(true)} style={filterBarBtnSecondary}>
           Generate report
         </button>
@@ -1793,6 +1810,7 @@ export default function Calendar() {
           onEdit={openEditActivity}
           onDelete={deleteActivity}
           actionPending={mutating}
+          canEdit={canEditCalendar}
         />
       )}
     </div>
