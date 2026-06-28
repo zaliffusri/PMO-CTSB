@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8" />
+  <title>PMO CTSB — Screenshot Tour</title>
+  <style>
+    @page { size: 338.67mm 190.5mm; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0f1419;
+      color: #e8eef2;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .slide {
+      width: 338.67mm;
+      height: 190.5mm;
+      padding: 10mm 14mm 8mm;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(145deg, #0c1210 0%, #0f1a16 45%, #0a100e 100%);
+    }
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 70% 50% at 100% 0%, rgba(16, 185, 129, 0.1), transparent);
+      pointer-events: none;
+    }
+    .slide > * { position: relative; z-index: 1; }
+    .slide--title {
+      justify-content: center;
+      padding: 18mm;
+    }
+    .eyebrow {
+      font-size: 10pt;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #34d399;
+      margin-bottom: 3mm;
+    }
+    h1 { font-size: 32pt; font-weight: 700; line-height: 1.15; margin-bottom: 5mm; }
+    h2 { font-size: 20pt; font-weight: 700; color: #f0fdf4; line-height: 1.2; }
+    .subtitle { font-size: 13pt; color: #94a3b8; line-height: 1.5; max-width: 90%; }
+    .shot-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6mm;
+      margin-bottom: 4mm;
+      flex-shrink: 0;
+    }
+    .shot-head__copy { min-width: 0; flex: 1; }
+    .shot-desc {
+      font-size: 9.5pt;
+      color: #94a3b8;
+      line-height: 1.4;
+      margin-top: 2mm;
+      max-width: 95%;
+    }
+    .shot-num {
+      font-size: 9pt;
+      color: #64748b;
+      white-space: nowrap;
+      padding-top: 1mm;
+    }
+    .shot-frame {
+      flex: 1;
+      min-height: 0;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid rgba(52, 211, 153, 0.25);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+      background: #0f1419;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+    }
+    .shot-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+      display: block;
+    }
+    .slide-footer {
+      margin-top: 3mm;
+      padding-top: 3mm;
+      border-top: 1px solid rgba(52, 211, 153, 0.2);
+      display: flex;
+      justify-content: space-between;
+      font-size: 8pt;
+      color: #64748b;
+      flex-shrink: 0;
+    }
+    .slide-num::before { content: "PMO CTSB · "; color: #34d399; }
+    .meta-line { font-size: 9pt; color: #64748b; margin-top: 6mm; }
+    @media screen {
+      body { padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+      .slide { box-shadow: 0 20px 60px rgba(0,0,0,0.5); border-radius: 8px; margin-bottom: 20px; }
+    }
+    @media print {
+      body { padding: 0; }
+      .slide { box-shadow: none; border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <section class="slide slide--title">
+    <p class="eyebrow">Cybersolution Technologies · PMO</p>
+    <h1>PMO CTSB<br>Screenshot Tour</h1>
+    <p class="subtitle">Panduan visual setiap modul dalam sistem — untuk briefing team, onboarding, dan demonstrasi fungsi yang tersedia.</p>
+    <p class="meta-line">Generated: 28/06/2026, 10:03:02 am · 23 screens</p>
+    <div class="slide-footer">
+      <span>Team presentation</span>
+      <span class="slide-num">1</span>
+    </div>
+  </section>
+
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Access</p>
+        <h2>Sign in</h2>
+        <p class="shot-desc">Login selamat dengan role-based access — Admin, PMO, Finance, dan Team.</p>
+      </div>
+      <span class="shot-num">2 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/01-login.png" alt="Sign in" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">2</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Overview</p>
+        <h2>Command Center</h2>
+        <p class="shot-desc">Kesihatan portfolio, KPI projek aktif, tugas lewat masa, dan pautan pantas ke modul utama.</p>
+      </div>
+      <span class="shot-num">3 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/02-dashboard.png" alt="Command Center" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">3</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Delivery</p>
+        <h2>Projects</h2>
+        <p class="shot-desc">Portfolio projek — grid/list, health badge, jenis engagement (Kontrak/LO/PO), penapis &amp; carian.</p>
+      </div>
+      <span class="shot-num">4 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/03-projects.png" alt="Projects" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">4</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Service desk</p>
+        <h2>Helpdesk</h2>
+        <p class="shot-desc">Ticket L1 → L2 → L3, ref helpdesk luar, escalate, mark solved, promote backlog (L3 sahaja).</p>
+      </div>
+      <span class="shot-num">5 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/04-helpdesk.png" alt="Helpdesk" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">5</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Personal</p>
+        <h2>My work</h2>
+        <p class="shot-desc">Satu queue untuk task, backlog &amp; helpdesk yang di-assign — overdue, due soon, jadual hari ini.</p>
+      </div>
+      <span class="shot-num">6 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/05-my-work.png" alt="My work" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">6</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Master data</p>
+        <h2>Clients</h2>
+        <p class="shot-desc">Senarai agensi/klien, PIC contact, logo, dan pautan ke projek berkaitan.</p>
+      </div>
+      <span class="shot-num">7 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/06-clients.png" alt="Clients" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">7</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Planning</p>
+        <h2>Calendar &amp; activities</h2>
+        <p class="shot-desc">Log mesyuarat, UAT, training, go-live, outstation — import/export laporan aktiviti.</p>
+      </div>
+      <span class="shot-num">8 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/07-calendar.png" alt="Calendar &amp; activities" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">8</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Planning</p>
+        <h2>Gantt timeline</h2>
+        <p class="shot-desc">Garis masa visual untuk task projek — KPI, penapis projek, dan bar mengikut tarikh.</p>
+      </div>
+      <span class="shot-num">9 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/08-gantt.png" alt="Gantt timeline" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">9</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Reporting</p>
+        <h2>Reports</h2>
+        <p class="shot-desc">Carta kesihatan, kemajuan, utilisasi sumber, dan export CSV untuk management.</p>
+      </div>
+      <span class="shot-num">10 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/09-reports.png" alt="Reports" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">10</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Resources</p>
+        <h2>Team &amp; capacity</h2>
+        <p class="shot-desc">Direktori staff, allocation % per projek, workload &amp; amaran overload.</p>
+      </div>
+      <span class="shot-num">11 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/10-team.png" alt="Team &amp; capacity" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">11</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Finance</p>
+        <h2>Delivery &amp; payment</h2>
+        <p class="shot-desc">Ready to bill, invoiced, paid — milestone fasa penghantaran &amp; maintenance renewals.</p>
+      </div>
+      <span class="shot-num">12 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/11-finance.png" alt="Delivery &amp; payment" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">12</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Administration</p>
+        <h2>Users</h2>
+        <p class="shot-desc">Pengurusan akaun sistem — role Admin, PMO, Finance, HR, User.</p>
+      </div>
+      <span class="shot-num">13 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/12-users.png" alt="Users" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">13</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Administration</p>
+        <h2>Audit history</h2>
+        <p class="shot-desc">Log audit tindakan penting dalam sistem untuk rujukan &amp; compliance.</p>
+      </div>
+      <span class="shot-num">14 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/13-history.png" alt="Audit history" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">14</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Settings</p>
+        <h2>Branding</h2>
+        <p class="shot-desc">Logo organisasi, banner login, nama paparan &amp; tagline — Admin sahaja.</p>
+      </div>
+      <span class="shot-num">15 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/14-settings-branding.png" alt="Branding" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">15</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Settings</p>
+        <h2>Locations</h2>
+        <p class="shot-desc">Lokasi aktiviti kalendar (pejabat, klien, outstation) untuk dropdown Calendar.</p>
+      </div>
+      <span class="shot-num">16 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/15-settings-locations.png" alt="Locations" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">16</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Account</p>
+        <h2>My account</h2>
+        <p class="shot-desc">Profil pengguna, tukar kata laluan, dan maklumat akaun sendiri.</p>
+      </div>
+      <span class="shot-num">17 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/16-account.png" alt="My account" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">17</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Project workspace</p>
+        <h2>Overview</h2>
+        <p class="shot-desc">Projek demo — tab Overview untuk urus penghantaran, backlog, task &amp; fasa.</p>
+      </div>
+      <span class="shot-num">18 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/17-project-overview.png" alt="Overview" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">18</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Project workspace</p>
+        <h2>Work packages</h2>
+        <p class="shot-desc">Projek demo — tab Work packages untuk urus penghantaran, backlog, task &amp; fasa.</p>
+      </div>
+      <span class="shot-num">19 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/18-project-packages.png" alt="Work packages" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">19</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Project workspace</p>
+        <h2>Backlog</h2>
+        <p class="shot-desc">Projek demo — tab Backlog untuk urus penghantaran, backlog, task &amp; fasa.</p>
+      </div>
+      <span class="shot-num">20 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/19-project-backlog.png" alt="Backlog" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">20</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Project workspace</p>
+        <h2>Tasks</h2>
+        <p class="shot-desc">Projek demo — tab Tasks untuk urus penghantaran, backlog, task &amp; fasa.</p>
+      </div>
+      <span class="shot-num">21 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/20-project-tasks.png" alt="Tasks" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">21</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Project workspace</p>
+        <h2>Delivery phases</h2>
+        <p class="shot-desc">Projek demo — tab Delivery phases untuk urus penghantaran, backlog, task &amp; fasa.</p>
+      </div>
+      <span class="shot-num">22 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/21-project-delivery.png" alt="Delivery phases" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">22</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Project workspace</p>
+        <h2>Timeline</h2>
+        <p class="shot-desc">Projek demo — tab Timeline untuk urus penghantaran, backlog, task &amp; fasa.</p>
+      </div>
+      <span class="shot-num">23 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/22-project-timeline.png" alt="Timeline" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">23</span>
+    </div>
+  </section>
+
+  <section class="slide slide--shot">
+    <div class="shot-head">
+      <div class="shot-head__copy">
+        <p class="eyebrow">Project workspace</p>
+        <h2>People &amp; allocation</h2>
+        <p class="shot-desc">Projek demo — tab People &amp; allocation untuk urus penghantaran, backlog, task &amp; fasa.</p>
+      </div>
+      <span class="shot-num">24 / 25</span>
+    </div>
+    <div class="shot-frame">
+      <img src="screenshots/23-project-people.png" alt="People &amp; allocation" loading="lazy" />
+    </div>
+    <div class="slide-footer">
+      <span>PMO CTSB · Screenshot tour</span>
+      <span class="slide-num">24</span>
+    </div>
+  </section>
+
+  <section class="slide slide--title">
+    <p class="eyebrow">Thank you</p>
+    <h1>Soalan?</h1>
+    <p class="subtitle">Demo login: admin@pmo.local / admin123 · Jalankan <code>npm run dev</code> untuk cuba sendiri.</p>
+    <div class="slide-footer">
+      <span>Cybersolution Technologies Sdn Bhd</span>
+      <span class="slide-num">25</span>
+    </div>
+  </section>
+
+</body>
+</html>

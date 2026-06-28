@@ -1,5 +1,5 @@
 /**
- * Verify Supabase schema matches the current app (client_contacts, project_clients).
+ * Verify Supabase schema matches the current PMO CTSB app.
  */
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,6 +16,32 @@ if (!dbUrl) {
   process.exit(1);
 }
 
+const REQUIRED_TABLES = [
+  'clients',
+  'client_contacts',
+  'people',
+  'projects',
+  'project_clients',
+  'project_assignments',
+  'activities',
+  'project_tasks',
+  'users_app',
+  'sessions_app',
+  'issues_app',
+  'notifications_app',
+  'backlogs_app',
+  'project_phases_app',
+  'project_work_packages_app',
+];
+
+const REQUIRED_COLUMNS = [
+  ['projects', 'classification'],
+  ['projects', 'engagement_type'],
+  ['project_phases_app', 'work_package_id'],
+  ['project_tasks', 'work_package_id'],
+  ['project_tasks', 'backlog_id'],
+];
+
 const client = new pg.Client({
   connectionString: dbUrl,
   ssl: dbUrl.includes('localhost') ? false : { rejectUnauthorized: false },
@@ -23,14 +49,34 @@ const client = new pg.Client({
 
 async function main() {
   await client.connect();
-  const required = ['client_contacts', 'project_clients'];
+  let ok = true;
+
   const { rows: tables } = await client.query(
     `select table_name from information_schema.tables
      where table_schema = 'public' and table_name = any($1::text[])`,
-    [required],
+    [REQUIRED_TABLES],
   );
   const found = new Set(tables.map((r) => r.table_name));
-  const missing = required.filter((t) => !found.has(t));
+  const missingTables = REQUIRED_TABLES.filter((t) => !found.has(t));
+  if (missingTables.length) {
+    console.error('Missing tables:', missingTables.join(', '));
+    ok = false;
+  } else {
+    console.log(`OK: ${REQUIRED_TABLES.length} required tables present`);
+  }
+
+  for (const [table, column] of REQUIRED_COLUMNS) {
+    const { rows } = await client.query(
+      `select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = $1 and column_name = $2`,
+      [table, column],
+    );
+    if (!rows.length) {
+      console.error(`Missing column: ${table}.${column}`);
+      ok = false;
+    }
+  }
+  if (ok) console.log('OK: required columns present');
 
   const { rows: legacy } = await client.query(`
     select table_name, column_name from information_schema.columns
@@ -40,14 +86,6 @@ async function main() {
         or (table_name = 'projects' and column_name = 'client_id')
       )
   `);
-
-  let ok = true;
-  if (missing.length) {
-    console.error('Missing tables:', missing.join(', '));
-    ok = false;
-  } else {
-    console.log('OK: client_contacts, project_clients exist');
-  }
   if (legacy.length) {
     console.error('Legacy columns still present (run npm run db:migrate):', legacy);
     ok = false;

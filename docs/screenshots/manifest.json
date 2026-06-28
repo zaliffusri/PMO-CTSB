@@ -1,0 +1,144 @@
+{
+  "capturedAt": "2026-06-28T02:03:02.786Z",
+  "baseUrl": "http://localhost:5173",
+  "captured": [
+    {
+      "file": "01-login.png",
+      "eyebrow": "Access",
+      "title": "Sign in",
+      "desc": "Login selamat dengan role-based access — Admin, PMO, Finance, dan Team."
+    },
+    {
+      "file": "02-dashboard.png",
+      "eyebrow": "Overview",
+      "title": "Command Center",
+      "desc": "Kesihatan portfolio, KPI projek aktif, tugas lewat masa, dan pautan pantas ke modul utama."
+    },
+    {
+      "file": "03-projects.png",
+      "eyebrow": "Delivery",
+      "title": "Projects",
+      "desc": "Portfolio projek — grid/list, health badge, jenis engagement (Kontrak/LO/PO), penapis & carian."
+    },
+    {
+      "file": "04-helpdesk.png",
+      "eyebrow": "Service desk",
+      "title": "Helpdesk",
+      "desc": "Ticket L1 → L2 → L3, ref helpdesk luar, escalate, mark solved, promote backlog (L3 sahaja)."
+    },
+    {
+      "file": "05-my-work.png",
+      "eyebrow": "Personal",
+      "title": "My work",
+      "desc": "Satu queue untuk task, backlog & helpdesk yang di-assign — overdue, due soon, jadual hari ini."
+    },
+    {
+      "file": "06-clients.png",
+      "eyebrow": "Master data",
+      "title": "Clients",
+      "desc": "Senarai agensi/klien, PIC contact, logo, dan pautan ke projek berkaitan."
+    },
+    {
+      "file": "07-calendar.png",
+      "eyebrow": "Planning",
+      "title": "Calendar & activities",
+      "desc": "Log mesyuarat, UAT, training, go-live, outstation — import/export laporan aktiviti."
+    },
+    {
+      "file": "08-gantt.png",
+      "eyebrow": "Planning",
+      "title": "Gantt timeline",
+      "desc": "Garis masa visual untuk task projek — KPI, penapis projek, dan bar mengikut tarikh."
+    },
+    {
+      "file": "09-reports.png",
+      "eyebrow": "Reporting",
+      "title": "Reports",
+      "desc": "Carta kesihatan, kemajuan, utilisasi sumber, dan export CSV untuk management."
+    },
+    {
+      "file": "10-team.png",
+      "eyebrow": "Resources",
+      "title": "Team & capacity",
+      "desc": "Direktori staff, allocation % per projek, workload & amaran overload."
+    },
+    {
+      "file": "11-finance.png",
+      "eyebrow": "Finance",
+      "title": "Delivery & payment",
+      "desc": "Ready to bill, invoiced, paid — milestone fasa penghantaran & maintenance renewals."
+    },
+    {
+      "file": "12-users.png",
+      "eyebrow": "Administration",
+      "title": "Users",
+      "desc": "Pengurusan akaun sistem — role Admin, PMO, Finance, HR, User."
+    },
+    {
+      "file": "13-history.png",
+      "eyebrow": "Administration",
+      "title": "Audit history",
+      "desc": "Log audit tindakan penting dalam sistem untuk rujukan & compliance."
+    },
+    {
+      "file": "14-settings-branding.png",
+      "eyebrow": "Settings",
+      "title": "Branding",
+      "desc": "Logo organisasi, banner login, nama paparan & tagline — Admin sahaja."
+    },
+    {
+      "file": "15-settings-locations.png",
+      "eyebrow": "Settings",
+      "title": "Locations",
+      "desc": "Lokasi aktiviti kalendar (pejabat, klien, outstation) untuk dropdown Calendar."
+    },
+    {
+      "file": "16-account.png",
+      "eyebrow": "Account",
+      "title": "My account",
+      "desc": "Profil pengguna, tukar kata laluan, dan maklumat akaun sendiri."
+    },
+    {
+      "file": "17-project-overview.png",
+      "eyebrow": "Project workspace",
+      "title": "Overview",
+      "desc": "Projek demo — tab Overview untuk urus penghantaran, backlog, task & fasa."
+    },
+    {
+      "file": "18-project-packages.png",
+      "eyebrow": "Project workspace",
+      "title": "Work packages",
+      "desc": "Projek demo — tab Work packages untuk urus penghantaran, backlog, task & fasa."
+    },
+    {
+      "file": "19-project-backlog.png",
+      "eyebrow": "Project workspace",
+      "title": "Backlog",
+      "desc": "Projek demo — tab Backlog untuk urus penghantaran, backlog, task & fasa."
+    },
+    {
+      "file": "20-project-tasks.png",
+      "eyebrow": "Project workspace",
+      "title": "Tasks",
+      "desc": "Projek demo — tab Tasks untuk urus penghantaran, backlog, task & fasa."
+    },
+    {
+      "file": "21-project-delivery.png",
+      "eyebrow": "Project workspace",
+      "title": "Delivery phases",
+      "desc": "Projek demo — tab Delivery phases untuk urus penghantaran, backlog, task & fasa."
+    },
+    {
+      "file": "22-project-timeline.png",
+      "eyebrow": "Project workspace",
+      "title": "Timeline",
+      "desc": "Projek demo — tab Timeline untuk urus penghantaran, backlog, task & fasa."
+    },
+    {
+      "file": "23-project-people.png",
+      "eyebrow": "Project workspace",
+      "title": "People & allocation",
+      "desc": "Projek demo — tab People & allocation untuk urus penghantaran, backlog, task & fasa."
+    }
+  ]
+}

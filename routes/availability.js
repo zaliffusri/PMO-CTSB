@@ -98,6 +98,7 @@ availabilityRouter.get('/workload', (req, res) => {
 
   const workload = Object.values(byUser).map((p) => ({
     ...p,
+    person_id: userIdToPersonId.get(p.id) ?? null,
     projectCount: p.projects.length,
     taskSummary: taskSummaryForPerson(userIdToPersonId.get(p.id) ?? null),
     availability: Math.max(0, 100 - p.totalAllocation),
@@ -113,35 +114,47 @@ availabilityRouter.get('/check', (req, res) => {
   const to = req.query.to;
   if (!personId) return res.status(400).json({ error: 'person_id is required' });
 
-  const person = store.people.find(p => p.id === personId);
+  const person = store.people.find((p) => p.id === personId);
   if (!person) return res.status(404).json({ error: 'Person not found' });
 
+  const personToUser = userIdByPersonId(store.users, store.people);
+  const userId = personToUser.get(personId) ?? null;
+  const user = userId != null ? store.findUserById(userId) : null;
+
   const projects = store.project_assignments
-    .filter(pa => pa.person_id === personId)
-    .map(pa => {
-      const proj = store.projects.find(p => p.id === pa.project_id);
+    .filter((pa) => pa.person_id === personId)
+    .map((pa) => {
+      const proj = store.projects.find((p) => p.id === pa.project_id);
       return proj?.status === 'active' ? { ...pa, project_name: proj?.name } : null;
     })
     .filter(Boolean);
-  const totalAllocation = projects.reduce((s, p) => s + p.allocation_percent, 0);
+  const totalAllocation = projects.reduce((s, p) => s + (p.allocation_percent || 0), 0);
 
   let activities = [];
-  if (from && to) {
+  if (from && to && userId != null) {
     activities = store.activities
-      .filter(a => a.person_id === userId && a.end_at >= from && a.start_at <= to)
+      .filter((a) => a.person_id === userId && a.end_at >= from && a.start_at <= to)
       .sort((a, b) => new Date(a.start_at) - new Date(b.start_at))
-      .map(a => {
-        const proj = store.projects.find(p => p.id === a.project_id);
+      .map((a) => {
+        const proj = store.projects.find((p) => p.id === a.project_id);
         return { ...a, project_name: proj?.name };
       });
   }
 
   res.json({
-    person: { id: user.id, name: user.name, email: user.email, role: user.role },
+    person: {
+      id: person.id,
+      name: person.name,
+      email: person.email,
+      role: person.role,
+      user_id: userId,
+    },
+    user: user ? { id: user.id, name: user.name, email: user.email, role: user.role } : null,
     currentProjects: projects,
     totalAllocation,
     availabilityPercent: Math.max(0, 100 - totalAllocation),
     isOverloaded: totalAllocation > 100,
     activitiesInRange: activities,
+    taskSummary: taskSummaryForPerson(personId),
   });
 });

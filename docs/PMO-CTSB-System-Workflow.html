@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PMO-CTSB — System Workflow Guide</title>
+  <style>
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm 16mm;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.55;
+  color: #1e293b;
+  background: #fff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.doc-header {
+  border-bottom: 3px solid #10b981;
+  padding-bottom: 12px;
+  margin-bottom: 24px;
+}
+.doc-header h1 {
+  font-size: 22pt;
+  color: #0f172a;
+  margin: 0 0 6px;
+  border: none;
+  padding: 0;
+}
+.doc-meta {
+  font-size: 9pt;
+  color: #64748b;
+}
+h1 { font-size: 18pt; color: #0f172a; margin: 28px 0 12px; page-break-after: avoid; }
+h2 {
+  font-size: 14pt;
+  color: #065f46;
+  margin: 24px 0 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #d1fae5;
+  page-break-after: avoid;
+}
+h3 { font-size: 11pt; color: #334155; margin: 16px 0 8px; page-break-after: avoid; }
+p { margin: 0 0 10px; }
+strong { color: #0f172a; }
+a { color: #059669; text-decoration: none; }
+ul, ol { margin: 0 0 12px 20px; padding: 0; }
+li { margin-bottom: 4px; }
+blockquote {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-left: 4px solid #10b981;
+  background: #f0fdf4;
+  color: #14532d;
+  font-weight: 600;
+}
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 9pt;
+  background: #f1f5f9;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-size: 8.5pt;
+  overflow-x: auto;
+  margin: 10px 0 14px;
+  page-break-inside: avoid;
+}
+pre code { background: none; color: inherit; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 10px 0 16px; page-break-inside: avoid; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+}
+th {
+  background: #ecfdf5;
+  color: #065f46;
+  font-weight: 700;
+  text-align: left;
+  padding: 7px 8px;
+  border: 1px solid #a7f3d0;
+}
+td {
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+tr:nth-child(even) td { background: #f8fafc; }
+.diagram-wrap {
+  margin: 14px 0 18px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  page-break-inside: avoid;
+  text-align: center;
+}
+.mermaid { font-size: 9pt; }
+.doc-footer {
+  margin-top: 28px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 8.5pt;
+  color: #94a3b8;
+  font-style: italic;
+}
+</style>
+</head>
+<body>
+  <div class="doc-header">
+    <h1>PMO-CTSB — System Workflow Guide</h1>
+    <p class="doc-meta">Cybersolution Technologies · Helpdesk → Backlog → Tasks · June 2026</p>
+  </div>
+  <main><p>This document explains <strong>how the whole system fits together</strong>: who does what, how work moves from a client ticket to delivery and billing, and where each module lives in the app.</p>
+<p><strong>Audience:</strong> PMO officers, team leads, developers, support staff, and stakeholders learning the platform.</p>
+<hr />
+<h2 id="table-of-contents">Table of contents</h2>
+<ol>
+<li><a href="#1-what-the-system-is-for">What the system is for</a></li>
+<li><a href="#2-users-and-roles">Users and roles</a></li>
+<li><a href="#3-core-data-relationships">Core data relationships</a></li>
+<li><a href="#4-the-main-delivery-pipeline">The main delivery pipeline</a></li>
+<li><a href="#5-helpdesk-eticket">Helpdesk (eTicket)</a></li>
+<li><a href="#6-product-backlog">Product backlog</a></li>
+<li><a href="#7-project-workspace">Project workspace</a></li>
+<li><a href="#8-tasks-and-timeline">Tasks and timeline</a></li>
+<li><a href="#9-calendar-and-activities">Calendar and activities</a></li>
+<li><a href="#10-my-work--personal-queue">My Work — personal queue</a></li>
+<li><a href="#11-delivery-finance-and-payments">Delivery, finance, and payments</a></li>
+<li><a href="#12-notifications">Notifications</a></li>
+<li><a href="#13-attachments">Attachments</a></li>
+<li><a href="#14-linking-rules-eticket--backlog">Linking rules (eTicket ↔ backlog)</a></li>
+<li><a href="#15-end-to-end-example">End-to-end example</a></li>
+<li><a href="#16-module-map-navigation">Module map (navigation)</a></li>
+<li><a href="#17-quick-reference-tables">Quick reference tables</a></li>
+</ol>
+<hr />
+<h2 id="1-what-the-system-is-for">1. What the system is for</h2>
+<p>PMO-CTSB is a <strong>project portfolio and delivery platform</strong> designed for government and PBT-style engagements. It connects:</p>
+<ul>
+<li><strong>Client agencies</strong> (DBKL, MOH, universities, etc.)</li>
+<li><strong>Delivery projects</strong> (contracts, letters of offer, purchase orders, tenders)</li>
+<li><strong>Operational support</strong> (helpdesk / eTicket)</li>
+<li><strong>Planned work</strong> (product backlog and tasks)</li>
+<li><strong>Team schedule</strong> (calendar, site visits, UAT, go-live)</li>
+<li><strong>Billing</strong> (phase milestones and finance views)</li>
+</ul>
+<p>The intended mental model:</p>
+<blockquote><strong>Intake on Helpdesk → Prioritize on Backlog → Execute as Tasks → Track on Timeline → Schedule on Calendar → Bill via Delivery/Finance</strong></blockquote>
+<hr />
+<h2 id="2-users-and-roles">2. Users and roles</h2>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Role</th>
+<th>Typical person</th>
+<th>What they do in the system</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Admin</strong></td>
+<td>IT / system owner</td>
+<td>Users, settings, audit history, full access</td>
+</tr>
+<tr>
+<td><strong>PMO</strong></td>
+<td>Project manager, delivery lead</td>
+<td>Create projects, assign helpdesk, manage backlog, promote to tasks, calendar, reports</td>
+</tr>
+<tr>
+<td><strong>Finance</strong></td>
+<td>Accounts / billing</td>
+<td>Finance module, payment milestone visibility</td>
+</tr>
+<tr>
+<td><strong>Team member</strong> (<code>user</code>)</td>
+<td>Developer, BA, QA, support</td>
+<td><strong>My Work</strong>, assigned tickets/backlog/tasks, view calendar</td>
+</tr>
+<tr>
+<td><strong>HR</strong></td>
+<td>(optional)</td>
+<td>User support</td>
+</tr>
+</tbody></table></div>
+<h3>Team roster vs login accounts</h3>
+<ul>
+<li><strong>People</strong> (<code>Team</code> page) = delivery roster (name, email, role).</li>
+<li><strong>Users</strong> (<code>System users</code>) = login accounts.</li>
+<li>The system matches them by <strong>email</strong> or <strong>name</strong> so notifications and “My Work” know who you are.</li>
+</ul>
+<h3>Project roster</h3>
+<p>People are assigned to projects via <strong>project assignments</strong> (role on project, allocation %). This roster is used for backlog @mentions and project visibility.</p>
+<hr />
+<h2 id="3-core-data-relationships">3. Core data relationships</h2>
+<div class="diagram-wrap"><div class="mermaid">flowchart TB
+  subgraph master [Master data]
+    CL[Clients]
+    PE[People / Team]
+    US[Users - login]
+  end
+
+  subgraph delivery [Delivery]
+    PR[Projects]
+    WP[Work packages]
+    PH[Project phases]
+    BL[Product backlog]
+    TK[Project tasks]
+  end
+
+  subgraph ops [Operations]
+    IS[Helpdesk issues]
+    AC[Calendar activities]
+    NT[Notifications]
+    AT[Attachments]
+  end
+
+  CL --> PR
+  PE --> PR
+  US -.matched by email.-> PE
+  PR --> WP
+  PR --> PH
+  PR --> BL
+  PR --> TK
+  IS -->|promote / link| BL
+  BL -->|→ Task| TK
+  IS --> AT
+  BL --> AT
+  TK --> AT
+  IS --> NT
+  BL --> NT
+  TK --> NT
+  AC --> PE</div></div>
+<p><strong>One project</strong> can have many work packages, backlog items, tasks, phases, and linked helpdesk tickets.</p>
+<hr />
+<h2 id="4-the-main-delivery-pipeline">4. The main delivery pipeline</h2>
+<p>This is the <strong>most important flow</strong> to understand.</p>
+<div class="diagram-wrap"><div class="mermaid">flowchart LR
+  A[Client / QA ticket] --> B[Helpdesk]
+  B -->|L1/L2 resolve| B
+  B -->|Needs dev/data work| C[Product Backlog]
+  C -->|PMO: → Task| D[Project Task]
+  D --> E[Timeline / Gantt]
+  C --> F[Discussion & status]
+  D --> G[Progress & hours]</div></div>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Stage</th>
+<th>Where</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Intake</strong></td>
+<td>Helpdesk</td>
+<td>Log, assign, escalate, resolve at support level</td>
+</tr>
+<tr>
+<td><strong>Planning</strong></td>
+<td>Product backlog</td>
+<td>Prioritize, estimate hours, assign owner</td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td>Tasks</td>
+<td>Plan dates, track progress, complete work</td>
+</tr>
+<tr>
+<td><strong>Visibility</strong></td>
+<td>Gantt / Timeline</td>
+<td>Portfolio and project schedules</td>
+</tr>
+<tr>
+<td><strong>Operations</strong></td>
+<td>Calendar</td>
+<td>Meetings, UAT, FAT, outstation, go-live</td>
+</tr>
+</tbody></table></div>
+<p><strong>Rule of thumb:</strong></p>
+<ul>
+<li>If support can <strong>fix it on the ticket</strong> → stay on Helpdesk (resolve).</li>
+<li>If it needs <strong>development, data work, or formal delivery</strong> → <strong>Backlog</strong> → <strong>Task</strong>.</li>
+</ul>
+<hr />
+<h2 id="5-helpdesk-eticket">5. Helpdesk (eTicket)</h2>
+<p><strong>URL:</strong> <code>/helpdesk</code></p>
+<p><strong>Purpose:</strong> Operational support queue aligned with legacy <strong>eTicket</strong> fields (ticket number, module, client, external ref, support level, etc.).</p>
+<h3>Ticket statuses</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td>Open</td>
+<td>New or not yet worked</td>
+</tr>
+<tr>
+<td>In progress</td>
+<td>Assignee is working on it</td>
+</tr>
+<tr>
+<td>Waiting agency</td>
+<td>Blocked on client / agency</td>
+</tr>
+<tr>
+<td>Resolved</td>
+<td>Closed at the current support level</td>
+</tr>
+</tbody></table></div>
+<h3>Support levels (L1 → L2 → L3)</h3>
+<div class="diagram-wrap"><div class="mermaid">flowchart TD
+  L1[L1 - First line support]
+  L2[L2 - Senior support]
+  L3[L3 - Dev / data / formal work]
+  RES[Resolved on ticket]
+  BL[→ Product Backlog]
+
+  L1 -->|Escalate| L2
+  L2 -->|Escalate| L3
+  L1 -->|Resolve| RES
+  L2 -->|Resolve| RES
+  L1 -->|Promote| BL
+  L2 -->|Promote| BL
+  L3 -->|Promote| BL</div></div>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Level</th>
+<th>Typical handling</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>L1</strong></td>
+<td>Password resets, how-to, basic troubleshooting</td>
+</tr>
+<tr>
+<td><strong>L2</strong></td>
+<td>Deeper analysis, configuration, recurring issues</td>
+</tr>
+<tr>
+<td><strong>L3</strong></td>
+<td>Defects, data fixes, changes needing backlog/task tracking</td>
+</tr>
+</tbody></table></div>
+<h3>Who can promote Helpdesk → Backlog?</h3>
+<ul>
+<li>PMO / Admin</li>
+<li>Ticket <strong>reporter</strong> (person who logged it)</li>
+<li>Any <strong>rostered team member</strong></li>
+</ul>
+<p>L1 can promote <strong>directly</strong> to backlog without going through L2/L3 first (when work clearly needs dev/data).</p>
+<h3>Promote to backlog — what happens?</h3>
+<ol>
+<li>User selects target <strong>project</strong> (if not already linked).</li>
+<li>System <strong>creates</strong> a new backlog item <strong>or links</strong> to an existing one (see <a href="#14-linking-rules-eticket--backlog">Linking rules</a>).</li>
+<li>Issue status moves to <strong>in progress</strong> (linked to delivery).</li>
+<li><strong>Attachments</strong> copy from issue → backlog.</li>
+<li><strong>Assignee</strong> on the backlog is notified.</li>
+<li><strong>Creator</strong> (who promoted) is stored for later status notifications.</li>
+</ol>
+<h3>Helpdesk notifications</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Event</th>
+<th>Who is notified</th>
+</tr></thead><tbody>
+<tr>
+<td>Ticket assigned</td>
+<td>Assignee</td>
+</tr>
+<tr>
+<td>Promoted to backlog</td>
+<td>Backlog assignee</td>
+</tr>
+</tbody></table></div>
+<hr />
+<h2 id="6-product-backlog">6. Product backlog</h2>
+<p><strong>URL:</strong> <code>/projects/{id}?tab=backlog</code></p>
+<p><strong>Purpose:</strong> Prioritized work list per project — original scope, CRs, bugs, enhancements, data work, support items.</p>
+<h3>Backlog item types</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Type</th>
+<th>Use for</th>
+</tr></thead><tbody>
+<tr>
+<td>Original scope</td>
+<td>Contract / URS work</td>
+</tr>
+<tr>
+<td>Change request (CR)</td>
+<td>Approved CR</td>
+</tr>
+<tr>
+<td>Bug / Defect</td>
+<td>Functional or quality issues</td>
+</tr>
+<tr>
+<td>Enhancement</td>
+<td>Improvements</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>Migration, cleansing</td>
+</tr>
+<tr>
+<td>Support</td>
+<td>Technical inquiries carried into delivery</td>
+</tr>
+<tr>
+<td>Recurring</td>
+<td>Repeat issues</td>
+</tr>
+</tbody></table></div>
+<h3>Backlog statuses</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Status</th>
+<th>Meaning</th>
+<th>Typical next step</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Open</strong></td>
+<td>Queued, not started</td>
+<td>Assignee picks up → In progress</td>
+</tr>
+<tr>
+<td><strong>In progress</strong></td>
+<td>Work underway</td>
+<td>Complete → Fixed</td>
+</tr>
+<tr>
+<td><strong>Fixed</strong></td>
+<td>Work done, awaiting verification</td>
+<td>PMO/client confirms → Closed</td>
+</tr>
+<tr>
+<td><strong>Closed</strong></td>
+<td>Verified or no further action</td>
+<td>Archive</td>
+</tr>
+</tbody></table></div>
+<h3>Permissions</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Action</th>
+<th>PMO</th>
+<th>Assignee</th>
+</tr></thead><tbody>
+<tr>
+<td>Create backlog item</td>
+<td>✓</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Set assignee, priority, estimates</td>
+<td>✓</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Update <strong>status</strong></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Update <strong>actual hours</strong></td>
+<td>✓</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Post comments, @mention team</td>
+<td>✓</td>
+<td>✓ (if on project roster)</td>
+</tr>
+<tr>
+<td><strong>→ Task</strong> (promote to task)</td>
+<td>✓</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Attach files / links</td>
+<td>✓</td>
+<td>✓ (view); upload per module rules</td>
+</tr>
+</tbody></table></div>
+<h3>Discussion and @mentions</h3>
+<p>Each backlog item has a <strong>comment thread</strong>. Type <code>@</code> + team member name to mention someone on the project roster.</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Event</th>
+<th>Who is notified</th>
+</tr></thead><tbody>
+<tr>
+<td>Backlog created / assigned</td>
+<td><strong>Assignee</strong></td>
+</tr>
+<tr>
+<td>Status changed</td>
+<td><strong>Creator</strong> (who created or promoted the item)</td>
+</tr>
+<tr>
+<td>New comment</td>
+<td>Creator, assignee</td>
+</tr>
+<tr>
+<td>@mention in comment</td>
+<td>Mentioned person</td>
+</tr>
+</tbody></table></div>
+<p><strong>Deep link:</strong> <code>/projects/{projectId}?tab=backlog&amp;backlog={id}</code></p>
+<h3>Promote backlog → Task</h3>
+<p>PMO clicks <strong>→ Task</strong> when work is ready for scheduling and tracking.</p>
+<ol>
+<li>Creates a <strong>project task</strong> (title, hours, assignee, <code>backlog_id</code>).</li>
+<li>Sets backlog to <strong>In progress</strong> and stores <code>task_id</code>.</li>
+<li>Copies <strong>attachments</strong> backlog → task.</li>
+<li>Notifies <strong>task assignee</strong> (in-app; email if SMTP configured).</li>
+</ol>
+<hr />
+<h2 id="7-project-workspace">7. Project workspace</h2>
+<p><strong>URL:</strong> <code>/projects/{id}</code></p>
+<p>Each project is a <strong>delivery workspace</strong> with tabs:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Tab</th>
+<th>Purpose</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Overview</strong></td>
+<td>Health, KPIs, charts, summary</td>
+</tr>
+<tr>
+<td><strong>Work packages</strong></td>
+<td>Split large projects (Portal, API, Migration, …)</td>
+</tr>
+<tr>
+<td><strong>Backlog</strong></td>
+<td>Product backlog for this project</td>
+</tr>
+<tr>
+<td><strong>Tasks</strong></td>
+<td>Task list and hierarchy</td>
+</tr>
+<tr>
+<td><strong>Delivery</strong></td>
+<td>Phases (URS, UAT, FAT, go-live) and payment status</td>
+</tr>
+<tr>
+<td><strong>Timeline</strong></td>
+<td>Mini Gantt for this project</td>
+</tr>
+<tr>
+<td><strong>People</strong></td>
+<td>Who is assigned and allocation %</td>
+</tr>
+</tbody></table></div>
+<h3>Work packages</h3>
+<p>Use when one contract has <strong>multiple delivery streams</strong>. Filter backlog and tasks by package.</p>
+<h3>Engagement types</h3>
+<p>Projects can be tagged as Contract, Letter of offer, Purchase order, Tender, etc. — affects how phases and finance are interpreted.</p>
+<hr />
+<h2 id="8-tasks-and-timeline">8. Tasks and timeline</h2>
+<p><strong>URLs:</strong></p>
+<ul>
+<li>Project tasks: <code>/projects/{id}?tab=tasks</code></li>
+<li>Portfolio Gantt: <code>/gantt</code></li>
+<li>Project timeline: <code>/projects/{id}?tab=timeline</code></li>
+</ul>
+<h3>Task statuses</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr></thead><tbody>
+<tr>
+<td>New</td>
+<td>Not started</td>
+</tr>
+<tr>
+<td>Ongoing</td>
+<td>In progress</td>
+</tr>
+<tr>
+<td>Done</td>
+<td>Complete (typically 100% progress)</td>
+</tr>
+</tbody></table></div>
+<p>Tasks can be:</p>
+<ul>
+<li><strong>Leaf tasks</strong> — real work items with assignee, dates, hours.</li>
+<li><strong>Group tasks</strong> — containers for subtasks (rollup progress).</li>
+</ul>
+<h3>Relationship to backlog</h3>
+<ul>
+<li>Task may have <code>backlog_id</code> — created from <strong>→ Task</strong> on backlog.</li>
+<li>Completing the task does <strong>not</strong> auto-close backlog; PMO/assignee updates backlog status separately (Fixed → Closed).</li>
+</ul>
+<h3>Gantt and timeline</h3>
+<ul>
+<li><strong>Gantt</strong> — cross-project view of planned vs actual bars.</li>
+<li><strong>Timeline</strong> — project-scoped schedule with phases and tasks.</li>
+</ul>
+<hr />
+<h2 id="9-calendar-and-activities">9. Calendar and activities</h2>
+<p><strong>URL:</strong> <code>/calendar</code></p>
+<p><strong>Purpose:</strong> Team schedule — not the same as project tasks, but complements them.</p>
+<h3>Activity types</h3>
+<p>Meeting, Outstation, UAT, URS, FAT, DEMO, Training, Go-live, Tender, Other.</p>
+<h3>Who can edit?</h3>
+<p><strong>PMO and Admin</strong> can log activities, import Excel, email team schedule.</p>
+<h3>Features</h3>
+<ul>
+<li>Month view with type filters and KPIs (activity count, active days).</li>
+<li>Click a <strong>day</strong> to pre-fill a new activity (PMO).</li>
+<li>Click an <strong>event</strong> for details, edit, delete, resend email.</li>
+<li>Multi-assignee activities show as <strong>one chip</strong> on the calendar (grouped).</li>
+<li>Import historical schedules from <strong>Excel/CSV</strong>.</li>
+</ul>
+<h3>Link to My Work</h3>
+<p><strong>My Work → Today</strong> shows calendar activities for the logged-in user.</p>
+<hr />
+<h2 id="10-my-work-personal-queue">10. My Work — personal queue</h2>
+<p><strong>URL:</strong> <code>/my-work</code></p>
+<p><strong>Purpose:</strong> Single place for each team member to see <strong>their</strong> work.</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Tab</th>
+<th>Shows</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>All</strong></td>
+<td>Combined queue</td>
+</tr>
+<tr>
+<td><strong>Tasks</strong></td>
+<td>Assigned project tasks</td>
+</tr>
+<tr>
+<td><strong>Backlog</strong></td>
+<td>Assigned open backlog items</td>
+</tr>
+<tr>
+<td><strong>Helpdesk</strong></td>
+<td>Assigned open tickets</td>
+</tr>
+<tr>
+<td><strong>Today</strong></td>
+<td>Today’s calendar activities</td>
+</tr>
+</tbody></table></div>
+<p>Items are sorted by urgency (overdue tasks, priority, dates). Each row links to the right project or helpdesk detail.</p>
+<hr />
+<h2 id="11-delivery-finance-and-payments">11. Delivery, finance, and payments</h2>
+<h3>Delivery tab (<code>/projects/{id}?tab=delivery</code>)</h3>
+<p>Tracks <strong>project phases</strong> — e.g. URS, Development, SIT, UAT, FAT, Go-live, Warranty.</p>
+<p>Each phase can have:</p>
+<ul>
+<li>Target / completed dates</li>
+<li>Progress %</li>
+<li><strong>Payment milestone</strong> — amount, invoice no, paid date, payment status</li>
+</ul>
+<h3>Finance module (<code>/finance</code>)</h3>
+<p><strong>Roles:</strong> PMO, Admin, Finance.</p>
+<p>Portfolio view of:</p>
+<ul>
+<li>Ready to bill</li>
+<li>Invoiced</li>
+<li>Paid &amp; claimed</li>
+<li>Maintenance renewal follow-up</li>
+</ul>
+<p>Finance reads from <strong>phase payment fields</strong> on projects — it does not replace your accounting system; it tracks milestone status for PMO.</p>
+<hr />
+<h2 id="12-notifications">12. Notifications</h2>
+<p><strong>Bell icon</strong> (top bar) — in-app notifications.</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Type</th>
+<th>Trigger</th>
+</tr></thead><tbody>
+<tr>
+<td>Issue assigned</td>
+<td>Helpdesk assignee set</td>
+</tr>
+<tr>
+<td>Backlog assigned</td>
+<td>New backlog or assignee changed</td>
+</tr>
+<tr>
+<td>Backlog status</td>
+<td>Creator notified when assignee changes status</td>
+</tr>
+<tr>
+<td>Backlog comment / @mention</td>
+<td>Creator, assignee, mentioned users</td>
+</tr>
+<tr>
+<td>Task assigned</td>
+<td>Task or backlog→task promote</td>
+</tr>
+</tbody></table></div>
+<p><strong>Email</strong> (optional, requires SMTP in settings):</p>
+<ul>
+<li>Task / activity assignment emails</li>
+<li>Team schedule email (monthly from Calendar)</li>
+</ul>
+<hr />
+<h2 id="13-attachments">13. Attachments</h2>
+<p>Supported on:</p>
+<ul>
+<li><strong>Helpdesk issue</strong></li>
+<li><strong>Product backlog item</strong></li>
+<li><strong>Project task</strong></li>
+</ul>
+<p>Types:</p>
+<ul>
+<li><strong>File upload</strong> (stored server-side)</li>
+<li><strong>URL link</strong></li>
+</ul>
+<p><strong>Auto-copy on promote:</strong></p>
+<pre><code>Issue ──promote──► Backlog ──→ Task ──► Task
+         attachments copy at each step</code></pre>
+<hr />
+<h2 id="14-linking-rules-eticket-backlog">14. Linking rules (eTicket ↔ backlog)</h2>
+<p>When promoting or importing, the system avoids duplicates by matching:</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Key</th>
+<th>Helpdesk field</th>
+<th>Backlog field</th>
+</tr></thead><tbody>
+<tr>
+<td>Backlog ref</td>
+<td><code>backlog_ref</code> (PBLID / BUGID)</td>
+<td><code>ref_no</code></td>
+</tr>
+<tr>
+<td>Client ticket</td>
+<td><code>external_ticket_ref</code> (No Tiket)</td>
+<td><code>external_ticket_ref</code></td>
+</tr>
+<tr>
+<td>Direct link</td>
+<td>—</td>
+<td><code>issue_id</code></td>
+</tr>
+</tbody></table></div>
+<p><strong>Behaviour:</strong></p>
+<ul>
+<li>If a matching backlog exists → <strong>link</strong> issue to it (no duplicate row).</li>
+<li>If not → <strong>create</strong> new backlog with ref from issue or auto-generated module ref (e.g. <code>ABB-1352</code>).</li>
+</ul>
+<p>This supports alignment with legacy <strong>Product Backlog Johor</strong> / <strong>eTicket</strong> CSV structures without forced bulk import.</p>
+<hr />
+<h2 id="15-end-to-end-example">15. End-to-end example</h2>
+<p><strong>Scenario:</strong> MBSA user cannot pay assessment tax online.</p>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Step</th>
+<th>Module</th>
+<th>Action</th>
+</tr></thead><tbody>
+<tr>
+<td>1</td>
+<td>Helpdesk</td>
+<td>QA logs ticket <code>eT-CK-0123</code>, module Cukai, client MBSA, L1 assignee</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Helpdesk</td>
+<td>L1 checks logs → escalates to L2</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Helpdesk</td>
+<td>L2 confirms code defect → <strong>→ Backlog</strong> on *PBT Citizen Portal*</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Backlog</td>
+<td>Item created Open, assignee = developer, creator = PMO who promoted</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Backlog</td>
+<td>Developer sets <strong>In progress</strong>, logs actual hours, comments <code>@Siti</code> for BA</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Backlog</td>
+<td>PMO clicks <strong>→ Task</strong> “Fix payment gateway timeout”</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Tasks</td>
+<td>Developer completes task → <strong>Done</strong></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Backlog</td>
+<td>Assignee sets <strong>Fixed</strong> → PMO sets <strong>Closed</strong> after UAT</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Calendar</td>
+<td>UAT session and go-live workshop logged same month</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Delivery</td>
+<td>UAT phase marked invoiced; Finance sees milestone</td>
+</tr>
+</tbody></table></div>
+<hr />
+<h2 id="16-module-map-navigation">16. Module map (navigation)</h2>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Menu</th>
+<th>Route</th>
+<th>Role in flow</th>
+</tr></thead><tbody>
+<tr>
+<td>Dashboard</td>
+<td><code>/</code></td>
+<td>Portfolio health, open CR/bugs</td>
+</tr>
+<tr>
+<td>Projects</td>
+<td><code>/projects</code></td>
+<td>Portfolio list</td>
+</tr>
+<tr>
+<td>Project workspace</td>
+<td><code>/projects/{id}</code></td>
+<td>Backlog, tasks, delivery, timeline</td>
+</tr>
+<tr>
+<td>Helpdesk</td>
+<td><code>/helpdesk</code></td>
+<td>Support intake</td>
+</tr>
+<tr>
+<td>My work</td>
+<td><code>/my-work</code></td>
+<td>Personal queue</td>
+</tr>
+<tr>
+<td>Calendar</td>
+<td><code>/calendar</code></td>
+<td>Team schedule</td>
+</tr>
+<tr>
+<td>Gantt</td>
+<td><code>/gantt</code></td>
+<td>Cross-project timeline</td>
+</tr>
+<tr>
+<td>Team</td>
+<td><code>/team</code></td>
+<td>People and capacity</td>
+</tr>
+<tr>
+<td>Clients</td>
+<td><code>/clients</code></td>
+<td>Agency master data</td>
+</tr>
+<tr>
+<td>Finance</td>
+<td><code>/finance</code></td>
+<td>Payment milestones</td>
+</tr>
+<tr>
+<td>Reports</td>
+<td><code>/reports</code></td>
+<td>Exports</td>
+</tr>
+<tr>
+<td>Users</td>
+<td><code>/users</code></td>
+<td>Login accounts (admin)</td>
+</tr>
+<tr>
+<td>History</td>
+<td><code>/history</code></td>
+<td>Audit log</td>
+</tr>
+<tr>
+<td>Settings</td>
+<td><code>/settings/*</code></td>
+<td>Locations, branding</td>
+</tr>
+</tbody></table></div>
+<hr />
+<h2 id="17-quick-reference-tables">17. Quick reference tables</h2>
+<h3>Status flows side-by-side</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Helpdesk</th>
+<th>Backlog</th>
+<th>Task</th>
+</tr></thead><tbody>
+<tr>
+<td>Open</td>
+<td>Open</td>
+<td>New</td>
+</tr>
+<tr>
+<td>In progress</td>
+<td>In progress</td>
+<td>Ongoing</td>
+</tr>
+<tr>
+<td>Waiting agency</td>
+<td>Fixed</td>
+<td>Done</td>
+</tr>
+<tr>
+<td>Resolved</td>
+<td>Closed</td>
+<td>—</td>
+</tr>
+</tbody></table></div>
+<h3>Who creates what?</h3>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Entity</th>
+<th>Typically created by</th>
+</tr></thead><tbody>
+<tr>
+<td>Helpdesk ticket</td>
+<td>PMO, support, import</td>
+</tr>
+<tr>
+<td>Backlog item</td>
+<td>PMO, or promote from helpdesk</td>
+</tr>
+<tr>
+<td>Task</td>
+<td>PMO (manual or from backlog)</td>
+</tr>
+<tr>
+<td>Calendar activity</td>
+<td>PMO / Admin</td>
+</tr>
+<tr>
+<td>Project / phase</td>
+<td>PMO / Admin</td>
+</tr>
+</tbody></table></div>
+<h3>Demo data (local)</h3>
+<pre><code>npm run seed:demo
+npm run dev</code></pre>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Email</th>
+<th>Password</th>
+<th>Role</th>
+</tr></thead><tbody>
+<tr>
+<td>admin@pmo.local</td>
+<td>admin123</td>
+<td>Admin</td>
+</tr>
+<tr>
+<td>pmo@pmo.local</td>
+<td>pmo123</td>
+<td>PMO</td>
+</tr>
+<tr>
+<td>finance@pmo.local</td>
+<td>finance123</td>
+<td>Finance</td>
+</tr>
+<tr>
+<td>ahmadrizal@company.com</td>
+<td>user123</td>
+<td>Team member</td>
+</tr>
+</tbody></table></div>
+<p>Demo seed includes sample projects, helpdesk tickets, backlog links, calendar activities, and notifications.</p>
+<hr />
+<h2 id="related-documents">Related documents</h2>
+<div class="table-wrap"><table>
+<thead><tr>
+<th>Document</th>
+<th>Description</th>
+</tr></thead><tbody>
+<tr>
+<td><a href="../README.md">README.md</a></td>
+<td>Install, deploy, migrations</td>
+</tr>
+<tr>
+<td><a href="./PMO-CTSB-System-Workflow.pdf">PMO-CTSB-System-Workflow.pdf</a></td>
+<td><strong>This guide as PDF</strong></td>
+</tr>
+<tr>
+<td><a href="./PMO-CTSB-Team-Presentation.pdf">PMO-CTSB-Team-Presentation.pdf</a></td>
+<td>Team slide deck</td>
+</tr>
+<tr>
+<td><a href="./PMO-CTSB-Screenshot-Tour.pdf">PMO-CTSB-Screenshot-Tour.pdf</a></td>
+<td>UI screenshot walkthrough</td>
+</tr>
+</tbody></table></div>
+<hr />
+<p>*Last updated: June 2026 — reflects Helpdesk → Backlog → Task workflow, backlog statuses (Open / In progress / Fixed / Closed), comments with @mentions, and calendar enhancements.*</p></main>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose' });
+    await mermaid.run({ querySelector: '.mermaid' });
+    document.body.dataset.mermaidReady = '1';
+  </script>
+</body>
+</html>

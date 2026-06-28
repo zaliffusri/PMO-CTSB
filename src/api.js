@@ -38,6 +38,10 @@ export function setAuthToken(token) {
   else localStorage.removeItem('auth_token');
 }
 
+export function getAuthToken() {
+  return authToken;
+}
+
 async function request(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = { 'Content-Type': 'application/json', ...options.headers };
@@ -108,8 +112,7 @@ export const api = {
     delete: (id) => request(`/clients/${id}`, { method: 'DELETE' }),
   },
   projects: {
-    list: (params) => request('/projects' + (params?.tag ? '?tag=' + encodeURIComponent(params.tag) : '')),
-    tagsList: () => request('/projects/tags/list'),
+    list: () => request('/projects'),
     get: (id) => request(`/projects/${id}`),
     create: (body) => request('/projects', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
@@ -133,12 +136,21 @@ export const api = {
     create: (body) => request('/activities', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     delete: (id) => request(`/activities/${id}`, { method: 'DELETE' }),
+    mailStatus: () => request('/activities/mail-status'),
+    scheduleEmailPreview: (params) =>
+      request('/activities/schedule-email/preview?' + new URLSearchParams(params).toString()),
+    sendScheduleEmail: (body) =>
+      request('/activities/schedule-email/send', { method: 'POST', body: JSON.stringify(body) }),
+    notify: (id) => request(`/activities/${id}/notify`, { method: 'POST' }),
   },
   availability: {
     workload: (from, to) => request(`/availability/workload?from=${from}&to=${to || from}`),
+    check: (personId, from, to) =>
+      request(`/availability/check?person_id=${personId}&from=${from}&to=${to || from}`),
   },
   settings: {
     get: () => request('/settings'),
+    getPublic: () => request('/settings/public'),
     update: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   },
   projectTasks: {
@@ -148,8 +160,73 @@ export const api = {
     update: (id, body) => request(`/project-tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     delete: (id) => request(`/project-tasks/${id}`, { method: 'DELETE' }),
   },
+  issues: {
+    list: (params) => request('/issues?' + new URLSearchParams(params || {}).toString()),
+    get: (id) => request(`/issues/${id}`),
+    create: (body) => request('/issues', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/issues/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    escalate: (id, body) => request(`/issues/${id}/escalate`, { method: 'POST', body: JSON.stringify(body || {}) }),
+    resolve: (id, body) => request(`/issues/${id}/resolve`, { method: 'POST', body: JSON.stringify(body || {}) }),
+    promoteToBacklog: (id, body) => request(`/issues/${id}/promote-backlog`, { method: 'POST', body: JSON.stringify(body || {}) }),
+    importEticket: (csv) => request('/issues/import-eticket', { method: 'POST', body: JSON.stringify({ csv }) }),
+  },
+  backlogs: {
+    list: (params) => request('/backlogs?' + new URLSearchParams(params || {}).toString()),
+    get: (id) => request(`/backlogs/${id}`),
+    create: (body) => request('/backlogs', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/backlogs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    promoteToTask: (id, body) => request(`/backlogs/${id}/promote-task`, { method: 'POST', body: JSON.stringify(body || {}) }),
+    listComments: (id) => request(`/backlogs/${id}/comments`),
+    addComment: (id, body) => request(`/backlogs/${id}/comments`, { method: 'POST', body: JSON.stringify(body) }),
+  },
+  projectPhases: {
+    list: (params) => request('/project-phases?' + new URLSearchParams(params || {}).toString()),
+    financeSummary: () => request('/project-phases/finance-summary'),
+    initTemplate: (projectId, workPackageId) => request('/project-phases/init-template', {
+      method: 'POST',
+      body: JSON.stringify({
+        project_id: projectId,
+        ...(workPackageId ? { work_package_id: workPackageId } : {}),
+      }),
+    }),
+    create: (body) => request('/project-phases', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/project-phases/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  },
+  workPackages: {
+    list: (params) => request('/work-packages?' + new URLSearchParams(params || {}).toString()),
+    get: (id) => request(`/work-packages/${id}`),
+    create: (body) => request('/work-packages', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/work-packages/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    delete: (id) => request(`/work-packages/${id}`, { method: 'DELETE' }),
+    initPhases: (id) => request(`/work-packages/${id}/init-phases`, { method: 'POST', body: '{}' }),
+  },
+  notifications: {
+    list: (params) => request('/notifications?' + new URLSearchParams(params || {}).toString()),
+    unreadCount: () => request('/notifications/count'),
+    markRead: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
+    markAllRead: () => request('/notifications/read-all', { method: 'POST' }),
+  },
   auditLog: {
     list: (params) => request('/audit-log?' + new URLSearchParams(params || {}).toString()),
+  },
+  attachments: {
+    list: (entityType, entityId) => request(`/attachments?entity_type=${encodeURIComponent(entityType)}&entity_id=${entityId}`),
+    create: (body) => request('/attachments', { method: 'POST', body: JSON.stringify(body) }),
+    remove: (id) => request(`/attachments/${id}`, { method: 'DELETE' }),
+    async openFile(id) {
+      const headers = {};
+      const token = getAuthToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`${BASE}/attachments/${id}/file`, { headers });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Download failed');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    },
   },
 };
 

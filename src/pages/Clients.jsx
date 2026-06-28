@@ -1,8 +1,15 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle } from '../styles/commonStyles';
+import { useAuth } from '../AuthContext';
+import { inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import PageHeader from '../components/PageHeader';
+import ImageUploadField from '../components/ImageUploadField';
+import UiEmptyState from '../components/UiEmptyState';
+import ModuleFilterBar from '../components/ModuleFilterBar';
+import PageLoadingState from '../components/PageLoadingState';
+import { IMAGE_PRESETS } from '../lib/imageResize';
 
 function companyMatchesSearch(company, q) {
   if (!q) return true;
@@ -99,7 +106,7 @@ function ProjectViewMenu({ projects }) {
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <button
         type="button"
-        style={btnSecondary}
+        className="btn btn-secondary btn-sm"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -170,6 +177,7 @@ function ProjectViewMenu({ projects }) {
 }
 
 export default function Clients() {
+  const { user } = useAuth();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -191,6 +199,14 @@ export default function Clients() {
   }, [companies, searchQuery]);
 
   const searchActive = Boolean(searchQuery.trim());
+  const canEditLogo = user?.role === 'admin' || user?.role === 'pmo';
+
+  const saveCompanyLogo = async (companyId, logo_url) => {
+    await run(async () => {
+      const updated = await api.clients.update(companyId, { logo_url });
+      setCompanies((list) => list.map((c) => (c.id === companyId ? updated : c)));
+    });
+  };
 
   useEffect(() => {
     load();
@@ -298,23 +314,19 @@ export default function Clients() {
     });
   };
 
-  if (loading) return <div style={{ padding: '2rem' }}>Loading...</div>;
+  if (loading) return <PageLoadingState message="Loading clients…" />;
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1>Clients</h1>
-          <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-            Manage companies and their persons in charge (PIC). Projects link to the company, not individual PICs.
-          </p>
-        </div>
-        <div className="page-header-actions">
-          <button type="button" onClick={() => (showForm ? (setShowForm(false), resetForm()) : openForm())} style={btnPrimary}>
+    <div className="page-module clients-page">
+      <PageHeader
+        title="Clients"
+        subtitle="Manage companies and their persons in charge (PIC). Projects link to the company, not individual PICs."
+        actions={
+          <button type="button" className="btn btn-primary" onClick={() => (showForm ? (setShowForm(false), resetForm()) : openForm())}>
             {showForm ? 'Cancel' : '+ Add PIC'}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {editingPic && (
         <div className="modal-backdrop" role="presentation">
@@ -369,12 +381,12 @@ export default function Clients() {
                   style={inputStyle}
                 />
               </label>
-              <div className="form-actions">
-                <button type="submit" style={btnPrimary} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save changes'}
-                </button>
-                <button type="button" style={btnSecondary} onClick={closeEditPic} disabled={saving}>
+              <div className="project-create-footer">
+                <button type="button" className="btn btn-secondary" onClick={closeEditPic} disabled={saving}>
                   Cancel
+                </button>
+                <button type="submit" className="btn btn-primary project-create-footer__primary" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save changes'}
                 </button>
               </div>
             </form>
@@ -488,8 +500,8 @@ export default function Clients() {
                   style={inputStyle}
                 />
               </label>
-              <div className="form-actions">
-                <button type="submit" style={btnPrimary} disabled={saving}>
+              <div className="project-create-footer">
+                <button type="submit" className="btn btn-primary project-create-footer__primary" disabled={saving}>
                   {saving ? 'Saving…' : 'Save PIC'}
                 </button>
               </div>
@@ -499,87 +511,87 @@ export default function Clients() {
       )}
 
       {companies.length > 0 && (
-        <div className="filter-bar" style={{ ...card, marginBottom: '0.75rem', padding: '1rem' }}>
-          <label style={{ flex: '1 1 240px', minWidth: 0, maxWidth: '400px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
-              Search
-            </span>
+        <ModuleFilterBar
+          summary={
+            searchActive
+              ? `Showing ${filteredCompanies.length} of ${companies.length} compan${companies.length !== 1 ? 'ies' : 'y'}`
+              : `${companies.length} compan${companies.length !== 1 ? 'ies' : 'y'}`
+          }
+        >
+          <label className="module-toolbar__field module-toolbar__field--grow">
+            <span className="module-toolbar__label">Search</span>
             <input
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Company, PIC, email, phone, or project…"
               aria-label="Search clients"
-              style={{ ...inputStyle, marginTop: 0 }}
+              className="form-field__input pmo-filter-input"
             />
           </label>
           {searchActive && (
-            <button
-              type="button"
-              style={{ ...btnSecondary, alignSelf: 'flex-end', whiteSpace: 'nowrap' }}
-              onClick={() => setSearchQuery('')}
-            >
-              Clear search
+            <button type="button" className="btn btn-ghost btn-sm helpdesk-filter-reset" onClick={() => setSearchQuery('')}>
+              Reset
             </button>
           )}
-        </div>
+        </ModuleFilterBar>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div className="clients-grid">
         {companies.length === 0 && !showForm ? (
-          <div style={card}>
-            <p style={{ color: 'var(--text-muted)' }}>No companies yet. Add a PIC to create a company and contact.</p>
+          <div className="ui-card section-card">
+            <UiEmptyState
+              title="No companies yet"
+              description="Add a person in charge (PIC) to create a company and contact."
+              action={
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => openForm()}>
+                  + Add PIC
+                </button>
+              }
+            />
           </div>
         ) : !filteredCompanies.length ? (
-          <div style={card}>
-            <p style={{ color: 'var(--text-muted)' }}>
-              No companies match your search.
-              {searchActive && (
-                <>
-                  {' '}
-                  <button
-                    type="button"
-                    style={{ ...btnSecondarySm, verticalAlign: 'baseline' }}
-                    onClick={() => setSearchQuery('')}
-                  >
+          <div className="ui-card section-card">
+            <UiEmptyState
+              title="No companies match your search"
+              description="Try a different search term or clear the filter."
+              action={
+                searchActive ? (
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSearchQuery('')}>
                     Clear search
                   </button>
-                </>
-              )}
-            </p>
+                ) : null
+              }
+            />
           </div>
         ) : (
           <>
-            {searchActive && (
-              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Showing {filteredCompanies.length} of {companies.length} compan{companies.length !== 1 ? 'ies' : 'y'}
-              </p>
-            )}
             {filteredCompanies.map((company) => (
-              <div key={company.id} style={{ ...card, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    flexWrap: 'wrap',
-                    gap: '1rem',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{company.name}</div>
-                    <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                      {(company.contacts?.length ?? 0) === 0
-                        ? 'No PIC on file'
-                        : `${company.contacts.length} PIC${company.contacts.length !== 1 ? 's' : ''}`}
-                      {company.project_count > 0 &&
-                        ` · ${company.project_count} project${company.project_count !== 1 ? 's' : ''}`}
-                    </p>
+              <div key={company.id} className="client-card ui-card">
+                <div className="client-card__head">
+                  <div className="client-card__identity">
+                    {company.logo_url ? (
+                      <img src={company.logo_url} alt="" className="client-card__logo" />
+                    ) : (
+                      <div className="client-card__logo client-card__logo--placeholder" aria-hidden>
+                        {company.name?.slice(0, 1)?.toUpperCase() || 'C'}
+                      </div>
+                    )}
+                    <div>
+                      <div className="client-card__name">{company.name}</div>
+                      <p className="client-card__meta">
+                        {(company.contacts?.length ?? 0) === 0
+                          ? 'No PIC on file'
+                          : `${company.contacts.length} PIC${company.contacts.length !== 1 ? 's' : ''}`}
+                        {company.project_count > 0 &&
+                          ` · ${company.project_count} project${company.project_count !== 1 ? 's' : ''}`}
+                      </p>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="client-card__actions">
                     <button
                       type="button"
-                      style={btnSecondary}
+                      className="btn btn-secondary btn-sm"
                       onClick={() =>
                         openForm({ companyMode: 'existing', company_id: String(company.id), company_name: '' })
                       }
@@ -589,14 +601,30 @@ export default function Clients() {
                     <ProjectViewMenu projects={company.projects} />
                     <button
                       type="button"
+                      className="btn btn-secondary btn-sm"
                       onClick={() => removeCompany(company.id, company.name)}
-                      style={{ ...btnSecondary, color: 'var(--danger)' }}
+                      style={{ color: 'var(--danger)' }}
                       disabled={saving}
                     >
                       Remove company
                     </button>
                   </div>
                 </div>
+
+                {canEditLogo && (
+                  <div className="client-card__logo-upload">
+                    <ImageUploadField
+                      label="Company logo"
+                      value={company.logo_url}
+                      onChange={(logo_url) => saveCompanyLogo(company.id, logo_url)}
+                      onError={(m) => alert(m)}
+                      preset={IMAGE_PRESETS.clientLogo}
+                      variant="logo"
+                      placeholder="Upload logo"
+                      busy={saving}
+                    />
+                  </div>
+                )}
 
                 {(company.contacts?.length ?? 0) > 0 && (
                   <ul
@@ -628,7 +656,7 @@ export default function Clients() {
                         <div className="card-actions">
                           <button
                             type="button"
-                            style={btnSecondarySm}
+                            className="btn btn-secondary btn-sm"
                             disabled={saving}
                             onClick={() => openEditPic(pic, company.name)}
                           >
@@ -636,7 +664,8 @@ export default function Clients() {
                           </button>
                           <button
                             type="button"
-                            style={{ ...btnSecondarySm, color: 'var(--danger)' }}
+                            className="btn btn-secondary btn-sm"
+                            style={{ color: 'var(--danger)' }}
                             disabled={saving}
                             onClick={() =>
                               removeContact(pic.id, company.name, pic.contact_name || pic.email || 'this contact')

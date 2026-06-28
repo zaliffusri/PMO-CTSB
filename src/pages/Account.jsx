@@ -1,48 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
-import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import PageHeader from '../components/PageHeader';
+import { resizeImageToDataUrl, IMAGE_PRESETS } from '../lib/imageResize';
 
-const AVATAR_MAX_DIM = 256;
-const AVATAR_QUALITY = 0.85;
-const AVATAR_INPUT_MAX_BYTES = 5 * 1024 * 1024;
 const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
-
-async function resizeImageToDataUrl(file) {
-  if (!file.type.startsWith('image/')) {
-    throw new Error('Please select an image file (PNG, JPG, WebP, or GIF).');
-  }
-  if (file.size > AVATAR_INPUT_MAX_BYTES) {
-    throw new Error('Image is too large. Please choose a file under 5 MB.');
-  }
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Could not read the selected file.'));
-    reader.readAsDataURL(file);
-  });
-  const img = await new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Selected file is not a valid image.'));
-    image.src = dataUrl;
-  });
-  const { width: w, height: h } = img;
-  const size = Math.min(w, h);
-  const sx = Math.max(0, Math.floor((w - size) / 2));
-  const sy = Math.max(0, Math.floor((h - size) / 2));
-  const target = Math.min(AVATAR_MAX_DIM, size);
-  const canvas = document.createElement('canvas');
-  canvas.width = target;
-  canvas.height = target;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Browser does not support image processing.');
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, sx, sy, size, size, 0, 0, target, target);
-  return canvas.toDataURL('image/jpeg', AVATAR_QUALITY);
-}
 
 const ROLE_LABELS = {
   admin: 'Administrator',
@@ -167,14 +130,14 @@ function MessagePopup({ open, kind, message, onClose }) {
 
 function PasswordField({ label, value, onChange, show, onToggleShow, autoComplete, children }) {
   return (
-    <label>
-      {label}
-      <div style={{ position: 'relative' }}>
+    <div className="form-field">
+      <label className="form-field__label">{label}</label>
+      <div className="password-field-wrap">
         <input
           type={show ? 'text' : 'password'}
           value={value}
           onChange={onChange}
-          style={{ ...inputStyle, paddingRight: '3.25rem' }}
+          className="form-field__input ui-input"
           autoComplete={autoComplete}
         />
         <button
@@ -182,25 +145,13 @@ function PasswordField({ label, value, onChange, show, onToggleShow, autoComplet
           onClick={onToggleShow}
           tabIndex={-1}
           aria-label={show ? 'Hide password' : 'Show password'}
-          style={{
-            position: 'absolute',
-            right: 8,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            padding: '0.25rem 0.5rem',
-            fontSize: '0.85rem',
-            fontWeight: 500,
-          }}
+          className="password-field-toggle"
         >
           {show ? 'Hide' : 'Show'}
         </button>
       </div>
       {children}
-    </label>
+    </div>
   );
 }
 
@@ -281,7 +232,7 @@ export default function Account() {
     if (!file) return;
     setAvatarBusy(true);
     try {
-      const dataUrl = await resizeImageToDataUrl(file);
+      const dataUrl = await resizeImageToDataUrl(file, IMAGE_PRESETS.avatar);
       const res = await api.auth.uploadAvatar(dataUrl);
       updateUser({ avatar_url: res?.user?.avatar_url ?? dataUrl });
       showSuccess('Profile picture updated.');
@@ -315,29 +266,19 @@ export default function Account() {
   if (!user) return null;
 
   const statusColor = user.active ? 'var(--success)' : 'var(--danger)';
-  const labelStyle = { color: 'var(--text-muted)', fontSize: '0.85rem' };
-  const valueStyle = { margin: 0, fontWeight: 500 };
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1>My Account</h1>
-          <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-            Manage your profile and account security.
-          </p>
-        </div>
-      </div>
+    <div className="page-module account-page">
+      <PageHeader
+        title="My account"
+        subtitle="Manage your profile, role, and account security."
+      />
 
       <div
+        className="ui-card account-profile-card"
         style={{
-          ...card,
-          padding: '1.5rem',
-          marginBottom: '1rem',
-          display: 'flex',
-          gap: '1.25rem',
-          alignItems: 'center',
-          flexWrap: 'wrap',
+          border: `2px solid ${tint(roleColor, 35)}`,
+          boxShadow: `0 4px 14px ${roleColor}33`,
         }}
       >
         <div
@@ -493,31 +434,25 @@ export default function Account() {
             )}
           </div>
         </div>
-        <button type="button" onClick={copyEmail} style={btnSecondary}>
+        <button type="button" className="btn btn-secondary" onClick={copyEmail}>
           {copied ? '✓ Copied' : 'Copy email'}
         </button>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1rem',
-        }}
-      >
-        <section style={card}>
+      <div className="account-sections-grid">
+        <section className="ui-card account-section-card">
           <h3 style={{ marginTop: 0, marginBottom: '0.3rem' }}>Account information</h3>
           <p style={{ color: 'var(--text-muted)', marginTop: 0, marginBottom: '1rem', fontSize: '0.88rem' }}>
             Profile details linked to your account. To change name, email, or role, please contact an administrator.
           </p>
-          <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.7rem 1.25rem', margin: 0 }}>
-            <dt style={labelStyle}>Full name</dt>
-            <dd style={valueStyle}>{user.name || '—'}</dd>
+          <dl className="account-dl">
+            <dt>Full name</dt>
+            <dd>{user.name || '—'}</dd>
 
-            <dt style={labelStyle}>Email address</dt>
-            <dd style={valueStyle}>{user.email}</dd>
+            <dt>Email address</dt>
+            <dd>{user.email}</dd>
 
-            <dt style={labelStyle}>Role</dt>
+            <dt>Role</dt>
             <dd style={{ margin: 0 }}>
               <div style={{ fontWeight: 500 }}>{ROLE_LABELS[role] || role}</div>
               <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem', lineHeight: 1.5 }}>
@@ -525,7 +460,7 @@ export default function Account() {
               </div>
             </dd>
 
-            <dt style={labelStyle}>Status</dt>
+            <dt>Status</dt>
             <dd style={{ margin: 0 }}>
               <span style={{ color: statusColor, fontWeight: 500 }}>
                 {user.active ? 'Active' : 'Inactive'}
@@ -537,18 +472,18 @@ export default function Account() {
               )}
             </dd>
 
-            <dt style={labelStyle}>Member since</dt>
-            <dd style={valueStyle}>{formatDate(user.created_at)}</dd>
+            <dt>Member since</dt>
+            <dd>{formatDate(user.created_at)}</dd>
           </dl>
         </section>
 
-        <section style={card}>
+        <section className="ui-card account-section-card">
           <h3 style={{ marginTop: 0, marginBottom: '0.3rem' }}>Change password</h3>
           <p style={{ color: 'var(--text-muted)', marginTop: 0, marginBottom: '1rem', fontSize: '0.88rem' }}>
             Update your password regularly. Use at least 8 characters with a mix of letters, numbers, and symbols.
           </p>
 
-          <form onSubmit={submit} style={{ display: 'grid', gap: '0.85rem' }}>
+          <form onSubmit={submit} className="form-stack">
             <PasswordField
               label="Current password"
               value={form.current_password}
@@ -605,7 +540,7 @@ export default function Account() {
             </PasswordField>
 
             <div>
-              <button type="submit" style={btnPrimary} disabled={saving}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>
                 {saving ? 'Updating…' : 'Update password'}
               </button>
             </div>
@@ -613,7 +548,7 @@ export default function Account() {
         </section>
       </div>
 
-      <section style={{ ...card, marginTop: '1rem' }}>
+      <section className="ui-card account-section-card" style={{ marginTop: '1rem' }}>
         <h3 style={{ marginTop: 0, marginBottom: '0.5rem' }}>Security best practices</h3>
         <ul
           style={{

@@ -8,5 +8,9 @@ export function mapApiToForm(s) {
     general_notes: s.general_notes || '',
     currency_code: s.currency_code || 'MYR',
     mileage_from_office_km: { ...(s.mileage_from_office_km || {}) },
+    org_display_name: s.org_display_name || 'PMO CTSB',
+    org_tagline: s.org_tagline || '',
+    org_logo_url: s.org_logo_url || null,
+    org_banner_url: s.org_banner_url || null,
   };
 }

@@ -2,7 +2,9 @@ import { useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
-import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
+import { card, inputStyle } from '../styles/commonStyles';
+import PageHeader from '../components/PageHeader';
+import ScheduleEmailModal from '../components/ScheduleEmailModal';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import { activityLogicalGroupKey } from '../../lib/activityLogicalGroup.js';
 import { canEditCalendarUser } from '../../lib/permissions.js';
@@ -12,36 +14,6 @@ import {
   composeLocation,
   resolveLocationForForm,
 } from '../constants/activityLocations';
-
-const btnNav = { padding: '0.5rem 0.75rem', background: 'var(--surface-hover)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', cursor: 'pointer', fontSize: '1rem' };
-
-/** Calendar toolbar: same size, weight, and flex alignment for real buttons and file-upload label. */
-const filterBarBtnBase = {
-  padding: '0.5rem 1rem',
-  minHeight: '2.5rem',
-  boxSizing: 'border-box',
-  borderRadius: 8,
-  fontWeight: 600,
-  fontFamily: 'inherit',
-  fontSize: '1rem',
-  lineHeight: 1.25,
-  cursor: 'pointer',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
-const filterBarBtnPrimary = {
-  ...filterBarBtnBase,
-  background: 'var(--accent)',
-  color: 'white',
-  border: 'none',
-};
-const filterBarBtnSecondary = {
-  ...filterBarBtnBase,
-  background: 'var(--surface-hover)',
-  color: 'var(--text)',
-  border: '1px solid var(--border)',
-};
 
 function getMonthRange(year, month) {
   const first = new Date(year, month - 1, 1);
@@ -152,6 +124,25 @@ function activityTypeLabel(type) {
 const DAY_NAMES_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 /** Max activity chips shown per calendar day before "See more". */
 const CALENDAR_DAY_MAX_VISIBLE = 3;
+
+const LEGEND_TYPES = [
+  { css: 'meeting', label: 'Meeting' },
+  { css: 'outstation', label: 'Outstation' },
+  { css: 'other', label: 'Other' },
+  { css: 'uat', label: 'UAT' },
+  { css: 'urs', label: 'URS' },
+  { css: 'fat', label: 'FAT' },
+  { css: 'demo', label: 'DEMO' },
+  { css: 'training', label: 'Training' },
+  { css: 'go-live', label: 'Go-live' },
+  { css: 'tender', label: 'Tender' },
+];
+
+function formatActivityShortTime(a) {
+  const start = new Date(a.start_at);
+  if (!Number.isFinite(start.getTime())) return '';
+  return start.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
 
 /** Local wall time for `<input type="datetime-local" />`. Never use `.slice(0,16)` on ISO strings (Z/offset shifts the wrong way). */
 function toDatetimeLocalValue(iso) {
@@ -485,6 +476,8 @@ function ActivityLocationFields({ siteLocations, preset, other, onPreset, onOthe
 function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   const rangeLabel = formatActivityTimeRange(a);
   const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
+  const shortTime = formatActivityShortTime(a);
+  const typeClass = activityCssClass(a.type);
   const label = `${activityTypeLabel(a.type)}: ${a.title}. ${a.location ? `${a.location}. ` : ''}${a.person_name ?? ''}. ${rangeLabel}`;
 
   const handleClick = (e) => {
@@ -496,18 +489,33 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
     <div className="calendar-activity-wrap">
       <button
         type="button"
-        className={`calendar-activity calendar-activity-${activityCssClass(a.type)} calendar-activity-trigger`}
+        className={`calendar-activity calendar-activity-${typeClass} calendar-activity-trigger`}
         onClick={handleClick}
         aria-label={label}
         aria-expanded={detailOpen}
         aria-haspopup="dialog"
       >
-        <span className="calendar-activity-title">{a.title}</span>
-        {a.project_name && <span className="calendar-activity-project">{a.project_name}</span>}
+        <span className="calendar-activity-chip__head">
+          {shortTime && <span className="calendar-activity-chip__time">{shortTime}</span>}
+          <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
+            {activityTypeLabel(a.type)}
+          </span>
+        </span>
+        <span className="calendar-activity-chip__title">{a.title}</span>
+        {(a.project_name || a.person_name) && (
+          <span className="calendar-activity-chip__meta">
+            {[a.project_name, a.person_name].filter(Boolean).join(' · ')}
+          </span>
+        )}
       </button>
       <div className="calendar-activity-popover" role="tooltip">
         <div className="calendar-activity-popover-title">{a.title}</div>
-        <div className="calendar-activity-popover-meta">{activityTypeLabel(a.type)} · {a.person_name}</div>
+        <div className="calendar-activity-popover-meta">
+          <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
+            {activityTypeLabel(a.type)}
+          </span>
+          {' · '}{a.person_name}
+        </div>
         {a.project_name && <div className="calendar-activity-popover-meta">{a.project_name}</div>}
         {a.location && <div className="calendar-activity-popover-meta">{a.location}</div>}
         <div className="calendar-activity-popover-meta">{rangeLabel}</div>
@@ -517,10 +525,11 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   );
 }
 
-function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, actionPending, canEdit }) {
+function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, onNotify, actionPending, canEdit, smtpConfigured }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
   const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
+  const typeClass = activityCssClass(a.type);
   return (
     <div className="calendar-detail-backdrop" onClick={onClose} role="presentation">
       <div
@@ -531,31 +540,66 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, a
         aria-labelledby="calendar-detail-heading"
       >
         <div className="calendar-detail-sheet-handle" aria-hidden />
-        <h3 id="calendar-detail-heading" className="calendar-detail-sheet-title">{a.title}</h3>
-        <p className="calendar-detail-sheet-line"><strong>{activityTypeLabel(a.type)}</strong> · {a.person_name}</p>
-        {a.project_name && <p className="calendar-detail-sheet-line">{a.project_name}</p>}
-        {a.location && <p className="calendar-detail-sheet-line">{a.location}</p>}
-        <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
-        {descForCalendar && <p className="calendar-detail-sheet-desc">{descForCalendar}</p>}
+        <div className="calendar-detail-sheet__hero">
+          <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
+            {activityTypeLabel(a.type)}
+          </span>
+          <h3 id="calendar-detail-heading" className="calendar-detail-sheet-title">{a.title}</h3>
+          <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
+        </div>
+        <dl className="calendar-detail-facts">
+          <div>
+            <dt>Team</dt>
+            <dd>{a.person_name || '—'}</dd>
+          </div>
+          {a.project_name && (
+            <div>
+              <dt>Project</dt>
+              <dd>{a.project_name}</dd>
+            </div>
+          )}
+          {a.location && (
+            <div>
+              <dt>Location</dt>
+              <dd>{a.location}</dd>
+            </div>
+          )}
+        </dl>
+        {descForCalendar && (
+          <div className="calendar-detail-notes">
+            <h4 className="calendar-detail-notes__title">Notes</h4>
+            <p className="calendar-detail-sheet-desc">{descForCalendar}</p>
+          </div>
+        )}
         {canEdit && (
-          <>
+          <div className="calendar-detail-actions">
             <button
               type="button"
-              style={{ ...btnPrimary, width: '100%', marginTop: '0.5rem' }}
+              className="btn btn-primary"
               onClick={() => onEdit?.(a)}
               disabled={actionPending}
             >
               Edit activity
             </button>
+            {smtpConfigured && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => onNotify?.(a)}
+                disabled={actionPending}
+              >
+                {actionPending ? 'Please wait…' : 'Resend email'}
+              </button>
+            )}
             <button
               type="button"
-              style={{ ...btnSecondary, width: '100%', marginTop: '0.5rem', color: 'var(--danger)' }}
+              className="btn btn-ghost calendar-detail-actions__danger"
               onClick={() => onDelete?.(a)}
               disabled={actionPending}
             >
-              {actionPending ? 'Please wait…' : 'Delete activity'}
+              {actionPending ? 'Please wait…' : 'Delete'}
             </button>
-          </>
+          </div>
         )}
         <button type="button" className="calendar-detail-close" onClick={onClose}>
           Close
@@ -628,12 +672,15 @@ export default function Calendar() {
     locationOther: '',
     start_at: '',
     end_at: '',
+    notify_email: true,
   });
   const [personSearch, setPersonSearch] = useState('');
   const [editingActivityId, setEditingActivityId] = useState(null);
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
   const [showReport, setShowReport] = useState(false);
+  const [showScheduleEmail, setShowScheduleEmail] = useState(false);
+  const [smtpConfigured, setSmtpConfigured] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
   const importPreviewHasSheetColumn = useMemo(
@@ -648,9 +695,19 @@ export default function Calendar() {
 
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
   const [dayListDay, setDayListDay] = useState(null);
+  const [typeFilter, setTypeFilter] = useState('all');
   const { pending: mutating, run: runMutation } = useSubmitLock();
 
   const { rangeStartIso, rangeEndExclusiveIso } = useMemo(() => getMonthRange(year, month), [year, month]);
+  const scheduleEmailRange = useMemo(() => {
+    const pad = (n) => String(n).padStart(2, '0');
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+      from: `${year}-${pad(month)}-01`,
+      to: `${year}-${pad(month)}-${pad(lastDay)}`,
+      label: `${MONTH_NAMES[month - 1]} ${year}`,
+    };
+  }, [year, month]);
   const grid = useMemo(() => getCalendarGrid(year, month), [year, month]);
 
   const loadActivities = (f, t) =>
@@ -677,6 +734,10 @@ export default function Calendar() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    api.activities.mailStatus().then((r) => setSmtpConfigured(Boolean(r?.smtp_configured))).catch(() => setSmtpConfigured(false));
   }, []);
 
   useEffect(() => {
@@ -725,6 +786,32 @@ export default function Calendar() {
 
   const groupedCalendarActivities = useMemo(() => groupActivitiesForCalendar(activities), [activities]);
 
+  const filteredCalendarActivities = useMemo(() => {
+    if (typeFilter === 'all') return groupedCalendarActivities;
+    return groupedCalendarActivities.filter((a) => {
+      const css = activityCssClass(a.type);
+      return a.type === typeFilter || css === typeFilter;
+    });
+  }, [groupedCalendarActivities, typeFilter]);
+
+  const monthStats = useMemo(() => {
+    const total = groupedCalendarActivities.length;
+    let daysWithEvents = 0;
+    const typeCounts = {};
+    groupedCalendarActivities.forEach((a) => {
+      typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
+    });
+    for (let d = 1; d <= 31; d++) {
+      if (groupedCalendarActivities.some((a) => isActivityOnDate(a, year, month, d))) daysWithEvents += 1;
+    }
+    const topEntry = Object.entries(typeCounts).sort((x, y) => y[1] - x[1])[0];
+    return {
+      total,
+      daysWithEvents,
+      topType: topEntry ? { type: topEntry[0], count: topEntry[1] } : null,
+    };
+  }, [groupedCalendarActivities, year, month]);
+
   useEffect(() => {
     if (detailActivityId == null) return;
     if (!activities.some((x) => x.id === detailActivityId)) setDetailActivityId(null);
@@ -733,7 +820,7 @@ export default function Calendar() {
   const activitiesByDay = useMemo(() => {
     const byDay = {};
     for (let d = 1; d <= 31; d++) byDay[d] = [];
-    groupedCalendarActivities.forEach((a) => {
+    filteredCalendarActivities.forEach((a) => {
       for (let d = 1; d <= 31; d++) {
         if (isActivityOnDate(a, year, month, d)) byDay[d].push(a);
       }
@@ -742,10 +829,11 @@ export default function Calendar() {
       byDay[d].sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
     }
     return byDay;
-  }, [groupedCalendarActivities, year, month]);
+  }, [filteredCalendarActivities, year, month]);
 
   useEffect(() => {
     setDayListDay(null);
+    setTypeFilter('all');
   }, [year, month]);
 
   const submit = async (e) => {
@@ -785,6 +873,7 @@ export default function Calendar() {
             location,
             start_at: toApiDateTimeValue(form.start_at),
             end_at: toApiDateTimeValue(form.end_at),
+            notify_email: form.notify_email,
           });
         } else {
           await api.activities.create({
@@ -797,6 +886,7 @@ export default function Calendar() {
             location,
             start_at: toApiDateTimeValue(form.start_at),
             end_at: toApiDateTimeValue(form.end_at),
+            notify_email: form.notify_email,
           });
         }
         setForm({
@@ -810,6 +900,7 @@ export default function Calendar() {
           locationOther: '',
           start_at: '',
           end_at: '',
+          notify_email: true,
         });
         setPersonSearch('');
         setShowForm(false);
@@ -860,6 +951,30 @@ export default function Calendar() {
       locationOther: '',
       start_at: '',
       end_at: '',
+      notify_email: true,
+    }));
+    setPersonSearch('');
+    setShowForm(true);
+  };
+
+  const openCreateForDay = (day) => {
+    if (!canEditCalendar || day == null) return;
+    const pad = (n) => String(n).padStart(2, '0');
+    const dateStr = `${year}-${pad(month)}-${pad(day)}`;
+    setEditingActivityId(null);
+    setForm((f) => ({
+      ...f,
+      person_ids: [],
+      external_attendees: '',
+      project_id: '',
+      type: 'meeting',
+      title: '',
+      description: '',
+      locationPreset: activitySites[0] || f.locationPreset || '',
+      locationOther: '',
+      start_at: `${dateStr}T09:00`,
+      end_at: `${dateStr}T17:00`,
+      notify_email: true,
     }));
     setPersonSearch('');
     setShowForm(true);
@@ -882,12 +997,25 @@ export default function Calendar() {
       locationOther: custom,
       start_at: toDatetimeLocalValue(a.start_at),
       end_at: toDatetimeLocalValue(a.end_at),
+      notify_email: true,
     });
     setPersonSearch('');
     setEditingActivityId(a.id);
     setDetailActivityId(null);
     setDayListDay(null);
     setShowForm(true);
+  };
+
+  const resendActivityEmail = async (a) => {
+    if (!canEditCalendar || !a?.id) return;
+    await runMutation(async () => {
+      try {
+        const result = await api.activities.notify(a.id);
+        alert(`Notification sent to ${result.notified} recipient(s).`);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   const deleteActivity = async (a) => {
@@ -1320,57 +1448,87 @@ export default function Calendar() {
   };
 
   return (
-    <div>
-      <h1 style={{ marginBottom: '0.5rem', fontSize: 'clamp(1.25rem, 4vw, 1.75rem)' }}>Calendar & Activities</h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Log meetings, outstation work, and other activities below; they appear on the calendar and in Team workload.</p>
+    <div className="page-module calendar-page">
+      <PageHeader
+        title="Calendar & activities"
+        subtitle="Plan meetings, site visits, UAT, and team schedules. Filter by type, click a day to log work, or open an event for details."
+      />
 
-      {/* Activities: filter + add + list */}
-      <div
-        style={{
-          ...card,
-          marginBottom: '1rem',
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '0.5rem',
-          alignItems: 'center',
-        }}
-        className="filter-bar"
-      >
-        {canEditCalendar && (
-          <>
-            <button type="button" onClick={openCreateForm} style={filterBarBtnPrimary}>
-              + Log activity
+      <div className="card section-card calendar-toolbar-card">
+        <div className="calendar-toolbar">
+          <div className="calendar-toolbar__group calendar-toolbar__group--primary">
+            {canEditCalendar && (
+              <>
+                <button type="button" className="btn btn-primary" onClick={openCreateForm}>
+                  + Log activity
+                </button>
+                <label
+                  className={`btn btn-secondary calendar-import-label ${importing || mutating ? 'is-disabled' : ''}`}
+                >
+                  {importing ? 'Importing…' : 'Import Excel'}
+                  <input
+                    type="file"
+                    accept=".xls,.xlsx,.csv"
+                    style={{ display: 'none' }}
+                    disabled={importing || mutating}
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      await importReportExcel(f);
+                    }}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+          <div className="calendar-toolbar__group calendar-toolbar__group--secondary">
+            <button type="button" className="btn btn-secondary" onClick={() => setShowReport(true)}>
+              Generate report
             </button>
-            <label
-              style={{
-                ...filterBarBtnSecondary,
-                ...(importing || mutating ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
-              }}
-            >
-              {importing ? 'Importing…' : 'Import Excel'}
-              <input
-                type="file"
-                accept=".xls,.xlsx,.csv"
-                style={{ display: 'none' }}
-                disabled={importing || mutating}
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = '';
-                  await importReportExcel(f);
-                }}
-              />
-            </label>
-          </>
-        )}
-        <button type="button" onClick={() => setShowReport(true)} style={filterBarBtnSecondary}>
-          Generate report
-        </button>
+            {canEditCalendar && (
+              <button type="button" className="btn btn-secondary" onClick={() => setShowScheduleEmail(true)}>
+                Email team schedule
+              </button>
+            )}
+          </div>
+        </div>
       </div>
+
+      <section className="calendar-kpi-row" aria-label="Month summary">
+        <div className="calendar-kpi">
+          <span className="calendar-kpi__value">{monthStats.total}</span>
+          <span className="calendar-kpi__label">Activities</span>
+        </div>
+        <div className="calendar-kpi calendar-kpi--accent">
+          <span className="calendar-kpi__value">{monthStats.daysWithEvents}</span>
+          <span className="calendar-kpi__label">Active days</span>
+        </div>
+        <div className="calendar-kpi">
+          <span className="calendar-kpi__value">
+            {monthStats.topType ? activityTypeLabel(monthStats.topType.type) : '—'}
+          </span>
+          <span className="calendar-kpi__label">
+            {monthStats.topType ? `Top type (${monthStats.topType.count})` : 'Top type'}
+          </span>
+        </div>
+        <div className="calendar-kpi calendar-kpi--muted">
+          <span className="calendar-kpi__value">{MONTH_NAMES[month - 1]}</span>
+          <span className="calendar-kpi__label">{year}</span>
+        </div>
+      </section>
+      {showScheduleEmail && (
+        <ScheduleEmailModal
+          open={showScheduleEmail}
+          onClose={() => setShowScheduleEmail(false)}
+          rangeFrom={scheduleEmailRange.from}
+          rangeTo={scheduleEmailRange.to}
+          periodLabel={scheduleEmailRange.label}
+        />
+      )}
       {showReport && (
         <div className="modal-backdrop" role="presentation">
           <div
-            className="modal-dialog"
-            style={{ width: 'min(1200px, 95vw)', maxWidth: '95vw' }}
+            className="modal-dialog modal-dialog--wide"
             role="dialog"
             aria-modal="true"
             aria-labelledby="activity-report-modal-title"
@@ -1397,7 +1555,7 @@ export default function Calendar() {
                   </span>
                 </div>
               </div>
-              <button type="button" style={btnPrimary} onClick={downloadReportExcel}>
+              <button type="button" className="btn btn-primary" onClick={downloadReportExcel}>
                 Download Excel
               </button>
             </div>
@@ -1577,11 +1735,11 @@ export default function Calendar() {
                       </td>
                       <td style={{ padding: '0.45rem 0.5rem', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                         {r.omit ? (
-                          <button type="button" style={btnSecondary} disabled={importing} onClick={() => restoreImportRow(r.preview_key)}>
+                          <button type="button" className="btn btn-secondary btn-sm" disabled={importing} onClick={() => restoreImportRow(r.preview_key)}>
                             Restore
                           </button>
                         ) : (
-                          <button type="button" style={btnSecondary} disabled={importing} onClick={() => omitImportRow(r.preview_key)}>
+                          <button type="button" className="btn btn-secondary btn-sm" disabled={importing} onClick={() => omitImportRow(r.preview_key)}>
                             Remove
                           </button>
                         )}
@@ -1592,7 +1750,7 @@ export default function Calendar() {
               </table>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
-              <button type="button" style={btnPrimary} onClick={confirmImportPreview} disabled={importing || importPreview.validCount === 0}>
+              <button type="button" className="btn btn-primary" onClick={confirmImportPreview} disabled={importing || importPreview.validCount === 0}>
                 {importing
                   ? 'Importing…'
                   : `Confirm import (${importPreview.activityCreateCount ?? importPreview.validCount} ${(importPreview.activityCreateCount ?? importPreview.validCount) === 1 ? 'activity' : 'activities'})`}
@@ -1711,8 +1869,24 @@ export default function Calendar() {
                 End *{' '}
                 <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
               </label>
+              {smtpConfigured && (
+                <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.notify_email}
+                    onChange={(e) => setForm((f) => ({ ...f, notify_email: e.target.checked }))}
+                    style={{ marginTop: '0.2rem' }}
+                  />
+                  <span>
+                    <strong>Email assignees</strong>
+                    <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                      Send a designed HTML notification to assignees and guest emails when saved.
+                    </span>
+                  </span>
+                </label>
+              )}
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                <button type="submit" style={btnPrimary} disabled={mutating}>
+                <button type="submit" className="btn btn-primary" disabled={mutating}>
                   {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}
                 </button>
               </div>
@@ -1721,34 +1895,104 @@ export default function Calendar() {
         </div>
       )}
       {/* Calendar */}
-      <div style={card} className="calendar-card">
-        <div className="calendar-header">
-          <button type="button" onClick={prevMonth} style={btnNav} aria-label="Previous month">←</button>
-          <h2 className="calendar-month-title">{MONTH_NAMES[month - 1]} {year}</h2>
-          <button type="button" onClick={nextMonth} style={btnNav} aria-label="Next month">→</button>
-          <button type="button" onClick={goToToday} style={btnSecondary}>Today</button>
+      <div style={card} className="calendar-card calendar-shell">
+        <div className="calendar-nav">
+          <div className="calendar-nav__controls">
+            <button type="button" className="calendar-nav__btn" onClick={prevMonth} aria-label="Previous month">
+              ‹
+            </button>
+            <div className="calendar-nav__title-wrap">
+              <h2 className="calendar-month-title">{MONTH_NAMES[month - 1]} {year}</h2>
+              {isToday(today.getDate()) && year === today.getFullYear() && month === today.getMonth() + 1 && (
+                <span className="calendar-nav__today-pill">This month</span>
+              )}
+            </div>
+            <button type="button" className="calendar-nav__btn" onClick={nextMonth} aria-label="Next month">
+              ›
+            </button>
+          </div>
+          <button type="button" className="btn btn-secondary btn-sm calendar-nav__today" onClick={goToToday}>
+            Today
+          </button>
         </div>
+
+        <div className="calendar-type-bar" role="toolbar" aria-label="Filter by activity type">
+          <button
+            type="button"
+            className={`calendar-type-chip ${typeFilter === 'all' ? 'calendar-type-chip--active' : ''}`}
+            onClick={() => setTypeFilter('all')}
+          >
+            All
+            <span className="calendar-type-chip__count">{groupedCalendarActivities.length}</span>
+          </button>
+          {ACTIVITY_TYPE_OPTIONS.map((t) => {
+            const count = groupedCalendarActivities.filter((a) => a.type === t.value || activityCssClass(a.type) === t.value).length;
+            if (count === 0 && typeFilter !== t.value) return null;
+            return (
+              <button
+                key={t.value}
+                type="button"
+                className={`calendar-type-chip calendar-type-chip--${activityCssClass(t.value)} ${typeFilter === t.value ? 'calendar-type-chip--active' : ''}`}
+                onClick={() => setTypeFilter(t.value)}
+              >
+                {t.label}
+                <span className="calendar-type-chip__count">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
         {loading ? (
-          <p style={{ padding: '2rem', color: 'var(--text-muted)', textAlign: 'center' }}>Loading activities…</p>
+          <div className="calendar-loading" aria-busy="true" aria-label="Loading activities">
+            <div className="calendar-skeleton-grid">
+              {Array.from({ length: 35 }).map((_, i) => (
+                <div key={i} className="calendar-skeleton-cell" />
+              ))}
+            </div>
+          </div>
         ) : (
           <>
             <div className="calendar-scroll">
               <div className="calendar-grid">
                 {DAY_NAMES.map((day, idx) => (
-                  <div key={day} className="calendar-cell calendar-day-name">
+                  <div key={day} className={`calendar-cell calendar-day-name ${idx === 0 || idx === 6 ? 'calendar-day-name--weekend' : ''}`}>
                     <span className="calendar-day-name-full">{day}</span>
                     <span className="calendar-day-name-short">{DAY_NAMES_SHORT[idx]}</span>
                   </div>
                 ))}
-                {grid.flat().map((day, i) => (
-                  <div key={i} className={`calendar-cell calendar-day ${day === null ? 'calendar-day-empty' : ''} ${day !== null && isToday(day) ? 'calendar-day-today' : ''}`}>
-                    {day !== null && <span className="calendar-day-num">{day}</span>}
+                {grid.flat().map((day, i) => {
+                  const col = i % 7;
+                  const isWeekend = col === 0 || col === 6;
+                  const dayCount = day != null ? (activitiesByDay[day]?.length || 0) : 0;
+                  return (
+                  <div
+                    key={i}
+                    className={[
+                      'calendar-cell',
+                      'calendar-day',
+                      day === null ? 'calendar-day-empty' : '',
+                      day !== null && isToday(day) ? 'calendar-day-today' : '',
+                      day !== null && isWeekend ? 'calendar-day--weekend' : '',
+                      day !== null && dayCount > 0 ? 'calendar-day--has-events' : '',
+                    ].filter(Boolean).join(' ')}
+                    onClick={day !== null && canEditCalendar ? () => openCreateForDay(day) : undefined}
+                    onKeyDown={day !== null && canEditCalendar ? (e) => { if (e.key === 'Enter') openCreateForDay(day); } : undefined}
+                    role={day !== null && canEditCalendar ? 'button' : undefined}
+                    tabIndex={day !== null && canEditCalendar ? 0 : undefined}
+                    title={day !== null && canEditCalendar ? `Log activity on ${MONTH_NAMES[month - 1]} ${day}` : undefined}
+                  >
+                    {day !== null && (
+                      <span className="calendar-day-num">
+                        {day}
+                        {dayCount > 0 && <span className="calendar-day-count">{dayCount}</span>}
+                      </span>
+                    )}
                     {day !== null && activitiesByDay[day]?.length > 0 && (() => {
                       const list = activitiesByDay[day];
                       const visible = list.slice(0, CALENDAR_DAY_MAX_VISIBLE);
                       const extra = list.length - CALENDAR_DAY_MAX_VISIBLE;
                       return (
-                        <div className="calendar-day-activities">
+                        <div className="calendar-day-activities" onClick={(e) => e.stopPropagation()}>
                           {visible.map((a) => (
                             <CalendarActivityChip
                               key={a.id}
@@ -1767,28 +2011,36 @@ export default function Calendar() {
                                 setDayListDay(day);
                               }}
                             >
-                              See more (+{extra})
+                              +{extra} more
                             </button>
                           )}
                         </div>
                       );
                     })()}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
-            <div className="calendar-legend" style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-meeting" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> Meeting</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-outstation" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> Outstation</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-other" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> Other</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-uat" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> UAT</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-urs" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> URS</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-fat" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> FAT</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-demo" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> DEMO</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-training" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> TRAINING</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-go-live" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> GO-LIVE</span>
-              <span className="calendar-legend-item"><span className="calendar-activity calendar-activity-tender" style={{ display: 'inline-block', width: 12, height: 12, marginRight: 4 }} /> TENDER</span>
-            </div>
+            <details className="calendar-legend-details">
+              <summary className="calendar-legend-details__summary">Activity types</summary>
+              <div className="calendar-legend">
+                {LEGEND_TYPES.map(({ css, label }) => (
+                  <span key={css} className="calendar-legend-item">
+                    <span className={`calendar-legend-swatch calendar-activity-${css}`} aria-hidden />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </details>
+            {typeFilter !== 'all' && filteredCalendarActivities.length === 0 && (
+              <p className="calendar-filter-empty">
+                No {activityTypeLabel(typeFilter)} activities this month.
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setTypeFilter('all')}>
+                  Show all
+                </button>
+              </p>
+            )}
           </>
         )}
       </div>
@@ -1809,8 +2061,10 @@ export default function Calendar() {
           onClose={() => setDetailActivityId(null)}
           onEdit={openEditActivity}
           onDelete={deleteActivity}
+          onNotify={resendActivityEmail}
           actionPending={mutating}
           canEdit={canEditCalendar}
+          smtpConfigured={smtpConfigured}
         />
       )}
     </div>

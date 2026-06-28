@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { api } from '../../api';
 import { mapApiToForm, btnSecondary } from './settingsStyles';
+import PageHeader from '../../components/PageHeader';
 
 export default function SettingsLayout() {
   const { pathname } = useLocation();
@@ -56,15 +57,20 @@ export default function SettingsLayout() {
   }
 
   return (
-    <div className={`settings-page${wideSettings ? ' settings-page--wide' : ''}`}>
-      <div className="page-header">
-        <div>
-          <h1>System settings</h1>
-          <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-            Configure the application. Use the sections below to add more options over time.
-          </p>
-        </div>
-      </div>
+    <div className={`page-module settings-page${wideSettings ? ' settings-page--wide' : ''}`}>
+      <PageHeader
+        title="System settings"
+        subtitle="Configure branding, locations, and workspace preferences."
+      />
+
+      <nav className="settings-subnav module-tabs" aria-label="Settings sections">
+        <NavLink to="/settings/branding" className={({ isActive }) => `module-tab ${isActive ? 'active' : ''}`}>
+          Branding
+        </NavLink>
+        <NavLink to="/settings/locations" className={({ isActive }) => `module-tab ${isActive ? 'active' : ''}`}>
+          Locations
+        </NavLink>
+      </nav>
 
       <div className={`settings-main${wideSettings ? ' settings-main--wide' : ''}`}>
         <Outlet context={{ form, setForm, reload }} />

@@ -1,15 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
-import { btnPrimary, btnSecondary, btnSecondarySm, card, inputStyle, mapApiToForm } from './settingsStyles';
 import { useSubmitLock } from '../../hooks/useSubmitLock';
-
-const cardFullWidth = {
-  ...card,
-  width: '100%',
-  maxWidth: '100%',
-  boxSizing: 'border-box',
-};
 
 export default function SettingsLocations() {
   const { form, setForm } = useOutletContext();
@@ -153,74 +145,79 @@ export default function SettingsLocations() {
                 ×
               </button>
             </div>
-            <div style={{ display: 'grid', gap: '0.75rem' }}>
-              <label>
-                Site name <span style={{ color: 'var(--danger)' }}>*</span>
-                <input
-                  type="text"
-                  value={editModal.draft.name}
-                  onChange={(e) => setDraft({ name: e.target.value })}
-                  placeholder="e.g. Site Alpha"
-                  style={inputStyle}
-                  disabled={saving}
-                />
-              </label>
-              <label>
-                Distance from {form.reference_office_name || 'reference office'} (km)
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={editModal.draft.km}
-                  onChange={(e) => setDraft({ km: e.target.value })}
-                  placeholder="Optional"
-                  style={inputStyle}
-                  disabled={saving}
-                />
-              </label>
-              {modalErr && <div style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{modalErr}</div>}
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                <button type="button" style={btnPrimary} onClick={applyModal} disabled={saving}>
-                  {saving ? 'Saving…' : editModal.isNew ? 'Add' : 'Save'}
-                </button>
+            <form
+              className="project-create-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                applyModal();
+              }}
+            >
+              <div className="project-create-panel form-stack">
+                <div className="form-field">
+                  <label className="form-field__label" htmlFor="location-name">
+                    Site name <span className="form-field__required">*</span>
+                  </label>
+                  <input
+                    id="location-name"
+                    type="text"
+                    className="form-field__input ui-input"
+                    value={editModal.draft.name}
+                    onChange={(e) => setDraft({ name: e.target.value })}
+                    placeholder="e.g. Site Alpha"
+                    disabled={saving}
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-field__label" htmlFor="location-km">
+                    Distance from {form.reference_office_name || 'reference office'} (km)
+                  </label>
+                  <input
+                    id="location-km"
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    className="form-field__input ui-input"
+                    value={editModal.draft.km}
+                    onChange={(e) => setDraft({ km: e.target.value })}
+                    placeholder="Optional"
+                    disabled={saving}
+                  />
+                </div>
+                {modalErr && <div className="form-field__error">{modalErr}</div>}
+              </div>
+              <div className="project-create-footer">
                 {!editModal.isNew && rows.length > 1 && (
                   <button
                     type="button"
-                    style={{ ...btnSecondarySm, color: 'var(--danger)', borderColor: 'var(--border)' }}
+                    className="btn btn-secondary"
+                    style={{ color: 'var(--danger)' }}
                     onClick={removeInModal}
                     disabled={saving}
                   >
                     Remove
                   </button>
                 )}
+                <button type="submit" className="btn btn-primary project-create-footer__primary" disabled={saving}>
+                  {saving ? 'Saving…' : editModal.isNew ? 'Add' : 'Save'}
+                </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
 
-      <div
-        className="settings-locations-form"
-        style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%', maxWidth: '100%' }}
-      >
-        <div style={cardFullWidth}>
-          <h2 style={{ margin: '0 0 0.75rem', fontSize: 'clamp(1rem, 2.5vw, 1.1rem)' }}>Activity locations</h2>
-          <p
-            style={{
-              margin: '0 0 1rem',
-              color: 'var(--text-muted)',
-              fontSize: 'clamp(0.85rem, 2vw, 0.9rem)',
-              lineHeight: 1.5,
-              maxWidth: '70ch',
-            }}
-          >
+      <div className="settings-locations-form">
+        <div className="ui-card section-card settings-section-card">
+          <h2 className="settings-section-title">Activity locations</h2>
+          <p className="settings-section-desc">
             Sites appear in Calendar when logging activities (with <strong>Others</strong> for custom text). Distances
             are in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong>. Changes
             apply when you save in the dialog.
           </p>
           <button
             type="button"
-            style={{ ...btnSecondary, marginBottom: '0.75rem' }}
+            className="btn btn-secondary btn-sm"
+            style={{ marginBottom: '0.75rem' }}
             onClick={openAdd}
             disabled={saving}
           >
@@ -233,8 +230,7 @@ export default function SettingsLocations() {
                 <div className="locations-list-km">{formatKm(row.km)}</div>
                 <button
                   type="button"
-                  className="locations-list-edit"
-                  style={btnSecondarySm}
+                  className="btn btn-secondary btn-sm locations-list-edit"
                   onClick={() => openEdit(index)}
                   disabled={saving}
                 >
@@ -245,7 +241,7 @@ export default function SettingsLocations() {
           </div>
         </div>
 
-        {msg && <div style={{ color: 'var(--success)' }}>{msg}</div>}
+        {msg && <p className="settings-msg settings-msg--ok">{msg}</p>}
       </div>
     </>
   );

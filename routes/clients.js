@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
+import { validateImageDataUrl } from '../lib/validateImageDataUrl.js';
 
 export const clientsRouter = Router();
 
@@ -23,6 +24,7 @@ function buildCompanyResponse(client) {
   return {
     id: client.id,
     name: client.name,
+    logo_url: client.logo_url || null,
     created_at: client.created_at,
     contacts,
     project_count: projects.length,
@@ -136,7 +138,13 @@ clientsRouter.put('/:id', (req, res) => {
     (c) => c.id !== id && (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase(),
   );
   if (duplicate) return res.status(400).json({ error: 'A company with this name already exists' });
-  store.updateClient(id, { name: trimmedName });
+  const patch = { name: trimmedName };
+  if (req.body.logo_url !== undefined) {
+    patch.logo_url = req.body.logo_url === null || req.body.logo_url === ''
+      ? null
+      : validateImageDataUrl(req.body.logo_url, { maxBytes: 120_000, field: 'logo_url' });
+  }
+  store.updateClient(id, patch);
   store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'client',

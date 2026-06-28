@@ -2,8 +2,19 @@ import { Router } from 'express';
 import { store } from '../db/store.js';
 import { requireAdmin } from '../middleware/requireAuth.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
+import { validateImageDataUrl } from '../lib/validateImageDataUrl.js';
 
 export const settingsRouter = Router();
+
+export function publicBrandingPayload() {
+  const s = store.getSettings();
+  return {
+    org_display_name: s.org_display_name,
+    org_tagline: s.org_tagline,
+    org_logo_url: s.org_logo_url || null,
+    org_banner_url: s.org_banner_url || null,
+  };
+}
 
 settingsRouter.get('/', (req, res) => {
   res.json(store.getSettings());
@@ -54,6 +65,27 @@ settingsRouter.put('/', requireAdmin, (req, res) => {
   if (body.currency_code !== undefined) {
     const c = String(body.currency_code ?? '').trim().toUpperCase();
     patch.currency_code = c.slice(0, 8) || defaultSettings().currency_code;
+  }
+
+  if (body.org_display_name !== undefined) {
+    patch.org_display_name = String(body.org_display_name ?? '').trim().slice(0, 80)
+      || defaultSettings().org_display_name;
+  }
+
+  if (body.org_tagline !== undefined) {
+    patch.org_tagline = String(body.org_tagline ?? '').slice(0, 200);
+  }
+
+  if (body.org_logo_url !== undefined) {
+    patch.org_logo_url = body.org_logo_url === null || body.org_logo_url === ''
+      ? null
+      : validateImageDataUrl(body.org_logo_url, { maxBytes: 120_000, field: 'org_logo_url' });
+  }
+
+  if (body.org_banner_url !== undefined) {
+    patch.org_banner_url = body.org_banner_url === null || body.org_banner_url === ''
+      ? null
+      : validateImageDataUrl(body.org_banner_url, { maxBytes: 320_000, field: 'org_banner_url' });
   }
 
   if (Object.keys(patch).length === 0) {

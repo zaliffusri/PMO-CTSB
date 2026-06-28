@@ -3,6 +3,17 @@ import { normalizeTaskStatus } from '../lib/taskStatus.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
 import { formatClientNames } from '../lib/projectClients.js';
+import { nextEticketNo } from '../lib/issueTicketNo.js';
+import { normalizeModuleCode, moduleLabelForCode } from '../lib/epbtModules.js';
+import {
+  parseIncidentType,
+  categoryForIncidentType,
+  parseIntakeChannel,
+  ISSUE_INCIDENT_TYPE_SET,
+  ISSUE_INTAKE_CHANNEL_SET,
+} from '../lib/issueConstants.js';
+import { cleanExternalTicketRef, normalizeBacklogRef } from '../lib/issueBacklogLink.js';
+import { normalizeBacklogStatus } from '../lib/backlogConstants.js';
 let warnedSupabase = false;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -34,6 +45,13 @@ function emptyData() {
     sessions: [],
     settings: defaultSettings(),
     audit_log: [],
+    issues: [],
+    notifications: [],
+    backlogs: [],
+    project_phases: [],
+    work_packages: [],
+    attachments: [],
+    backlog_comments: [],
   };
 }
 
@@ -163,8 +181,8 @@ function companyRowForDb(c) {
 }
 
 function projectRowForDb(p) {
-  const { client_id: _c, tags, ...rest } = p;
-  return { ...rest, tags: Array.isArray(tags) ? tags : [] };
+  const { client_id: _c, tags: _t, ...rest } = p;
+  return { ...rest, tags: [] };
 }
 
 async function upsertProjectClients(rows) {
@@ -201,6 +219,48 @@ async function upsertClientContacts(rows) {
   throw error;
 }
 
+let warnedIssuesTable = false;
+let warnedNotificationsTable = false;
+let warnedBacklogsTable = false;
+let warnedPhasesTable = false;
+let warnedWorkPackagesTable = false;
+let warnedBacklogCommentsTable = false;
+
+async function upsertOptionalTable(table, rows, onConflict = 'id', warnKey) {
+  if (!rows || rows.length === 0) return;
+  const { error } = await supabase.from(table).upsert(rows, { onConflict });
+  if (!error) return;
+  const msg = String(error.message || '');
+  if (/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) {
+    if (warnKey === 'issues' && !warnedIssuesTable) {
+      warnedIssuesTable = true;
+      console.warn(`store: ${table} not in DB — issues kept in memory. Run supabase migration for issues.`);
+    }
+    if (warnKey === 'notifications' && !warnedNotificationsTable) {
+      warnedNotificationsTable = true;
+      console.warn(`store: ${table} not in DB — notifications kept in memory. Run supabase migration.`);
+    }
+    if (warnKey === 'backlogs' && !warnedBacklogsTable) {
+      warnedBacklogsTable = true;
+      console.warn(`store: ${table} not in DB — backlogs kept in memory. Run supabase migration.`);
+    }
+    if (warnKey === 'phases' && !warnedPhasesTable) {
+      warnedPhasesTable = true;
+      console.warn(`store: ${table} not in DB — project phases kept in memory. Run supabase migration.`);
+    }
+    if (warnKey === 'work_packages' && !warnedWorkPackagesTable) {
+      warnedWorkPackagesTable = true;
+      console.warn(`store: ${table} not in DB — work packages kept in memory. Run supabase migration.`);
+    }
+    if (warnKey === 'backlog_comments' && !warnedBacklogCommentsTable) {
+      warnedBacklogCommentsTable = true;
+      console.warn(`store: ${table} not in DB — backlog comments kept in memory. Run supabase migration.`);
+    }
+    return;
+  }
+  throw error;
+}
+
 async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('clients', (snapshot.clients || []).map(companyRowForDb));
   await upsertClientContacts(snapshot.client_contacts || []);
@@ -215,6 +275,13 @@ async function pushSnapshotToSupabase(snapshot) {
   const settingsRow = { id: 1, ...(snapshot.settings || {}) };
   await upsertAll('settings_app', [settingsRow], 'id');
   await upsertAll('audit_log', snapshot.audit_log || []);
+  await upsertOptionalTable('issues_app', snapshot.issues || [], 'id', 'issues');
+  await upsertOptionalTable('notifications_app', snapshot.notifications || [], 'id', 'notifications');
+  await upsertOptionalTable('backlogs_app', snapshot.backlogs || [], 'id', 'backlogs');
+  await upsertOptionalTable('project_phases_app', snapshot.project_phases || [], 'id', 'phases');
+  await upsertOptionalTable('project_work_packages_app', snapshot.work_packages || [], 'id', 'work_packages');
+  await upsertOptionalTable('attachments_app', snapshot.attachments || [], 'id', 'attachments');
+  await upsertOptionalTable('backlog_comments_app', snapshot.backlog_comments || [], 'id', 'backlog_comments');
 }
 
 function queueSupabaseSync(snapshot) {
@@ -259,6 +326,13 @@ async function loadFromSupabase() {
       sessionsRes,
       settingsRes,
       auditRes,
+      issuesRes,
+      notificationsRes,
+      backlogsRes,
+      phasesRes,
+      workPackagesRes,
+      attachmentsRes,
+      backlogCommentsRes,
     ] = await Promise.all([
       supabase.from('clients').select('*').order('id', { ascending: true }),
       supabase.from('client_contacts').select('*').order('id', { ascending: true }),
@@ -272,6 +346,13 @@ async function loadFromSupabase() {
       supabase.from('sessions_app').select('*').order('id', { ascending: true }),
       supabase.from('settings_app').select('*').eq('id', 1).maybeSingle(),
       supabase.from('audit_log').select('*').order('id', { ascending: true }),
+      supabase.from('issues_app').select('*').order('id', { ascending: true }),
+      supabase.from('notifications_app').select('*').order('id', { ascending: true }),
+      supabase.from('backlogs_app').select('*').order('id', { ascending: true }),
+      supabase.from('project_phases_app').select('*').order('id', { ascending: true }),
+      supabase.from('project_work_packages_app').select('*').order('id', { ascending: true }),
+      supabase.from('attachments_app').select('*').order('id', { ascending: true }),
+      supabase.from('backlog_comments_app').select('*').order('id', { ascending: true }),
     ]);
     const clientContactsMissing =
       clientContactsRes.error &&
@@ -279,6 +360,28 @@ async function loadFromSupabase() {
     const projectClientsMissing =
       projectClientsRes.error &&
       /project_clients|schema cache|Could not find|does not exist|PGRST204/i.test(String(projectClientsRes.error.message || ''));
+
+    const issuesMissing =
+      issuesRes.error &&
+      /issues_app|schema cache|Could not find|does not exist|PGRST204/i.test(String(issuesRes.error.message || ''));
+    const notificationsMissing =
+      notificationsRes.error &&
+      /notifications_app|schema cache|Could not find|does not exist|PGRST204/i.test(String(notificationsRes.error.message || ''));
+    const backlogsMissing =
+      backlogsRes.error &&
+      /backlogs_app|schema cache|Could not find|does not exist|PGRST204/i.test(String(backlogsRes.error.message || ''));
+    const phasesMissing =
+      phasesRes.error &&
+      /project_phases_app|schema cache|Could not find|does not exist|PGRST204/i.test(String(phasesRes.error.message || ''));
+    const workPackagesMissing =
+      workPackagesRes.error &&
+      /project_work_packages_app|schema cache|Could not find|does not exist|PGRST204/i.test(String(workPackagesRes.error.message || ''));
+    const attachmentsMissing =
+      attachmentsRes.error &&
+      /attachments_app|schema cache|Could not find|does not exist|PGRST204/i.test(String(attachmentsRes.error.message || ''));
+    const backlogCommentsMissing =
+      backlogCommentsRes.error &&
+      /backlog_comments_app|schema cache|Could not find|does not exist|PGRST204/i.test(String(backlogCommentsRes.error.message || ''));
 
     const errs = [
       clientsRes.error,
@@ -293,6 +396,13 @@ async function loadFromSupabase() {
       sessionsRes.error,
       settingsRes.error,
       auditRes.error,
+      issuesMissing ? null : issuesRes.error,
+      notificationsMissing ? null : notificationsRes.error,
+      backlogsMissing ? null : backlogsRes.error,
+      phasesMissing ? null : phasesRes.error,
+      workPackagesMissing ? null : workPackagesRes.error,
+      attachmentsMissing ? null : attachmentsRes.error,
+      backlogCommentsMissing ? null : backlogCommentsRes.error,
     ].filter(Boolean);
     if (errs.length > 0) throw errs[0];
 
@@ -311,6 +421,16 @@ async function loadFromSupabase() {
       sessions: sessionsRes.data || [],
       settings,
       audit_log: auditRes.data || [],
+      issues: issuesMissing ? [] : issuesRes.data || [],
+      notifications: notificationsMissing ? [] : notificationsRes.data || [],
+      backlogs: backlogsMissing ? [] : (backlogsRes.data || []).map((b) => ({
+        ...b,
+        status: normalizeBacklogStatus(b.status),
+      })),
+      project_phases: phasesMissing ? [] : phasesRes.data || [],
+      work_packages: workPackagesMissing ? [] : workPackagesRes.data || [],
+      attachments: attachmentsMissing ? [] : attachmentsRes.data || [],
+      backlog_comments: backlogCommentsMissing ? [] : backlogCommentsRes.data || [],
     };
     const hasAnyRows =
       remote.clients.length +
@@ -390,6 +510,12 @@ async function loadInitialData() {
 
 let data = await loadInitialData();
 
+export function resetLocalDemoData() {
+  if (!allowLocalStore) return false;
+  data = emptyData();
+  return true;
+}
+
 export const store = {
   get people() { return [...data.people]; },
   get projects() { return [...data.projects]; },
@@ -400,6 +526,13 @@ export const store = {
   get client_contacts() { return [...(data.client_contacts || [])]; },
   get project_clients() { return [...(data.project_clients || [])]; },
   get users() { return [...data.users]; },
+  get issues() { return [...(data.issues || [])]; },
+  get notifications() { return [...(data.notifications || [])]; },
+  get backlogs() { return [...(data.backlogs || [])]; },
+  get project_phases() { return [...(data.project_phases || [])]; },
+  get work_packages() { return [...(data.work_packages || [])]; },
+  get attachments() { return [...(data.attachments || [])]; },
+  get backlog_comments() { return [...(data.backlog_comments || [])]; },
 
   getClientsForProject(projectId) {
     const links = (data.project_clients || []).filter((pc) => pc.project_id === projectId);
@@ -522,6 +655,12 @@ export const store = {
       currency_code: s.currency_code != null && String(s.currency_code).trim()
         ? String(s.currency_code).trim().toUpperCase().slice(0, 8)
         : d.currency_code,
+      org_display_name: s.org_display_name != null && String(s.org_display_name).trim()
+        ? String(s.org_display_name).trim().slice(0, 80)
+        : d.org_display_name,
+      org_tagline: s.org_tagline != null ? String(s.org_tagline).slice(0, 200) : d.org_tagline,
+      org_logo_url: s.org_logo_url || null,
+      org_banner_url: s.org_banner_url || null,
     };
   },
 
@@ -549,19 +688,44 @@ export const store = {
     return data.clients.find((c) => (c.name || '').trim().toLowerCase() === q) || null;
   },
 
-  findOrCreateClient(name) {
+  findClientByShortCode(code) {
+    const q = (code || '').trim().toUpperCase();
+    if (!q) return null;
+    return data.clients.find((c) => String(c.short_code || '').toUpperCase() === q) || null;
+  },
+
+  findOrCreateClient(name, shortCode = null) {
     const trimmed = (name || '').trim();
-    if (!trimmed) return null;
-    const existing = this.findClientByName(trimmed);
-    if (existing) return existing.id;
-    return this.addClient({ name: trimmed });
+    if (!trimmed && !shortCode) return null;
+    if (shortCode) {
+      const byCode = this.findClientByShortCode(shortCode);
+      if (byCode) return byCode.id;
+    }
+    if (trimmed) {
+      const existing = this.findClientByName(trimmed);
+      if (existing) {
+        if (shortCode && !existing.short_code) {
+          this.updateClient(existing.id, { short_code: shortCode });
+        }
+        return existing.id;
+      }
+    }
+    return this.addClient({
+      name: trimmed || String(shortCode).trim(),
+      short_code: shortCode ? String(shortCode).trim().toUpperCase() : null,
+    });
   },
 
   addClient(row) {
     const id = nextId(data.clients);
     const created_at = new Date().toISOString();
     const { contact_name: _cn, email: _e, phone: _p, ...company } = row;
-    data.clients.push({ id, name: (company.name || '').trim(), created_at });
+    data.clients.push({
+      id,
+      name: (company.name || '').trim(),
+      short_code: company.short_code != null ? String(company.short_code).trim().toUpperCase() || null : null,
+      created_at,
+    });
     save(data);
     return id;
   },
@@ -666,16 +830,18 @@ export const store = {
   addProject(row) {
     const id = nextId(data.projects);
     const created_at = new Date().toISOString();
-    const { client_id, client_ids, tags, classification, ...rest } = row;
-    const tagList = Array.isArray(tags) ? tags.filter(t => t != null && String(t).trim()) : [];
+    const { client_id, client_ids, tags: _tags, classification, engagement_type, ...rest } = row;
     const normalizedClassification = classification != null && String(classification).trim()
       ? String(classification).trim()
+      : null;
+    const normalizedEngagementType = engagement_type != null && String(engagement_type).trim()
+      ? String(engagement_type).trim()
       : null;
     data.projects.push({
       id,
       status: 'active',
       classification: normalizedClassification,
-      tags: tagList,
+      engagement_type: normalizedEngagementType,
       ...rest,
       created_at,
     });
@@ -692,19 +858,22 @@ export const store = {
     const i = data.projects.findIndex(p => p.id === id);
     if (i === -1) return false;
     const { client_id, client_ids, ...patch } = row;
-    if (patch.tags !== undefined) {
-      patch.tags = Array.isArray(patch.tags) ? patch.tags.filter(t => t != null && String(t).trim()) : [];
-    }
     if (patch.classification !== undefined) {
       patch.classification =
         patch.classification != null && String(patch.classification).trim()
           ? String(patch.classification).trim()
           : null;
     }
+    if (patch.engagement_type !== undefined) {
+      patch.engagement_type =
+        patch.engagement_type != null && String(patch.engagement_type).trim()
+          ? String(patch.engagement_type).trim()
+          : null;
+    }
+    delete patch.tags;
     delete patch.client_id;
     delete patch.client_ids;
     data.projects[i] = { ...data.projects[i], ...patch };
-    if (!Array.isArray(data.projects[i].tags)) data.projects[i].tags = [];
     if (client_ids !== undefined) {
       this.setProjectClients(id, client_ids);
     } else if (client_id !== undefined) {
@@ -723,6 +892,9 @@ export const store = {
     }
     data.project_assignments = data.project_assignments.filter(a => a.project_id !== id);
     data.project_tasks = data.project_tasks.filter(t => t.project_id !== id);
+    if (data.backlogs) data.backlogs = data.backlogs.filter((b) => b.project_id !== id);
+    if (data.project_phases) data.project_phases = data.project_phases.filter((p) => p.project_id !== id);
+    if (data.work_packages) data.work_packages = data.work_packages.filter((w) => w.project_id !== id);
     data.activities.forEach(a => { if (a.project_id === id) a.project_id = null; });
     save(data);
     return true;
@@ -843,6 +1015,10 @@ export const store = {
       task_kind,
       assignee_id,
       status: st,
+      backlog_id: row.backlog_id != null && row.backlog_id !== '' ? +row.backlog_id : null,
+      work_package_id: row.work_package_id != null && row.work_package_id !== '' ? +row.work_package_id : null,
+      estimated_hours: row.estimated_hours != null && row.estimated_hours !== '' ? +row.estimated_hours : null,
+      actual_hours: row.actual_hours != null && row.actual_hours !== '' ? +row.actual_hours : null,
       created_at,
     });
     save(data);
@@ -957,6 +1133,410 @@ export const store = {
     const before = data.sessions.length;
     data.sessions = data.sessions.filter((s) => !s.expires_at || s.expires_at > now);
     if (data.sessions.length !== before) save(data);
+  },
+
+  nextIssueTicketNo(moduleCode = 'XXX') {
+    return nextEticketNo(data.issues, moduleCode);
+  },
+
+  findIssueByTicketNo(ticketNo) {
+    if (!data.issues || !ticketNo) return null;
+    const q = String(ticketNo).trim().toUpperCase();
+    return data.issues.find((i) => String(i.ticket_no || '').toUpperCase() === q) || null;
+  },
+
+  findIssueByExternalTicketRef(ref) {
+    if (!data.issues || !ref) return null;
+    const q = cleanExternalTicketRef(ref);
+    if (!q) return null;
+    const qu = q.toUpperCase();
+    return data.issues.find((i) => {
+      const ir = cleanExternalTicketRef(i.external_ticket_ref);
+      return ir && ir.toUpperCase() === qu;
+    }) || null;
+  },
+
+  findBacklogByRefNo(refNo) {
+    if (!data.backlogs || !refNo) return null;
+    const q = normalizeBacklogRef(refNo);
+    if (!q) return null;
+    return data.backlogs.find((b) => normalizeBacklogRef(b.ref_no) === q) || null;
+  },
+
+  findBacklogByExternalTicketRef(ref) {
+    if (!data.backlogs || !ref) return null;
+    const q = cleanExternalTicketRef(ref);
+    if (!q) return null;
+    const qu = q.toUpperCase();
+    return data.backlogs.find((b) => {
+      const br = cleanExternalTicketRef(b.external_ticket_ref);
+      return br && br.toUpperCase() === qu;
+    }) || null;
+  },
+
+  addIssue(row) {
+    if (!data.issues) data.issues = [];
+    const id = nextId(data.issues);
+    const now = new Date().toISOString();
+    const moduleCode = normalizeModuleCode(row.module_code || row.epbt_module);
+    const epbtModule = row.epbt_module != null ? String(row.epbt_module).trim() : moduleLabelForCode(moduleCode);
+    const incidentType = row.incident_type && ISSUE_INCIDENT_TYPE_SET.has(row.incident_type)
+      ? row.incident_type
+      : (parseIncidentType(row.incident_type) || 'issue');
+    const intakeChannel = row.intake_channel && ISSUE_INTAKE_CHANNEL_SET.has(row.intake_channel)
+      ? row.intake_channel
+      : parseIntakeChannel(row.intake_channel);
+    const issue = {
+      id,
+      ticket_no: row.ticket_no || this.nextIssueTicketNo(moduleCode),
+      title: String(row.title || '').trim(),
+      description: row.description != null ? String(row.description) : null,
+      status: row.status || 'open',
+      priority: row.priority || 'medium',
+      category: row.category || categoryForIncidentType(incidentType),
+      incident_type: incidentType,
+      module_code: moduleCode,
+      epbt_module: epbtModule || null,
+      intake_channel: intakeChannel,
+      client_pic: row.client_pic != null ? String(row.client_pic).trim() || null : null,
+      action_taken: row.action_taken != null ? String(row.action_taken) : null,
+      l1_assignee_label: row.l1_assignee_label != null ? String(row.l1_assignee_label).trim() || null : null,
+      l2_assignee_label: row.l2_assignee_label != null ? String(row.l2_assignee_label).trim() || null : null,
+      backlog_ref: row.backlog_ref != null ? String(row.backlog_ref).trim() || null : null,
+      issue_attachment_ref: row.issue_attachment_ref != null ? String(row.issue_attachment_ref).trim() || null : null,
+      resolution_attachment_ref: row.resolution_attachment_ref != null ? String(row.resolution_attachment_ref).trim() || null : null,
+      project_id: row.project_id != null && row.project_id !== '' ? +row.project_id : null,
+      client_id: row.client_id != null && row.client_id !== '' ? +row.client_id : null,
+      reporter_user_id: row.reporter_user_id != null ? +row.reporter_user_id : null,
+      assignee_person_id: row.assignee_person_id != null && row.assignee_person_id !== '' ? +row.assignee_person_id : null,
+      external_ticket_ref: row.external_ticket_ref != null ? String(row.external_ticket_ref).trim() || null : null,
+      support_level: ['L1', 'L2', 'L3'].includes(String(row.support_level || '').toUpperCase())
+        ? String(row.support_level).toUpperCase()
+        : 'L1',
+      resolution_method: row.resolution_method || null,
+      resolution_notes: row.resolution_notes != null ? String(row.resolution_notes) : null,
+      created_at: row.created_at || now,
+      updated_at: row.updated_at || now,
+      resolved_at: row.resolved_at || null,
+    };
+    data.issues.push(issue);
+    save(data);
+    return id;
+  },
+
+  updateIssue(id, patch) {
+    if (!data.issues) data.issues = [];
+    const i = data.issues.findIndex((x) => x.id === +id);
+    if (i === -1) return false;
+    const cur = data.issues[i];
+    const next = { ...cur, ...patch, updated_at: new Date().toISOString() };
+    if (patch.status === 'resolved' || patch.status === 'closed') {
+      if (!cur.resolved_at) next.resolved_at = new Date().toISOString();
+    }
+    if (patch.status === 'open' || patch.status === 'in_progress') {
+      next.resolved_at = null;
+    }
+    data.issues[i] = next;
+    save(data);
+    return true;
+  },
+
+  addNotification(row) {
+    if (!data.notifications) data.notifications = [];
+    const id = nextId(data.notifications);
+    const notification = {
+      id,
+      user_id: +row.user_id,
+      type: row.type || 'info',
+      title: String(row.title || ''),
+      body: row.body != null ? String(row.body) : null,
+      link: row.link || null,
+      entity_type: row.entity_type || null,
+      entity_id: row.entity_id ?? null,
+      read_at: null,
+      created_at: new Date().toISOString(),
+    };
+    data.notifications.push(notification);
+    save(data);
+    return id;
+  },
+
+  markNotificationRead(id, userId) {
+    if (!data.notifications) return false;
+    const i = data.notifications.findIndex((n) => n.id === +id && n.user_id === +userId);
+    if (i === -1) return false;
+    if (!data.notifications[i].read_at) {
+      data.notifications[i].read_at = new Date().toISOString();
+      save(data);
+    }
+    return true;
+  },
+
+  markAllNotificationsRead(userId) {
+    if (!data.notifications) return 0;
+    const now = new Date().toISOString();
+    let count = 0;
+    data.notifications.forEach((n) => {
+      if (n.user_id === +userId && !n.read_at) {
+        n.read_at = now;
+        count += 1;
+      }
+    });
+    if (count) save(data);
+    return count;
+  },
+
+  nextBacklogRefNo() {
+    if (!data.backlogs) data.backlogs = [];
+    const year = new Date().getFullYear();
+    const prefix = `BLG-${year}-`;
+    const nums = data.backlogs
+      .filter((b) => b.ref_no && String(b.ref_no).startsWith(prefix))
+      .map((b) => parseInt(String(b.ref_no).slice(prefix.length), 10))
+      .filter((n) => Number.isFinite(n));
+    const next = nums.length ? Math.max(...nums) + 1 : 1;
+    return `${prefix}${String(next).padStart(4, '0')}`;
+  },
+
+  addBacklog(row) {
+    if (!data.backlogs) data.backlogs = [];
+    const id = nextId(data.backlogs);
+    const now = new Date().toISOString();
+    const item = {
+      id,
+      ref_no: row.ref_no || this.nextBacklogRefNo(),
+      project_id: +row.project_id,
+      title: String(row.title || '').trim(),
+      description: row.description != null ? String(row.description) : null,
+      item_type: row.item_type || 'scope',
+      source: row.source || 'manual',
+      status: normalizeBacklogStatus(row.status || 'open'),
+      priority: row.priority || 'medium',
+      issue_id: row.issue_id != null && row.issue_id !== '' ? +row.issue_id : null,
+      task_id: row.task_id != null && row.task_id !== '' ? +row.task_id : null,
+      assignee_person_id: row.assignee_person_id != null && row.assignee_person_id !== '' ? +row.assignee_person_id : null,
+      created_by_user_id: row.created_by_user_id != null && row.created_by_user_id !== '' ? +row.created_by_user_id : null,
+      module_code: row.module_code != null ? normalizeModuleCode(row.module_code) : null,
+      client_id: row.client_id != null && row.client_id !== '' ? +row.client_id : null,
+      external_ticket_ref: row.external_ticket_ref != null
+        ? cleanExternalTicketRef(row.external_ticket_ref)
+        : null,
+      effort_days: row.effort_days != null && row.effort_days !== '' ? +row.effort_days : null,
+      estimated_hours: row.estimated_hours != null && row.estimated_hours !== ''
+        ? +row.estimated_hours
+        : (row.effort_days != null && row.effort_days !== '' ? +row.effort_days * 8 : null),
+      actual_hours: row.actual_hours != null && row.actual_hours !== '' ? +row.actual_hours : null,
+      phase_id: row.phase_id != null && row.phase_id !== '' ? +row.phase_id : null,
+      work_package_id: row.work_package_id != null && row.work_package_id !== '' ? +row.work_package_id : null,
+      created_at: now,
+      updated_at: now,
+    };
+    data.backlogs.push(item);
+    save(data);
+    return id;
+  },
+
+  updateBacklog(id, patch) {
+    if (!data.backlogs) data.backlogs = [];
+    const i = data.backlogs.findIndex((b) => b.id === +id);
+    if (i === -1) return false;
+    const next = { ...patch };
+    if (next.status != null) next.status = normalizeBacklogStatus(next.status);
+    data.backlogs[i] = { ...data.backlogs[i], ...next, updated_at: new Date().toISOString() };
+    save(data);
+    return true;
+  },
+
+  listBacklogComments(backlogId) {
+    return (data.backlog_comments || [])
+      .filter((c) => c.backlog_id === +backlogId)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  },
+
+  addBacklogComment(row) {
+    if (!data.backlog_comments) data.backlog_comments = [];
+    const id = nextId(data.backlog_comments);
+    const comment = {
+      id,
+      backlog_id: +row.backlog_id,
+      author_user_id: +row.author_user_id,
+      body: String(row.body || '').trim(),
+      mentioned_person_ids: Array.isArray(row.mentioned_person_ids)
+        ? row.mentioned_person_ids.map((x) => +x).filter(Number.isFinite)
+        : [],
+      created_at: new Date().toISOString(),
+    };
+    data.backlog_comments.push(comment);
+    save(data);
+    return id;
+  },
+
+  findBacklogByIssueId(issueId) {
+    return (data.backlogs || []).find((b) => b.issue_id === +issueId) || null;
+  },
+
+  addProjectPhase(row) {
+    if (!data.project_phases) data.project_phases = [];
+    const id = nextId(data.project_phases);
+    const now = new Date().toISOString();
+    const phase = {
+      id,
+      project_id: +row.project_id,
+      work_package_id: row.work_package_id != null && row.work_package_id !== '' ? +row.work_package_id : null,
+      name: String(row.name || '').trim(),
+      phase_key: row.phase_key || 'custom',
+      sort_order: row.sort_order != null ? +row.sort_order : 99,
+      status: row.status || 'pending',
+      target_date: row.target_date || null,
+      completed_date: row.completed_date || null,
+      progress_percent: row.progress_percent != null ? +row.progress_percent : 0,
+      payment_amount: row.payment_amount != null && row.payment_amount !== '' ? +row.payment_amount : null,
+      payment_currency: row.payment_currency || 'MYR',
+      invoice_no: row.invoice_no || null,
+      invoice_date: row.invoice_date || null,
+      paid_date: row.paid_date || null,
+      payment_status: row.payment_status || 'pending',
+      notes: row.notes || null,
+      created_at: now,
+      updated_at: now,
+    };
+    data.project_phases.push(phase);
+    save(data);
+    return id;
+  },
+
+  updateProjectPhase(id, patch) {
+    if (!data.project_phases) data.project_phases = [];
+    const i = data.project_phases.findIndex((p) => p.id === +id);
+    if (i === -1) return false;
+    const next = { ...data.project_phases[i], ...patch, updated_at: new Date().toISOString() };
+    if (patch.status === 'completed' && !data.project_phases[i].completed_date && !patch.completed_date) {
+      next.completed_date = new Date().toISOString().slice(0, 10);
+    }
+    data.project_phases[i] = next;
+    save(data);
+    return true;
+  },
+
+  initProjectPhasesFromTemplate(projectId, template, workPackageId = null) {
+    const ids = [];
+    for (const row of template) {
+      const id = this.addProjectPhase({
+        project_id: projectId,
+        work_package_id: workPackageId,
+        name: row.name,
+        phase_key: row.phase_key,
+        sort_order: row.sort_order,
+        payment_status: row.payment_status || 'pending',
+        status: row.sort_order === 1 ? 'in_progress' : 'pending',
+        progress_percent: row.sort_order === 1 ? 0 : 0,
+      });
+      ids.push(id);
+    }
+    return ids;
+  },
+
+  addWorkPackage(row) {
+    if (!data.work_packages) data.work_packages = [];
+    const id = nextId(data.work_packages);
+    const now = new Date().toISOString();
+    const siblings = data.work_packages.filter((w) => w.project_id === +row.project_id);
+    const sort_order = row.sort_order != null
+      ? +row.sort_order
+      : siblings.reduce((m, w) => Math.max(m, w.sort_order ?? 0), -1) + 1;
+    const wp = {
+      id,
+      project_id: +row.project_id,
+      name: String(row.name || '').trim(),
+      description: row.description != null ? String(row.description) : null,
+      classification: String(row.classification || '').trim(),
+      status: row.status || 'active',
+      start_date: row.start_date || null,
+      end_date: row.end_date || null,
+      sort_order,
+      created_at: now,
+      updated_at: now,
+    };
+    data.work_packages.push(wp);
+    save(data);
+    return id;
+  },
+
+  updateWorkPackage(id, patch) {
+    if (!data.work_packages) data.work_packages = [];
+    const i = data.work_packages.findIndex((w) => w.id === +id);
+    if (i === -1) return false;
+    data.work_packages[i] = { ...data.work_packages[i], ...patch, updated_at: new Date().toISOString() };
+    save(data);
+    return true;
+  },
+
+  deleteWorkPackage(id) {
+    if (!data.work_packages) data.work_packages = [];
+    const i = data.work_packages.findIndex((w) => w.id === +id);
+    if (i === -1) return false;
+    data.work_packages.splice(i, 1);
+    if (data.project_phases) {
+      data.project_phases = data.project_phases.filter((p) => p.work_package_id !== +id);
+    }
+    data.project_tasks.forEach((t, idx) => {
+      if (t.work_package_id === +id) {
+        data.project_tasks[idx] = { ...t, work_package_id: null };
+      }
+    });
+    if (data.backlogs) {
+      data.backlogs.forEach((b, idx) => {
+        if (b.work_package_id === +id) {
+          data.backlogs[idx] = { ...b, work_package_id: null };
+        }
+      });
+    }
+    save(data);
+    return true;
+  },
+
+  listAttachments(entityType, entityId) {
+    if (!data.attachments) data.attachments = [];
+    return data.attachments
+      .filter((a) => a.entity_type === entityType && a.entity_id === +entityId)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  },
+
+  findAttachment(id) {
+    if (!data.attachments) return null;
+    return data.attachments.find((a) => a.id === +id) || null;
+  },
+
+  addAttachment(row) {
+    if (!data.attachments) data.attachments = [];
+    const id = nextId(data.attachments);
+    const now = new Date().toISOString();
+    const att = {
+      id,
+      entity_type: String(row.entity_type),
+      entity_id: +row.entity_id,
+      kind: row.kind === 'url' ? 'url' : 'file',
+      file_name: String(row.file_name || 'file').trim(),
+      mime_type: row.mime_type != null ? String(row.mime_type) : null,
+      file_size: row.file_size != null ? +row.file_size : null,
+      storage_path: row.storage_path != null ? String(row.storage_path) : null,
+      external_url: row.external_url != null ? String(row.external_url).trim() || null : null,
+      label: row.label != null ? String(row.label).trim() || null : null,
+      uploaded_by_user_id: row.uploaded_by_user_id != null ? +row.uploaded_by_user_id : null,
+      created_at: row.created_at || now,
+    };
+    data.attachments.push(att);
+    save(data);
+    return id;
+  },
+
+  deleteAttachment(id) {
+    if (!data.attachments) return null;
+    const i = data.attachments.findIndex((a) => a.id === +id);
+    if (i === -1) return null;
+    const [removed] = data.attachments.splice(i, 1);
+    save(data);
+    return removed;
   },
 
   /**

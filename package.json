@@ -8,9 +8,17 @@
     "build": "vite build",
     "start": "npm run build && cross-env ALLOW_LOCAL_STORE=1 node server.js",
     "start:backend": "cross-env ALLOW_LOCAL_STORE=1 node server.js",
+    "seed:demo": "cross-env ALLOW_LOCAL_STORE=1 node scripts/seedLocalDemo.mjs",
+    "import:eticket": "cross-env ALLOW_LOCAL_STORE=1 node scripts/importETicketCsv.mjs",
     "email:test": "node scripts/email-test.mjs",
     "db:migrate": "node scripts/applyDbMigrations.mjs",
-    "db:verify": "node scripts/verifyDbSchema.mjs"
+    "db:verify": "node scripts/verifyDbSchema.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "presentation:pdf": "node scripts/generatePresentationPdf.mjs",
+    "presentation:capture": "node scripts/captureAppScreenshots.mjs",
+    "presentation:screenshots": "node scripts/buildFullPresentation.mjs",
+    "docs:workflow-pdf": "node scripts/generateWorkflowPdf.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
@@ -28,6 +36,8 @@
     "@vitejs/plugin-react": "^4.3.3",
     "concurrently": "^9.1.2",
     "cross-env": "^10.0.0",
-    "vite": "^5.4.10"
+    "puppeteer": "^25.2.1",
+    "vite": "^5.4.10",
+    "vitest": "^3.0.5"
   }
 }

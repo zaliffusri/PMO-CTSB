@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PMO CTSB — Team Presentation</title>
+  <style>
+    @page {
+      size: 338.67mm 190.5mm; /* 16:9 landscape */
+      margin: 0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: #0f1419;
+      color: #e8eef2;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .slide {
+      width: 338.67mm;
+      height: 190.5mm;
+      padding: 14mm 18mm;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: linear-gradient(145deg, #0c1210 0%, #0f1a16 45%, #0a100e 100%);
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 100% 0%, rgba(16, 185, 129, 0.12), transparent),
+        radial-gradient(ellipse 50% 40% at 0% 100%, rgba(16, 185, 129, 0.06), transparent);
+      pointer-events: none;
+    }
+
+    .slide > * { position: relative; z-index: 1; }
+
+    .slide--title {
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    .eyebrow {
+      font-size: 11pt;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #34d399;
+      margin-bottom: 8mm;
+    }
+
+    h1 {
+      font-size: 36pt;
+      font-weight: 700;
+      line-height: 1.15;
+      max-width: 85%;
+      margin-bottom: 6mm;
+    }
+
+    h2 {
+      font-size: 26pt;
+      font-weight: 700;
+      margin-bottom: 8mm;
+      color: #f0fdf4;
+    }
+
+    .subtitle {
+      font-size: 14pt;
+      color: #94a3b8;
+      max-width: 75%;
+      line-height: 1.5;
+    }
+
+    .slide-footer {
+      margin-top: auto;
+      padding-top: 6mm;
+      border-top: 1px solid rgba(52, 211, 153, 0.25);
+      display: flex;
+      justify-content: space-between;
+      font-size: 9pt;
+      color: #64748b;
+    }
+
+    .slide-num::before { content: "PMO CTSB · "; color: #34d399; }
+
+    ul.bullets {
+      list-style: none;
+      display: grid;
+      gap: 4mm;
+      font-size: 13pt;
+      line-height: 1.45;
+    }
+
+    ul.bullets li {
+      padding-left: 7mm;
+      position: relative;
+    }
+
+    ul.bullets li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.55em;
+      width: 3mm;
+      height: 3mm;
+      border-radius: 50%;
+      background: #10b981;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10mm;
+      flex: 1;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(52, 211, 153, 0.2);
+      border-radius: 6px;
+      padding: 6mm;
+    }
+
+    .card h3 {
+      font-size: 12pt;
+      color: #34d399;
+      margin-bottom: 3mm;
+      font-weight: 600;
+    }
+
+    .card p, .card li {
+      font-size: 11pt;
+      color: #cbd5e1;
+      line-height: 1.45;
+    }
+
+    .card ul { list-style: none; display: grid; gap: 2mm; }
+
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11pt;
+    }
+
+    table.data th,
+    table.data td {
+      text-align: left;
+      padding: 3mm 4mm;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    table.data th {
+      color: #34d399;
+      font-weight: 600;
+      font-size: 10pt;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4mm;
+      flex-wrap: wrap;
+      margin: 8mm 0;
+      font-size: 12pt;
+    }
+
+    .flow-box {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      padding: 4mm 6mm;
+      border-radius: 6px;
+      font-weight: 600;
+      color: #a7f3d0;
+    }
+
+    .flow-arrow { color: #34d399; font-size: 16pt; }
+
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5mm;
+      margin-top: 4mm;
+    }
+
+    .role {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 5mm;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .role strong {
+      display: block;
+      color: #34d399;
+      font-size: 12pt;
+      margin-bottom: 2mm;
+    }
+
+    .role span { font-size: 10pt; color: #94a3b8; line-height: 1.4; }
+
+    .hint {
+      font-size: 10pt;
+      color: #64748b;
+      font-style: italic;
+      margin-top: 4mm;
+    }
+
+    .malay {
+      font-size: 10pt;
+      color: #64748b;
+      margin-top: 1mm;
+    }
+
+    @media screen {
+      body { padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+      .slide {
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      .print-hint {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        background: #10b981;
+        color: #042f1a;
+        padding: 12px 18px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        z-index: 9999;
+      }
+    }
+
+    @media print {
+      body { background: #0f1419; padding: 0; }
+      .print-hint { display: none !important; }
+      .slide { box-shadow: none; border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <p class="print-hint">Open in browser → Ctrl+P → Save as PDF (Landscape)</p>
+
+  <!-- SLIDE 1 -->
+  <section class="slide slide--title">
+    <p class="eyebrow">Cybersolution Technologies · PMO</p>
+    <h1>PMO CTSB<br>Project &amp; Delivery Management System</h1>
+    <p class="subtitle">Satu platform untuk portfolio projek, penghantaran kerja, helpdesk, kewangan milestone, dan kapasiti pasukan — direka untuk persekitaran kerajaan / PBT.</p>
+    <div class="slide-footer">
+      <span>Team briefing · 2026</span>
+      <span class="slide-num">1</span>
+    </div>
+  </section>
+
+  <!-- SLIDE 2 -->
+  <section class="slide">
+    <p class="eyebrow">Overview</p>
+    <h2>Why this system?</h2>
+    <ul class="bullets">
+      <li><strong>One place</strong> for projects, tasks, issues, backlog, and billing milestones</li>
+      <li><strong>Government-ready</strong> — engagement types (Contract, LO, PO), delivery scopes, phase templates</li>
+      <li><strong>Traceable flow</strong> — Helpdesk → Backlog → Task → Delivery phase → Finance</li>
+      <li><strong>Role-based</strong> — PMO, Finance, Admin, and team members see what they need</li>
+      <li><strong>Notifications</strong> — in-app bell + email when SMTP is configured</li>
+    </ul>
+    <p class="hint">Matlamat: kurangkan spreadsheet berasingan dan pastikan status projek sentiasa boleh diaudit.</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">2</span></div>
+  </section>
+
+  <!-- SLIDE 3 -->
+  <section class="slide">
+    <p class="eyebrow">Access</p>
+    <h2>User roles</h2>
+    <div class="role-grid">
+      <div class="role">
+        <strong>Admin</strong>
+        <span>Users, settings, full access</span>
+      </div>
+      <div class="role">
+        <strong>PMO</strong>
+        <span>Create projects, phases, backlog, assign work</span>
+      </div>
+      <div class="role">
+        <strong>Finance</strong>
+        <span>Payment pipeline, mark invoiced/paid, renewals</span>
+      </div>
+      <div class="role">
+        <strong>Team</strong>
+        <span>My work, tasks, helpdesk, calendar</span>
+      </div>
+    </div>
+    <table class="data" style="margin-top: 8mm;">
+      <thead>
+        <tr><th>Demo account</th><th>Password</th><th>Use for</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>pmo@pmo.local</td><td>pmo123</td><td>PMO walkthrough</td></tr>
+        <tr><td>finance@pmo.local</td><td>finance123</td><td>Finance module</td></tr>
+        <tr><td>ahmadrizal@company.com</td><td>user123</td><td>Team member / My work</td></tr>
+      </tbody>
+    </table>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">3</span></div>
+  </section>
+
+  <!-- SLIDE 4 -->
+  <section class="slide">
+    <p class="eyebrow">Navigation</p>
+    <h2>Main menu modules</h2>
+    <div class="two-col">
+      <div class="card">
+        <h3>Portfolio &amp; delivery</h3>
+        <ul>
+          <li>Command Center (Dashboard)</li>
+          <li>Projects</li>
+          <li>Helpdesk</li>
+          <li>My work</li>
+          <li>Gantt timeline</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Operations &amp; admin</h3>
+        <ul>
+          <li>Finance (Finance role)</li>
+          <li>Reports &amp; exports</li>
+          <li>Clients</li>
+          <li>Calendar &amp; activities</li>
+          <li>Team &amp; capacity</li>
+          <li>Users &amp; History (Admin)</li>
+        </ul>
+      </div>
+    </div>
+    <p class="hint">Setiap modul menggunakan UI/UX yang sama: KPI cards, filters, tables, empty states.</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">4</span></div>
+  </section>
+
+  <!-- SLIDE 5 -->
+  <section class="slide">
+    <p class="eyebrow">Command Center</p>
+    <h2>Dashboard</h2>
+    <ul class="bullets">
+      <li>Portfolio health — on track, at risk, blocked projects</li>
+      <li>Active projects, overdue tasks, team overload indicators</li>
+      <li>Helpdesk &amp; backlog KPIs at a glance</li>
+      <li>Quick links into Projects and Helpdesk</li>
+    </ul>
+    <p class="malay">Pusat kawalan untuk PMO — lihat kesihatan portfolio tanpa buka satu-satu projek.</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">5</span></div>
+  </section>
+
+  <!-- SLIDE 6 -->
+  <section class="slide">
+    <p class="eyebrow">Projects</p>
+    <h2>Project portfolio</h2>
+    <ul class="bullets">
+      <li><strong>Engagement type</strong> — Contract, Letter of Offer (LO), PO, MOU, Tender, etc.</li>
+      <li>Grid or list view with health badges, progress, overdue counts</li>
+      <li>Filter by status, health, engagement type; search by name/client</li>
+      <li>Link multiple client companies per project</li>
+      <li>Create project wizard — schedule, clients, engagement</li>
+    </ul>
+    <p class="malay">Jenis kontrak (Kontrak/LO) di peringkat projek — bukan jenis kerja (dev/API).</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">6</span></div>
+  </section>
+
+  <!-- SLIDE 7 -->
+  <section class="slide">
+    <p class="eyebrow">Projects</p>
+    <h2>Work packages</h2>
+    <ul class="bullets">
+      <li>One project can contain <strong>multiple delivery lines</strong></li>
+      <li>Each package has its own <strong>delivery scope</strong> — e.g. Portal dev, API integration, Data migration</li>
+      <li>Own phases, tasks, backlog, and finance totals per package</li>
+      <li>Ideal for mixed engagements under a single contract</li>
+    </ul>
+  <p class="malay">Contoh: Projek Portal PBT dengan 3 work package — portal, payment API, data import.</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">7</span></div>
+  </section>
+
+  <!-- SLIDE 8 -->
+  <section class="slide">
+    <p class="eyebrow">Project workspace</p>
+    <h2>Inside each project</h2>
+    <div class="two-col">
+      <div class="card">
+        <h3>Tabs</h3>
+        <ul>
+          <li>Overview — health, timeline, team snapshot</li>
+          <li>Work packages</li>
+          <li>Backlog</li>
+          <li>Tasks (groups &amp; subtasks)</li>
+          <li>Delivery &amp; payment phases</li>
+          <li>Timeline</li>
+          <li>People &amp; allocation %</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Deep links</h3>
+        <p>Open directly to a tab, e.g.:</p>
+        <p style="margin-top: 2mm; font-family: monospace; color: #34d399;">/projects/1?tab=tasks</p>
+        <p style="margin-top: 4mm;">Notifications link straight to the relevant tab.</p>
+      </div>
+    </div>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">8</span></div>
+  </section>
+
+  <!-- SLIDE 9 -->
+  <section class="slide">
+    <p class="eyebrow">Service desk</p>
+    <h2>Helpdesk</h2>
+    <ul class="bullets">
+      <li>Log issues — priority, category, client, project, assignee</li>
+      <li>Statuses: Open, In progress, Waiting on client, Resolved, Closed</li>
+      <li>Filter all issues or <strong>My issues</strong></li>
+      <li>Click issue title for detail; assign from table</li>
+      <li><strong>Promote to backlog</strong> — converts issue into scoped backlog item</li>
+      <li>Assignee gets in-app notification (+ email if configured)</li>
+    </ul>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">9</span></div>
+  </section>
+
+  <!-- SLIDE 10 -->
+  <section class="slide">
+    <p class="eyebrow">Workflow</p>
+    <h2>Helpdesk → Backlog → Task</h2>
+    <div class="flow">
+      <span class="flow-box">Helpdesk issue</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">Backlog item</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">Project task</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">Delivery phase</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-box">Finance milestone</span>
+    </div>
+    <ul class="bullets">
+      <li>Backlog types: scope, CR, bug, enhancement, support, data, recurring</li>
+      <li>Tasks support groups, subtasks, assignees, progress %, dates</li>
+      <li>Filter tasks/backlog by work package when project is multi-scope</li>
+    </ul>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">10</span></div>
+  </section>
+
+  <!-- SLIDE 11 -->
+  <section class="slide">
+    <p class="eyebrow">Delivery</p>
+    <h2>Phases &amp; milestones</h2>
+    <ul class="bullets">
+      <li>Phase templates by delivery scope — URS, UAT, Go-live, Maintenance, etc.</li>
+      <li>Per phase: status, progress %, target date, payment amount</li>
+      <li>Payment status: Pending → Invoiced → Paid</li>
+      <li>Initialize template per project or per work package</li>
+      <li>Finance sees completed phases ready to bill</li>
+    </ul>
+    <p class="malay">Setiap fasa boleh ada nilai tuntutan — Finance track claim ikut milestone.</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">11</span></div>
+  </section>
+
+  <!-- SLIDE 12 -->
+  <section class="slide">
+    <p class="eyebrow">Finance</p>
+    <h2>Delivery &amp; payment</h2>
+    <ul class="bullets">
+      <li><strong>Ready to bill</strong> — completed phases, pending payment</li>
+      <li><strong>Invoiced</strong> — awaiting client payment; mark paid when received</li>
+      <li><strong>Paid &amp; claimed</strong> — audit trail per phase (invoice no., paid date)</li>
+      <li><strong>Maintenance renewals</strong> — expired / ending-soon contracts for follow-up</li>
+      <li>Portfolio &amp; work-package collection %; export CSV</li>
+    </ul>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">12</span></div>
+  </section>
+
+  <!-- SLIDE 13 -->
+  <section class="slide">
+    <p class="eyebrow">Personal</p>
+    <h2>My work</h2>
+    <ul class="bullets">
+      <li>Single queue: tasks, backlog, helpdesk assigned to you</li>
+      <li>KPIs: overdue, due this week, critical/high priority</li>
+      <li><strong>Needs attention</strong> strip for urgent items</li>
+      <li>Mark task done inline; open project or issue directly</li>
+      <li><strong>Schedule</strong> tab — today's calendar activities</li>
+    </ul>
+    <p class="malay">Untuk developer/support — semua kerja assigned dalam satu skrin.</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">13</span></div>
+  </section>
+
+  <!-- SLIDE 14 -->
+  <section class="slide">
+    <p class="eyebrow">Resources</p>
+    <h2>Team, calendar &amp; Gantt</h2>
+    <div class="two-col">
+      <div class="card">
+        <h3>Team &amp; capacity</h3>
+        <ul>
+          <li>People directory (name, email, role)</li>
+          <li>Project assignments + allocation %</li>
+          <li>Workload view — overload warnings</li>
+          <li>Check availability before new assignment</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Calendar &amp; Gantt</h3>
+        <ul>
+          <li>Log meetings, UAT, training, go-live, outstation</li>
+          <li>Import/export activity reports</li>
+          <li>Gantt — visual timeline of project tasks</li>
+          <li>Manage tasks in project workspace</li>
+        </ul>
+      </div>
+    </div>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">14</span></div>
+  </section>
+
+  <!-- SLIDE 15 -->
+  <section class="slide">
+    <p class="eyebrow">Reporting</p>
+    <h2>Reports, clients &amp; notifications</h2>
+    <ul class="bullets">
+      <li><strong>Reports</strong> — health charts, progress, resource utilization, CSV export</li>
+      <li><strong>Clients</strong> — companies + PIC contacts; link to projects</li>
+      <li><strong>Notifications</strong> — bell icon; task/issue assignments; deep links</li>
+      <li><strong>History</strong> (Admin) — audit log of key actions</li>
+      <li>Dark mode toggle for comfortable viewing</li>
+    </ul>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">15</span></div>
+  </section>
+
+  <!-- SLIDE 16 -->
+  <section class="slide">
+    <p class="eyebrow">Getting started</p>
+    <h2>How to use (team)</h2>
+    <table class="data">
+      <thead>
+        <tr><th>If you are…</th><th>Start here</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>PMO officer</td><td>Projects → create/open project → Work packages → Backlog → Delivery phases</td></tr>
+        <tr><td>Developer / BA</td><td>My work → tasks &amp; backlog; update progress in project Tasks tab</td></tr>
+        <tr><td>Support</td><td>Helpdesk → report/resolve issues; check My work</td></tr>
+        <tr><td>Finance</td><td>Finance menu → ready to bill → mark invoiced/paid; renewal follow-up</td></tr>
+        <tr><td>Manager</td><td>Command Center + Reports → portfolio health</td></tr>
+      </tbody>
+    </table>
+    <p class="hint" style="margin-top: 6mm;">Local demo: <code>npm run seed:demo</code> then login with accounts above.</p>
+    <div class="slide-footer"><span>PMO CTSB</span><span class="slide-num">16</span></div>
+  </section>
+
+  <!-- SLIDE 17 -->
+  <section class="slide slide--title">
+    <p class="eyebrow">Thank you</p>
+    <h1>Questions?</h1>
+    <p class="subtitle">PMO CTSB — satu platform untuk penghantaran projek yang telus, boleh diukur, dan sedia untuk audit kewangan mengikut fasa.</p>
+    <p class="subtitle" style="margin-top: 8mm; font-size: 12pt;">Documentation: README.md in project root · Support: PMO / IT team</p>
+    <div class="slide-footer">
+      <span>Cybersolution Technologies Sdn Bhd</span>
+      <span class="slide-num">17</span>
+    </div>
+  </section>
+
+</body>
+</html>

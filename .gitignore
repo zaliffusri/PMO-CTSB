@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.tools/
 
 # Build
 dist/
@@ -12,6 +13,7 @@ dist/
 
 # Local app data (re-seeded on first backend start)
 db/data.json
+data/uploads/
 
 # Logs & OS
 *.log

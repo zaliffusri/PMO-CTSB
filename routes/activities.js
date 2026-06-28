@@ -2,7 +2,14 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { store } from '../db/store.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
-import { isMailerConfigured, sendActivityLoggedEmail } from '../lib/mailer.js';
+import { isMailerConfigured, sendActivityLoggedEmail, sendTeamScheduleEmail } from '../lib/mailer.js';
+import { buildTeamScheduleEmail } from '../lib/emailTemplates.js';
+import {
+  groupActivitiesForScheduleEmail,
+  resolveScheduleRecipients,
+  formatEmailDateTime,
+  extractEmailsFromText,
+} from '../lib/scheduleEmailUtils.js';
 import { canEditCalendarUser } from '../lib/permissions.js';
 
 export const activitiesRouter = Router();
@@ -81,7 +88,7 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
   return { fromMs, toExclusive };
 }
 
-function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, loggedBy }) {
+function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, description, loggedBy }) {
   const assignee = store.findUserById(uid);
   let recipientEmail = String(assignee?.email || '').trim();
   if (!recipientEmail && assignee?.name) {
@@ -90,6 +97,8 @@ function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_a
     );
     recipientEmail = String(pe?.email || '').trim();
   }
+  const startLabel = formatEmailDateTime(start_at);
+  const endLabel = formatEmailDateTime(end_at);
   if (recipientEmail && isMailerConfigured()) {
     sendActivityLoggedEmail({
       to: recipientEmail,
@@ -97,14 +106,78 @@ function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_a
       title,
       typeKey,
       location,
-      startAt: start_at,
-      endAt: end_at,
+      startAt: startLabel,
+      endAt: endLabel,
       projectName,
+      description,
       loggedBy,
     }).catch((e) => {
       console.warn(`activities: failed to send notification email (${e.message})`);
     });
+    return true;
   }
+  return false;
+}
+
+function notifyActivityGuests(external_attendees, payload) {
+  if (!external_attendees || !isMailerConfigured()) return 0;
+  const guestEmails = extractEmailsFromText(external_attendees);
+  const startLabel = formatEmailDateTime(payload.start_at);
+  const endLabel = formatEmailDateTime(payload.end_at);
+  guestEmails.forEach((to) => {
+    sendActivityLoggedEmail({
+      to,
+      recipientName: to.split('@')[0],
+      title: payload.title,
+      typeKey: payload.typeKey,
+      location: payload.location,
+      startAt: startLabel,
+      endAt: endLabel,
+      projectName: payload.projectName,
+      description: payload.description,
+      loggedBy: payload.loggedBy,
+    }).catch((e) => {
+      console.warn(`activities: failed to send guest email (${e.message})`);
+    });
+  });
+  return guestEmails.length;
+}
+
+function dispatchActivityNotifications({
+  assigneeUids,
+  title,
+  typeKey,
+  location,
+  start_at,
+  end_at,
+  projectName,
+  description,
+  loggedBy,
+  external_attendees,
+}) {
+  const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
+  uniqueUids.forEach((uid) => {
+    notifyActivityAssignee(uid, {
+      title,
+      typeKey,
+      location,
+      start_at,
+      end_at,
+      projectName,
+      description,
+      loggedBy,
+    });
+  });
+  notifyActivityGuests(external_attendees, {
+    title,
+    typeKey,
+    location,
+    start_at,
+    end_at,
+    projectName,
+    description,
+    loggedBy,
+  });
 }
 
 activitiesRouter.get('/', async (req, res) => {
@@ -142,6 +215,221 @@ activitiesRouter.get('/', async (req, res) => {
   res.json(rows);
 });
 
+function listActivitiesInRange(from, to) {
+  const range = parseActivityRangeFilter(from, to);
+  let rows = store.activities.map((a) => {
+    const project = store.projects.find((p) => p.id === a.project_id);
+    return {
+      ...a,
+      type: normalizeActivityType(a.type),
+      person_name: activityPersonName(a.person_id),
+      external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
+      project_name: project?.name,
+    };
+  });
+  if (range) {
+    const { fromMs, toExclusive } = range;
+    rows = rows.filter((r) => {
+      const s = new Date(r.start_at).getTime();
+      const e = new Date(r.end_at).getTime();
+      return s < toExclusive && e > fromMs;
+    });
+  }
+  rows.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+  return rows;
+}
+
+function periodLabelFromRange(fromRaw, toRaw) {
+  const fromStr = String(fromRaw || '').trim();
+  const toStr = String(toRaw || '').trim();
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+  if (dateOnly.test(fromStr) && dateOnly.test(toStr)) {
+    const [fy, fm, fd] = fromStr.split('-').map(Number);
+    const [ty, tm, td] = toStr.split('-').map(Number);
+    const fromD = new Date(fy, fm - 1, fd);
+    const toD = new Date(ty, tm - 1, td);
+    const sameMonth = fy === ty && fm === tm;
+    if (sameMonth && fd === 1 && td === new Date(ty, tm, 0).getDate()) {
+      return fromD.toLocaleDateString('en-MY', { month: 'long', year: 'numeric' });
+    }
+    return `${fromD.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })} – ${toD.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  }
+  return `${fromStr} – ${toStr}`;
+}
+
+activitiesRouter.get('/mail-status', (req, res) => {
+  res.json({ smtp_configured: isMailerConfigured() });
+});
+
+activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, (req, res) => {
+  const from = req.query.from;
+  const to = req.query.to;
+  const mode = String(req.query.mode || 'team');
+  const customEmails = String(req.query.emails || '')
+    .split(/[,;]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const message = String(req.query.message || '').trim();
+
+  if (!from || !to) {
+    return res.status(400).json({ error: 'from and to query parameters are required' });
+  }
+
+  const rawRows = listActivitiesInRange(from, to);
+  const scheduleRows = groupActivitiesForScheduleEmail(rawRows);
+  const periodLabel = periodLabelFromRange(from, to);
+  const orgName = store.getSettings()?.org_display_name || 'PMO CTSB';
+  const sentBy = req.user?.name || req.user?.email || '';
+
+  const { html, text, subject } = buildTeamScheduleEmail({
+    recipientName: 'Team',
+    periodLabel,
+    activities: scheduleRows,
+    customMessage: message || undefined,
+    sentBy,
+    orgName,
+  });
+
+  const recipients = resolveScheduleRecipients(store, {
+    mode,
+    customEmails,
+    activityRows: scheduleRows,
+  });
+
+  res.json({
+    smtp_configured: isMailerConfigured(),
+    subject,
+    html,
+    text,
+    period_label: periodLabel,
+    activity_count: scheduleRows.length,
+    recipient_count: recipients.length,
+    recipients,
+  });
+});
+
+activitiesRouter.post('/schedule-email/send', requireCalendarEditor, async (req, res) => {
+  if (!isMailerConfigured()) {
+    return res.status(503).json({ error: 'SMTP is not configured on the server. Ask an admin to set SMTP_* in .env.' });
+  }
+
+  const { from, to, mode = 'team', emails = [], message } = req.body || {};
+  if (!from || !to) {
+    return res.status(400).json({ error: 'from and to are required' });
+  }
+
+  const rawRows = listActivitiesInRange(from, to);
+  const scheduleRows = groupActivitiesForScheduleEmail(rawRows);
+  const periodLabel = periodLabelFromRange(from, to);
+  const sentBy = req.user?.name || req.user?.email || '';
+  const customEmails = Array.isArray(emails) ? emails : String(emails || '').split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+
+  const recipients = resolveScheduleRecipients(store, {
+    mode: String(mode),
+    customEmails,
+    activityRows: scheduleRows,
+  });
+
+  if (!recipients.length) {
+    return res.status(400).json({
+      error: 'No recipient emails found. Add emails on Team, or choose custom recipients.',
+    });
+  }
+
+  const results = { sent: 0, failed: 0, recipients: [] };
+  for (const toEmail of recipients) {
+    const person =
+      store.people.find((p) => String(p.email || '').trim().toLowerCase() === toEmail) ||
+      store.users.find((u) => String(u.email || '').trim().toLowerCase() === toEmail);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await sendTeamScheduleEmail({
+        to: toEmail,
+        recipientName: person?.name || toEmail.split('@')[0],
+        periodLabel,
+        activities: scheduleRows,
+        customMessage: message || undefined,
+        sentBy,
+      });
+      if (r.sent) {
+        results.sent += 1;
+        results.recipients.push({ email: toEmail, status: 'sent' });
+      } else {
+        results.failed += 1;
+        results.recipients.push({ email: toEmail, status: 'skipped', reason: r.reason });
+      }
+    } catch (e) {
+      results.failed += 1;
+      results.recipients.push({ email: toEmail, status: 'failed', reason: e.message });
+    }
+  }
+
+  store.appendAuditLog(req.user, {
+    action: 'email',
+    target_type: 'activity_schedule',
+    target_id: null,
+    summary: `Emailed team schedule (${periodLabel}) to ${results.sent} recipient(s)`,
+    detail: {
+      period_label: periodLabel,
+      activity_count: scheduleRows.length,
+      mode,
+      sent: results.sent,
+      failed: results.failed,
+    },
+  });
+
+  res.json({
+    ok: true,
+    period_label: periodLabel,
+    activity_count: scheduleRows.length,
+    ...results,
+  });
+});
+
+activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => {
+  if (!isMailerConfigured()) {
+    return res.status(503).json({ error: 'SMTP is not configured on the server.' });
+  }
+  try {
+    await store.refreshActivitiesFromSupabase();
+  } catch (e) {
+    console.warn('activities notify: could not refresh from Supabase', e?.message || e);
+  }
+  const id = +req.params.id;
+  const existing = store.activities.find((a) => a.id === id);
+  if (!existing) return res.status(404).json({ error: 'Activity not found' });
+
+  const groupIds = idsInSameLogicalGroup(store.activities, id);
+  const groupRows = groupIds
+    .map((gid) => store.activities.find((a) => a.id === gid))
+    .filter(Boolean);
+  const project = store.projects.find((p) => p.id === existing.project_id);
+  const loggedBy = req.user?.name || req.user?.email || '';
+  const typeKey = normalizeActivityType(existing.type);
+  const ext = String(existing.external_attendees || '').trim();
+  dispatchActivityNotifications({
+    assigneeUids: groupRows.map((row) => row.person_id),
+    title: existing.title,
+    typeKey,
+    location: existing.location,
+    start_at: existing.start_at,
+    end_at: existing.end_at,
+    projectName: project?.name || null,
+    description: existing.description,
+    loggedBy,
+    external_attendees: ext,
+  });
+
+  const assigneeCount = new Set(groupRows.map((row) => row.person_id).filter(Boolean)).size;
+  const guestCount = extractEmailsFromText(ext).length;
+
+  res.json({
+    ok: true,
+    notified: assigneeCount + guestCount,
+    smtp_configured: true,
+  });
+});
+
 activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   const {
     person_id,
@@ -154,6 +442,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
     start_at,
     end_at,
     external_attendees: externalRaw,
+    notify_email: notifyEmailRaw,
   } = req.body;
   const external_attendees = normalizeExternalAttendees(externalRaw);
 
@@ -251,19 +540,21 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
-  created.forEach((a) => {
-    if (a.person_id != null) {
-      notifyActivityAssignee(a.person_id, {
-        title,
-        typeKey: normalizedType,
-        location: loc,
-        start_at,
-        end_at,
-        projectName: project?.name || null,
-        loggedBy,
-      });
-    }
-  });
+  const shouldNotify = notifyEmailRaw !== false;
+  if (shouldNotify) {
+    dispatchActivityNotifications({
+      assigneeUids: created.map((a) => a.person_id),
+      title,
+      typeKey: normalizedType,
+      location: loc,
+      start_at,
+      end_at,
+      projectName: project?.name || null,
+      description: description || null,
+      loggedBy,
+      external_attendees,
+    });
+  }
 
   const responseRows = created.map((a) => ({
     ...a,
@@ -293,6 +584,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     start_at,
     end_at,
     external_attendees: externalRaw,
+    notify_email: notifyEmailRaw,
   } = req.body;
   const id = +req.params.id;
   const existing = store.activities.find(a => a.id === id);
@@ -345,6 +637,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
+  const shouldNotify = notifyEmailRaw !== false;
   const activityGroupId = existing.activity_group_id || crypto.randomUUID();
   const previousGroupIds = idsInSameLogicalGroup(store.activities, id);
   await store.deleteActivityLogicalGroupByAnyMemberId(id);
@@ -367,14 +660,20 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     });
     const row = store.activities.find(x => x.id === newId);
     createdRows.push(row);
-    notifyActivityAssignee(uid, {
+  }
+
+  if (shouldNotify) {
+    dispatchActivityNotifications({
+      assigneeUids: uniqueUids,
       title: nextTitle,
       typeKey: nextType,
       location: nextLocation,
       start_at: nextStart,
       end_at: nextEnd,
       projectName: project?.name || null,
+      description: nextDescription || null,
       loggedBy,
+      external_attendees: extForRow,
     });
   }
 

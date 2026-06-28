@@ -1,87 +1,112 @@
 # PMO CTSB – Project & Resource Management
 
-A system to manage projects, assign teams, and see workload and availability so you can decide who is free to take on new project work when using the same people across many projects.
+Government and PBT-style **project portfolio management**: delivery workspaces, work packages, backlog, helpdesk, finance by phase, team workload, and personal **My work** queues.
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[System Workflow Guide](docs/PMO-CTSB-System-Workflow.md)** | Full end-to-end flow: Helpdesk → Backlog → Tasks, roles, notifications, linking |
+| **[System Workflow (PDF)](docs/PMO-CTSB-System-Workflow.pdf)** | Same guide as printable PDF — run `npm run docs:workflow-pdf` to regenerate |
+| [Team Presentation (PDF)](docs/PMO-CTSB-Team-Presentation.pdf) | Slide deck for stakeholders |
+| [Screenshot Tour (PDF)](docs/PMO-CTSB-Screenshot-Tour.pdf) | UI walkthrough with screenshots |
 
 ## Features
 
-- **Projects** – Create and manage projects (name, description, status, dates).
-- **Team** – Add people (name, email, role). View each person’s projects and recent activities.
-- **Assign team to projects** – From a project, assign team members with a role and allocation % (e.g. 80% on Project A, 20% on Project B).
-- **Activities** – Log activities per person: **meetings**, **tasks**, or **other** (title, description, start/end). These drive workload and availability.
-- **Workload & availability** – See for each person:
-  - Which projects they’re on and total allocation %.
-  - How many activities (and hours) they have in a date range.
-  - **Availability %** = 100% minus total allocation (over 100% = overloaded).
-- **Check availability** – Before assigning someone to another project, use “Check availability” to see their current projects, allocation, and activities in a period so you know if they’re available.
+| Module | Capability |
+|--------|------------|
+| **Projects** | Engagement types (Contract, LO, PO…), health KPIs, grid/list portfolio |
+| **Work packages** | Multiple delivery scopes per project (dev, API, migration…) |
+| **Backlog** | Scope items, promote from helpdesk, link to tasks |
+| **Helpdesk** | Issues, assignees, in-app + email notifications, promote to backlog |
+| **Delivery** | Phase templates (URS, UAT, maintenance…), payment milestones |
+| **Finance** | Ready to bill, invoiced, paid & claimed, maintenance renewal follow-up |
+| **My work** | Personal tasks, backlog, helpdesk, today's schedule |
+| **Team & calendar** | People, assignments, activities, availability |
+| **Reports** | Portfolio health, exports |
 
-## Quick start (single project root)
-
-From the repository root:
+## Quick start (local)
 
 ```bash
 npm install
+npm run seed:demo   # optional rich demo (v9+ — includes bulk volume data)
 npm run dev
 ```
 
-- Frontend runs at `http://localhost:5173`
-- Backend runs at `http://localhost:3001`
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:3001`
 
-For a single-process local run (backend serves built frontend):
+Demo accounts (after `seed:demo`):
+
+| Email | Password | Role |
+|-------|----------|------|
+| admin@pmo.local | admin123 | Admin |
+| pmo@pmo.local | pmo123 | PMO |
+| finance@pmo.local | finance123 | Finance |
+| ahmadrizal@company.com | user123 | Team member |
+
+Single-process local run:
 
 ```bash
 npm start
 ```
 
-Then open `http://localhost:3001`.
-Demo data (projects, people, assignments, activities) is created on first run.
+Uses `ALLOW_LOCAL_STORE=1` for JSON file store without Supabase.
 
-## Usage flow
+## Database (Supabase production)
 
-1. **Team** – Add your people (or use the seeded demo team).
-2. **Projects** – Create projects and open a project to **assign team members** (role + allocation %).
-3. **Activities** – Log meetings and other activities for each person so the system knows their real workload.
-4. **Workload & Availability** – Use this page to see who has capacity and to **check** a person before assigning them to another project.
-
-For local run, the root scripts automatically use `ALLOW_LOCAL_STORE=1` so you can run without Supabase credentials.
-
-## Deploy to Vercel
-
-1. Push this repository to GitHub.
-2. In Vercel, click **Add New Project** and import the repo.
-3. Vercel reads `vercel.json` automatically (`vite` frontend + serverless `/api`).
-4. Set environment variables in Vercel Project Settings:
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - Optional for assignment email notifications:
-     - `SMTP_HOST`
-     - `SMTP_PORT` (e.g. `587`)
-     - `SMTP_USER`
-     - `SMTP_PASS`
-     - `SMTP_FROM` (sender email)
-     - `SMTP_SECURE` (`true` for SMTPS/465, otherwise `false`)
-5. Deploy.
-
-After deploy:
-- Frontend is served from `/`
-- Backend API is served from `/api/*`
-
-## Database schema (Supabase)
-
-The app expects **`client_contacts`** (PICs per company) and **`project_clients`** (many clients per project). Vercel deploy does not change the database automatically.
-
-**Option A — SQL Editor (recommended)**
-
-1. Open Supabase → **SQL Editor**.
-2. Paste and run the full script: [`supabase/push_schema_updates.sql`](supabase/push_schema_updates.sql)  
-   (Idempotent: safe to run again if already partially applied.)
-
-**Option B — CLI from your machine**
-
-1. In `.env`, set `SUPABASE_DB_URL` to the Postgres URI from Supabase → **Settings** → **Database** → Connection string (Session pooler).
-2. Run:
+The app needs **all** migrations applied. From the repo root:
 
 ```bash
-npm install
+# .env: SUPABASE_DB_URL=postgresql://postgres.[ref]:[PASSWORD]@...pooler.supabase.com:6543/postgres
 npm run db:migrate
 npm run db:verify
 ```
+
+`db:migrate` runs `push_schema_updates.sql` plus every file in `supabase/migrations/` in order, including:
+
+- `issues_app`, `notifications_app`
+- `backlogs_app`, `project_phases_app`
+- `project_work_packages_app`, `engagement_type` on projects
+
+Also set in production:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- Optional SMTP for email notifications (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`)
+
+Test email: `npm run email:test`
+
+## Deep links
+
+- Project workspace tabs: `/projects/1?tab=tasks` (tasks, backlog, delivery, packages, …)
+- Helpdesk issue detail: `/helpdesk?issue=3`
+- Notifications link directly to these URLs
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Dev server + API with hot reload |
+| `npm run build` | Production frontend build |
+| `npm run test` | Unit tests (Vitest) |
+| `npm run seed:demo` | Load demo portfolio |
+| `npm run db:migrate` | Apply all SQL migrations |
+| `npm run db:verify` | Verify schema |
+
+## Deploy to Vercel
+
+1. Import repo in Vercel (`vercel.json` configures API + static).
+2. Set env vars (Supabase + optional SMTP).
+3. Run `npm run db:migrate` against production DB **before** first use.
+4. Deploy.
+
+## Architecture
+
+- **Frontend:** React + Vite (`src/`)
+- **API:** Express (`server.js`, `routes/`)
+- **Store:** Local JSON (`db/data.json`) when `ALLOW_LOCAL_STORE=1`, else Supabase via `db/store.js`
+
+## CI
+
+GitHub Actions runs `npm test` and `npm run build` on push/PR (`.github/workflows/ci.yml`).

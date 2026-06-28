@@ -3,7 +3,9 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ThemeProvider } from './ThemeContext';
 import { AuthProvider } from './AuthContext';
+import { BrandingProvider } from './context/BrandingContext';
 import './index.css';
+import './styles/auth.css';
 
 class ErrorBoundary extends React.Component {
   state = { error: null };
@@ -42,11 +44,13 @@ class ErrorBoundary extends React.Component {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ThemeProvider>
-      <AuthProvider>
-        <ErrorBoundary>
-          <App />
-        </ErrorBoundary>
-      </AuthProvider>
+      <BrandingProvider>
+        <AuthProvider>
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
+        </AuthProvider>
+      </BrandingProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

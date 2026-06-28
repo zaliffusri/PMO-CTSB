@@ -1,221 +1,526 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { btnPrimary, btnSecondary, card, inputStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
-import ClientMultiSelect from '../components/ClientMultiSelect';
+import { useAuth } from '../AuthContext';
+import { canCreateProject } from '../../lib/permissions.js';
+import PageHeader from '../components/PageHeader';
+import ProjectCreateModal from '../components/ProjectCreateModal';
+import ProjectsPortfolioCharts from '../components/ProjectsPortfolioCharts';
+import UiEmptyState from '../components/UiEmptyState';
+import PageLoadingState from '../components/PageLoadingState';
+import DataPanel from '../components/DataPanel';
+import {
+  PROJECT_ENGAGEMENT_TYPES,
+  engagementTypeLabel,
+  deliveryScopeLabel,
+} from '../../lib/projectConstants.js';
+import {
+  enrichProjectsWithHealth,
+  portfolioSummary,
+  healthLabel,
+  formatProjectDate,
+  deadlineSummary,
+  progressColor,
+} from '../../lib/pmoMetrics.js';
 
-const PROJECT_CLASSIFICATION_OPTIONS = [
-  'Pre-Sales Project',
-  'Project Based',
-  'Support & Services',
-  'Additional Scope',
+const STATUS_FILTERS = [
+  { id: 'active', label: 'Active' },
+  { id: 'all', label: 'All' },
+  { id: 'on-hold', label: 'On hold' },
+  { id: 'completed', label: 'Completed' },
 ];
 
+const HEALTH_FILTERS = [
+  { id: 'all', label: 'All health' },
+  { id: 'on_track', label: 'On track' },
+  { id: 'at_risk', label: 'At risk' },
+  { id: 'blocked', label: 'Blocked' },
+];
+
+const SORT_OPTIONS = [
+  { id: 'health', label: 'Health priority' },
+  { id: 'progress', label: 'Progress' },
+  { id: 'due', label: 'Due date' },
+  { id: 'name', label: 'Name' },
+];
+
+const HEALTH_ORDER = { blocked: 0, at_risk: 1, on_track: 2 };
+
+function ProjectProgress({ progress, health }) {
+  return (
+    <div className="project-progress">
+      <div className="pmo-progress-bar" aria-hidden>
+        <div
+          className="pmo-progress-fill"
+          style={{ width: `${progress || 0}%`, background: progressColor(health) }}
+        />
+      </div>
+      <span className="project-progress__value">{progress || 0}%</span>
+    </div>
+  );
+}
+
+function ProjectCard({ project: p, highlight = false }) {
+  const deadline = deadlineSummary(p.end_date, p.status);
+
+  return (
+    <article
+      id={`project-card-${p.id}`}
+      className={`project-card ui-card project-card--${p.health || 'on_track'} ${highlight ? 'project-card--spotlight' : ''}`}
+    >
+      <Link to={`/projects/${p.id}`} className="project-card__cover-link" aria-hidden={!p.cover_image_url}>
+        {p.cover_image_url ? (
+          <div className="project-card__cover" style={{ backgroundImage: `url(${p.cover_image_url})` }}>
+            <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
+          </div>
+        ) : (
+          <div className="project-card__cover project-card__cover--placeholder">
+            <span className="project-card__initial">{p.name.charAt(0).toUpperCase()}</span>
+            <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
+          </div>
+        )}
+      </Link>
+      <div className="project-card__body">
+        <div className="project-card__head">
+          <Link to={`/projects/${p.id}`} className="project-card__title">{p.name}</Link>
+          <span className={`dashboard-badge dashboard-badge-${p.status}`}>{p.status}</span>
+        </div>
+        {(p.engagement_type || p.classification) && (
+          <span className="project-card__classification">
+            {p.engagement_type ? engagementTypeLabel(p.engagement_type) : deliveryScopeLabel(p.classification)}
+          </span>
+        )}
+        {p.description && <p className="project-card__desc">{p.description}</p>}
+        <ProjectProgress progress={p.progress} health={p.health} />
+        <div className="project-card__stats">
+          <div className="project-card__stat">
+            <span className="project-card__stat-value">{p.taskCount ?? 0}</span>
+            <span className="project-card__stat-label">Tasks</span>
+          </div>
+          <div className={`project-card__stat ${p.overdueTasks ? 'project-card__stat--warn' : ''}`}>
+            <span className="project-card__stat-value">{p.overdueTasks ?? 0}</span>
+            <span className="project-card__stat-label">Overdue</span>
+          </div>
+          <div className="project-card__stat">
+            <span className="project-card__stat-value">{p.member_count ?? 0}</span>
+            <span className="project-card__stat-label">Team</span>
+          </div>
+        </div>
+        <p className="project-card__meta">
+          {p.client_name && <span className="project-card__client">{p.client_name}</span>}
+          {(p.start_date || p.end_date) && (
+            <span className="project-card__dates">
+              {formatProjectDate(p.start_date) || '—'} → {formatProjectDate(p.end_date) || 'Open'}
+            </span>
+          )}
+        </p>
+        {deadline && (
+          <span className={`project-deadline project-deadline--${deadline.tone}`}>{deadline.label}</span>
+        )}
+      </div>
+      <div className="project-card__footer">
+        <Link to={`/projects/${p.id}`} className="btn btn-primary btn-sm project-card__cta">Open workspace</Link>
+        <Link to={`/gantt`} className="btn btn-secondary btn-sm">Timeline</Link>
+      </div>
+    </article>
+  );
+}
+
 export default function Projects() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const mayCreate = canCreateProject(user);
   const [projects, setProjects] = useState([]);
-  const [allTags, setAllTags] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [filterTag, setFilterTag] = useState('');
-  const [form, setForm] = useState({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_ids: [], tags: [] });
-  const [tagInput, setTagInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');
+  const [healthFilter, setHealthFilter] = useState('all');
+  const [engagementTypeFilter, setEngagementTypeFilter] = useState('');
+  const [sortBy, setSortBy] = useState('health');
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('pmo-projects-view') || 'grid');
+  const [spotlightId, setSpotlightId] = useState(null);
   const { pending: saving, run } = useSubmitLock();
 
-  const load = () => api.projects.list(filterTag ? { tag: filterTag } : {}).then(setProjects).catch(console.error).finally(() => setLoading(false));
-
-  useEffect(() => {
-    load();
-  }, [filterTag]);
-
-  useEffect(() => {
-    api.projects.tagsList().then(setAllTags).catch(console.error);
-    api.clients.list().then(setClients).catch(console.error);
-  }, []);
-
-  const addFormTag = (tag) => {
-    const t = typeof tag === 'string' ? tag.trim() : tag;
-    if (!t || form.tags.includes(t)) return;
-    setForm(f => ({ ...f, tags: [...f.tags, t] }));
-    if (typeof tag === 'string') setTagInput('');
+  const load = () => {
+    setLoading(true);
+    Promise.all([api.projects.list(), api.projectTasks.list()])
+      .then(([pr, tk]) => {
+        setProjects(pr);
+        setTasks(tk);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   };
 
-  const removeFormTag = (t) => setForm(f => ({ ...f, tags: f.tags.filter(x => x !== t) }));
+  useEffect(() => { load(); }, []);
+  useEffect(() => { api.clients.list().then(setClients).catch(console.error); }, []);
 
-  const formTagsAvailable = (allTags || []).filter(t => !(form.tags || []).includes(t));
+  const enriched = useMemo(() => enrichProjectsWithHealth(projects, tasks), [projects, tasks]);
+  const summary = useMemo(() => portfolioSummary(enriched), [enriched]);
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const filtered = useMemo(() => {
+    let list = enriched;
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter((p) =>
+        p.name.toLowerCase().includes(q)
+        || (p.client_name || '').toLowerCase().includes(q)
+        || engagementTypeLabel(p.engagement_type).toLowerCase().includes(q)
+        || (p.classification || '').toLowerCase().includes(q),
+      );
+    }
+    if (statusFilter === 'active') list = list.filter((p) => p.status === 'active');
+    else if (statusFilter !== 'all') list = list.filter((p) => p.status === statusFilter);
+    if (healthFilter !== 'all') list = list.filter((p) => p.health === healthFilter);
+    if (engagementTypeFilter) list = list.filter((p) => p.engagement_type === engagementTypeFilter);
+
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      if (sortBy === 'progress') return (b.progress || 0) - (a.progress || 0);
+      if (sortBy === 'due') {
+        if (!a.end_date && !b.end_date) return 0;
+        if (!a.end_date) return 1;
+        if (!b.end_date) return -1;
+        return String(a.end_date).localeCompare(String(b.end_date));
+      }
+      const ha = HEALTH_ORDER[a.health] ?? 9;
+      const hb = HEALTH_ORDER[b.health] ?? 9;
+      if (ha !== hb) return ha - hb;
+      return (b.overdueTasks || 0) - (a.overdueTasks || 0);
+    });
+    return sorted;
+  }, [enriched, search, statusFilter, healthFilter, engagementTypeFilter, sortBy]);
+
+  const handleChartDrillDown = useCallback((payload) => {
+    if (payload?.clear) {
+      setHealthFilter('all');
+      setStatusFilter('active');
+      setEngagementTypeFilter('');
+      setSpotlightId(null);
+      return;
+    }
+    if (payload.health) {
+      setHealthFilter(payload.health);
+      setStatusFilter('active');
+    }
+    if (payload.status) {
+      setStatusFilter(payload.status);
+    }
+    if (payload.engagementType !== undefined) {
+      setEngagementTypeFilter(payload.engagementType);
+    }
+    if (payload.projectId) {
+      const pid = +payload.projectId;
+      setSpotlightId(pid);
+      window.setTimeout(() => {
+        document.getElementById(`project-card-${pid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.querySelector(`tr[data-project-id="${pid}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 80);
+    }
+  }, []);
+
+  const setView = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('pmo-projects-view', mode);
+  };
+
+  const hasActiveFilters = Boolean(
+    search.trim()
+    || statusFilter !== 'active'
+    || healthFilter !== 'all'
+    || engagementTypeFilter,
+  );
+
+  const resetFilters = () => {
+    setSearch('');
+    setStatusFilter('active');
+    setHealthFilter('all');
+    setEngagementTypeFilter('');
+    setSpotlightId(null);
+  };
+
+  const submit = async (form) => {
     if (!form.name.trim()) return;
     await run(async () => {
       try {
-        await api.projects.create({ ...form, client_ids: form.client_ids, tags: form.tags });
-        setForm({ name: '', description: '', classification: '', status: 'active', start_date: '', end_date: '', client_ids: [], tags: [] });
-        setTagInput('');
+        const created = await api.projects.create({ ...form, client_ids: form.client_ids });
         setShowForm(false);
         load();
-        api.projects.tagsList().then(setAllTags).catch(console.error);
+        navigate(`/projects/${created.id}`);
       } catch (err) {
         alert(err.message);
       }
     });
   };
 
-  if (loading) return <div style={{ padding: '2rem' }}>Loading...</div>;
+  if (loading) {
+    return <PageLoadingState message="Loading portfolio…" />;
+  }
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1>Projects</h1>
-          <p style={{ color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>Create and manage projects. Use tags to group projects.</p>
-        </div>
-        <div className="page-header-actions">
-          <button type="button" onClick={() => setShowForm(!showForm)} style={btnPrimary}>
+    <div className="page-module projects-page">
+      <PageHeader
+        eyebrow="Delivery"
+        title="Projects"
+        badge={`${summary.activeProjects} active`}
+        subtitle="Portfolio health, deadlines, and team coverage — open a workspace to manage tasks and people."
+        actions={mayCreate ? (
+          <button type="button" className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
             {showForm ? 'Cancel' : '+ New project'}
           </button>
+        ) : null}
+      />
+
+      <section className="dashboard-stats kpi-strip projects-kpis" aria-label="Portfolio summary">
+        <button type="button" className="dashboard-stat-card dashboard-stat-card--clickable" onClick={() => handleChartDrillDown({ clear: true })}>
+          <span className="dashboard-stat-label">Total</span>
+          <span className="dashboard-stat-value">{summary.totalProjects}</span>
+          <span className="dashboard-stat-hint">All projects</span>
+        </button>
+        <button
+          type="button"
+          className="dashboard-stat-card dashboard-stat-card--clickable"
+          onClick={() => handleChartDrillDown({ health: 'on_track', status: 'active' })}
+        >
+          <span className="dashboard-stat-label">On track</span>
+          <span className="dashboard-stat-value pmo-stat-success">{summary.onTrack}</span>
+          <span className="dashboard-stat-hint">Healthy delivery</span>
+        </button>
+        <button
+          type="button"
+          className="dashboard-stat-card dashboard-stat-card--clickable"
+          onClick={() => handleChartDrillDown({ health: 'at_risk', status: 'active' })}
+        >
+          <span className="dashboard-stat-label">At risk</span>
+          <span className={`dashboard-stat-value ${summary.atRisk ? 'pmo-stat-warning' : ''}`}>{summary.atRisk}</span>
+          <span className="dashboard-stat-hint">Review soon</span>
+        </button>
+        <button
+          type="button"
+          className="dashboard-stat-card dashboard-stat-card--clickable"
+          onClick={() => handleChartDrillDown({ health: 'blocked', status: 'active' })}
+        >
+          <span className="dashboard-stat-label">Blocked</span>
+          <span className={`dashboard-stat-value ${summary.blocked ? 'pmo-stat-danger' : ''}`}>{summary.blocked}</span>
+          <span className="dashboard-stat-hint">Stalled work</span>
+        </button>
+        <div className="dashboard-stat-card dashboard-stat-card--hide-sm">
+          <span className="dashboard-stat-label">Avg completion</span>
+          <span className="dashboard-stat-value">{summary.avgCompletion}%</span>
+          <span className="dashboard-stat-hint">Active projects</span>
         </div>
+      </section>
+
+      <ProjectsPortfolioCharts
+        enriched={enriched}
+        summary={summary}
+        onDrillDown={handleChartDrillDown}
+        activeHealth={healthFilter}
+        activeStatus={statusFilter}
+        activeEngagement={engagementTypeFilter}
+        spotlightProjectId={spotlightId}
+      />
+
+      <div className="card section-card module-filter-card helpdesk-toolbar-card projects-toolbar-card">
+        <div className="module-toolbar helpdesk-toolbar helpdesk-toolbar--compact projects-toolbar--compact">
+          <label className="module-toolbar__field module-toolbar__field--grow">
+            <span className="module-toolbar__label">Search</span>
+            <input
+              type="search"
+              className="form-field__input helpdesk-filter-input"
+              placeholder="Project, client, engagement…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          <label className="module-toolbar__field">
+            <span className="module-toolbar__label">Status</span>
+            <select
+              className="form-field__input helpdesk-filter-input"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              {STATUS_FILTERS.map((f) => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="module-toolbar__field">
+            <span className="module-toolbar__label">Health</span>
+            <select
+              className="form-field__input helpdesk-filter-input"
+              value={healthFilter}
+              onChange={(e) => setHealthFilter(e.target.value)}
+            >
+              {HEALTH_FILTERS.map((f) => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="module-toolbar__field">
+            <span className="module-toolbar__label">Engagement</span>
+            <select
+              className="form-field__input helpdesk-filter-input"
+              value={engagementTypeFilter}
+              onChange={(e) => setEngagementTypeFilter(e.target.value)}
+            >
+              <option value="">All types</option>
+              {PROJECT_ENGAGEMENT_TYPES.map((t) => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="module-toolbar__field">
+            <span className="module-toolbar__label">Sort</span>
+            <select
+              className="form-field__input helpdesk-filter-input"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="module-toolbar__field module-toolbar__field--view">
+            <span className="module-toolbar__label">View</span>
+            <select
+              className="form-field__input helpdesk-filter-input"
+              value={viewMode}
+              onChange={(e) => setView(e.target.value)}
+            >
+              <option value="grid">Cards</option>
+              <option value="table">Table</option>
+            </select>
+          </label>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm helpdesk-filter-reset"
+              onClick={resetFilters}
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        <p className="helpdesk-filter-summary projects-results" aria-live="polite">
+          Showing {filtered.length} of {enriched.length} project{enriched.length === 1 ? '' : 's'}
+          {hasActiveFilters ? ' (filtered)' : ''}
+        </p>
       </div>
 
-      {allTags.length > 0 && (
-        <div style={{ ...card, marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-          <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginRight: '0.25rem' }}>Group by tag:</span>
-          <button type="button" onClick={() => setFilterTag('')} style={{ ...btnTag, ...(filterTag === '' ? btnTagActive : {}) }}>All</button>
-          {allTags.map(t => (
-            <button key={t} type="button" onClick={() => setFilterTag(t)} style={{ ...btnTag, ...(filterTag === t ? btnTagActive : {}) }}>{t}</button>
+      <ProjectCreateModal
+        open={showForm}
+        clients={clients}
+        saving={saving}
+        onClose={() => setShowForm(false)}
+        onSubmit={submit}
+      />
+
+      {filtered.length === 0 ? (
+        <DataPanel>
+          <UiEmptyState
+            title="No projects match"
+            description="Adjust filters or create a new project to get started."
+            action={
+              !showForm ? (
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
+                  + New project
+                </button>
+              ) : null
+            }
+          />
+        </DataPanel>
+      ) : viewMode === 'table' ? (
+        <div className="card section-card pmo-data-list-card pmo-data-list-card--fluid">
+          <div className="table-wrap pmo-data-list-wrap pmo-data-list-wrap--sticky pmo-data-list-wrap--comfortable">
+            <table className="pmo-data-list pmo-portfolio-table projects-table">
+              <colgroup>
+                <col className="col-primary" />
+                <col className="col-health" />
+                <col className="col-status" />
+                <col className="col-progress" />
+                <col className="col-narrow hide-mobile" />
+                <col className="col-narrow hide-mobile" />
+                <col className="col-narrow hide-mobile" />
+                <col className="col-package hide-mobile" />
+                <col className="col-dates" />
+                <col className="col-actions" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th className="pmo-data-list__col-primary">Project</th>
+                  <th>Health</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th className="hide-mobile">Tasks</th>
+                  <th className="hide-mobile">Overdue</th>
+                  <th className="hide-mobile">Team</th>
+                  <th className="hide-mobile">Client</th>
+                  <th>Due</th>
+                  <th className="table-actions-col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p) => {
+                  const deadline = deadlineSummary(p.end_date, p.status);
+                  const isSpotlight = spotlightId === p.id;
+                  return (
+                    <tr key={p.id} data-project-id={p.id} className={isSpotlight ? 'projects-table-row--spotlight' : ''}>
+                      <td className="pmo-data-list__primary">
+                        <Link to={`/projects/${p.id}`} className="pmo-link-strong">{p.name}</Link>
+                        {(p.engagement_type || p.classification) && (
+                          <div className="pmo-table-muted">
+                            {p.engagement_type ? engagementTypeLabel(p.engagement_type) : deliveryScopeLabel(p.classification)}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
+                      </td>
+                      <td><span className={`dashboard-badge dashboard-badge-${p.status}`}>{p.status}</span></td>
+                      <td>
+                        <div className="pmo-progress-cell">
+                          <div className="pmo-progress-bar" aria-hidden>
+                            <div className="pmo-progress-fill" style={{ width: `${p.progress || 0}%`, background: progressColor(p.health) }} />
+                          </div>
+                          <span>{p.progress || 0}%</span>
+                        </div>
+                      </td>
+                      <td className="hide-mobile">{p.taskCount ?? 0}</td>
+                      <td className={`hide-mobile ${p.overdueTasks ? 'pmo-stat-warning' : ''}`}>{p.overdueTasks ?? 0}</td>
+                      <td className="hide-mobile">{p.member_count ?? 0}</td>
+                      <td className="hide-mobile">{p.client_name || '—'}</td>
+                      <td>
+                        {deadline ? (
+                          <span className={`project-deadline project-deadline--${deadline.tone}`}>{deadline.label}</span>
+                        ) : (formatProjectDate(p.end_date) || '—')}
+                      </td>
+                      <td className="pmo-row-actions">
+                        <Link to={`/projects/${p.id}`} className="btn btn-secondary btn-sm">Open</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="pmo-data-list-footer pmo-data-list-footer--scroll-hint" aria-live="polite">
+            Showing {filtered.length} of {projects.length} projects
+          </p>
+        </div>
+      ) : (
+        <div className="project-grid">
+          {filtered.map((p) => (
+            <ProjectCard key={p.id} project={p} highlight={spotlightId === p.id} />
           ))}
         </div>
       )}
-
-      {showForm && (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="project-create-modal-title"
-          >
-            <div className="modal-dialog-header">
-              <h2 id="project-create-modal-title" className="modal-dialog-title">
-                New project
-              </h2>
-              <button type="button" className="modal-dialog-close" onClick={() => setShowForm(false)} aria-label="Close dialog">
-                ×
-              </button>
-            </div>
-            <form onSubmit={submit} style={{ display: 'grid', gap: '0.75rem' }}>
-              <label>
-                Name <span style={{ color: 'var(--danger)' }}>*</span>
-                <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required style={inputStyle} />
-              </label>
-              <label>
-                Description
-                <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} />
-              </label>
-              <label>
-                Classification
-                <select
-                  value={form.classification}
-                  onChange={e => setForm(f => ({ ...f, classification: e.target.value }))}
-                  style={inputStyle}
-                >
-                  <option value="">Select classification...</option>
-                  {PROJECT_CLASSIFICATION_OPTIONS.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Tags (to group projects)
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.25rem' }}>
-                  {(form.tags || []).map(t => (
-                    <span key={t} style={tagChip}>
-                      {t} <button type="button" onClick={() => removeFormTag(t)} aria-label="Remove" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 0 0 4px', fontSize: '1rem' }}>×</button>
-                    </span>
-                  ))}
-                  <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addFormTag(tagInput); } }} placeholder="Or type new tag, press Enter" style={{ ...inputStyle, width: 'auto', minWidth: 160, margin: 0 }} />
-                </div>
-                {formTagsAvailable.length > 0 && (
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Choose existing: </span>
-                    {formTagsAvailable.map(t => (
-                      <button key={t} type="button" onClick={() => addFormTag(t)} style={tagChipButton}>{t}</button>
-                    ))}
-                  </div>
-                )}
-              </label>
-              <label>
-                Clients (companies involved)
-                <ClientMultiSelect
-                  clients={clients}
-                  value={form.client_ids}
-                  onChange={(client_ids) => setForm((f) => ({ ...f, client_ids }))}
-                  idPrefix="project-create-client"
-                />
-              </label>
-              <label>
-                Status
-                <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inputStyle}>
-                  <option value="active">Active</option>
-                  <option value="on-hold">On hold</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </label>
-              <div className="form-row form-row-2">
-                <label>
-                  Start date
-                  <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} style={inputStyle} />
-                </label>
-                <label>
-                  End date
-                  <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} style={inputStyle} />
-                </label>
-              </div>
-              <div className="form-actions">
-                <button type="submit" style={btnPrimary} disabled={saving}>{saving ? 'Creating…' : 'Create'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        {projects.length === 0 && !showForm ? (
-          <div style={card}>
-            <p style={{ color: 'var(--text-muted)' }}>No projects. Click &quot;+ New project&quot; to create one.</p>
-          </div>
-        ) : (
-          projects.map(p => (
-            <div key={p.id} className="card-list-row" style={card}>
-              <div className="card-list-row__content">
-                <Link to={`/projects/${p.id}`} style={{ fontWeight: 600, fontSize: '1.05rem', color: 'inherit' }}>{p.name}</Link>
-                {(p.tags || []).length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.35rem' }}>
-                    {(p.tags || []).map(t => (
-                      <span key={t} style={tagChip} onClick={e => { e.preventDefault(); setFilterTag(t); }} title="Filter by this tag">{t}</span>
-                    ))}
-                  </div>
-                )}
-                {p.description && <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>{p.description}</p>}
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  {p.client_name && <span>{p.client_name} · </span>}
-                  {p.classification && <span>{p.classification} · </span>}
-                  {p.member_count} members · {p.status} {p.start_date && `· ${p.start_date} – ${p.end_date || '–'}`}
-                </p>
-              </div>
-              <div className="card-actions">
-                <Link to={`/projects/${p.id}`} style={btnSecondary}>View & assign team</Link>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }
-
-const btnTag = { padding: '0.35rem 0.65rem', background: 'var(--surface-hover)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' };
-const btnTagActive = { background: 'var(--accent)', color: 'white', borderColor: 'var(--accent)' };
-const tagChip = { display: 'inline-flex', alignItems: 'center', padding: '0.2rem 0.5rem', background: 'var(--surface-hover)', borderRadius: 6, fontSize: '0.8rem', color: 'var(--text-muted)' };
-const tagChipButton = { display: 'inline-flex', alignItems: 'center', padding: '0.25rem 0.5rem', margin: '0 0.25rem 0.25rem 0', background: 'var(--surface-hover)', border: '1px solid var(--border)', borderRadius: 6, fontSize: '0.8rem', color: 'var(--accent)', cursor: 'pointer' };

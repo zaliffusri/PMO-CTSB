@@ -1,21 +1,46 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
 import { normalizeTaskStatus } from '../lib/taskStatus.js';
+import { notifyPersonInApp, emailForPerson } from '../lib/notifyUser.js';
+import { sendTaskAssignedEmail } from '../lib/mailer.js';
+import { parseHoursInput } from '../lib/hoursUtils.js';
 
 export const projectTasksRouter = Router();
+
+function rollupGroupHours(groupId) {
+  const kids = store.project_tasks.filter(
+    (t) => t.parent_id === groupId && t.task_kind !== 'group',
+  );
+  const estimated = kids.reduce((s, t) => s + (Number(t.estimated_hours) || 0), 0);
+  const actual = kids.reduce((s, t) => s + (Number(t.actual_hours) || 0), 0);
+  return {
+    estimated_hours: estimated > 0 ? Math.round(estimated * 100) / 100 : null,
+    actual_hours: actual > 0 ? Math.round(actual * 100) / 100 : null,
+  };
+}
 
 function withTaskMeta(t) {
   const project = store.projects.find(p => p.id === t.project_id);
   const assignee = t.assignee_id != null ? store.people.find(p => p.id === t.assignee_id) : null;
   const task_kind = t.task_kind === 'group' ? 'group' : 'task';
   const parent = t.parent_id != null ? store.project_tasks.find(p => p.id === t.parent_id) : null;
+  const wp = t.work_package_id
+    ? (store.work_packages || []).find((w) => w.id === t.work_package_id)
+    : null;
+  const hours = task_kind === 'group' ? rollupGroupHours(t.id) : {
+    estimated_hours: t.estimated_hours ?? null,
+    actual_hours: t.actual_hours ?? null,
+  };
   return {
     ...t,
+    ...hours,
     task_kind,
     status: normalizeTaskStatus(t),
     project_name: project?.name,
     assignee_name: assignee?.name ?? null,
     parent_name: parent?.name ?? null,
+    work_package_name: wp?.name ?? null,
+    work_package_classification: wp?.classification ?? null,
   };
 }
 
@@ -49,8 +74,10 @@ function applySort(tasks) {
 
 projectTasksRouter.get('/', (req, res) => {
   const projectId = req.query.project_id ? +req.query.project_id : null;
+  const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
   let tasks = store.project_tasks.map(t => withTaskMeta(t));
   if (projectId) tasks = tasks.filter(t => t.project_id === projectId);
+  if (workPackageId) tasks = tasks.filter((t) => t.work_package_id === workPackageId);
   tasks = applySort(tasks);
   res.json(tasks);
 });
@@ -89,6 +116,9 @@ projectTasksRouter.post('/', (req, res) => {
     assignee_id,
     parent_id,
     task_kind: bodyKind,
+    work_package_id,
+    estimated_hours,
+    actual_hours,
   } = req.body;
   if (!project_id || !name) return res.status(400).json({ error: 'project_id and name are required' });
   const task_kind = bodyKind === 'group' ? 'group' : 'task';
@@ -133,6 +163,9 @@ projectTasksRouter.post('/', (req, res) => {
     assignee_id: aid,
     parent_id: pid,
     task_kind,
+    work_package_id: work_package_id != null && work_package_id !== '' ? +work_package_id : null,
+    estimated_hours: task_kind === 'group' ? null : parseHoursInput(estimated_hours),
+    actual_hours: task_kind === 'group' ? null : parseHoursInput(actual_hours),
   });
   const task = store.project_tasks.find(t => t.id === id);
   const proj = store.projects.find((p) => p.id === task.project_id);
@@ -142,6 +175,27 @@ projectTasksRouter.post('/', (req, res) => {
     target_id: id,
     summary: `Created ${task_kind === 'group' ? 'task group' : 'task'} "${name}" in "${proj?.name || task.project_id}"`,
   });
+  if (aid != null && task_kind !== 'group') {
+    const person = store.people.find((p) => p.id === aid);
+    notifyPersonInApp(aid, {
+      type: 'task_assigned',
+      title: `New task: ${name}`,
+      body: proj?.name || '',
+      link: `/projects/${task.project_id}?tab=tasks`,
+      entity_type: 'project_task',
+      entity_id: id,
+    });
+    const to = emailForPerson(person);
+    if (to) {
+      sendTaskAssignedEmail({
+        to,
+        personName: person?.name,
+        taskName: name,
+        projectName: proj?.name,
+        assignedBy: req.user.name,
+      }).catch((e) => console.warn('task email:', e.message));
+    }
+  }
   res.status(201).json(withTaskMeta(task));
 });
 
@@ -201,7 +255,16 @@ projectTasksRouter.put('/:id', (req, res) => {
     sort_order,
     status,
     assignee_id,
+    estimated_hours,
+    actual_hours,
   } = req.body;
+
+  let nextWorkPackageId = existing.work_package_id ?? null;
+  if (req.body.work_package_id !== undefined) {
+    nextWorkPackageId = req.body.work_package_id != null && req.body.work_package_id !== ''
+      ? +req.body.work_package_id
+      : null;
+  }
 
   const baseStatus = normalizeTaskStatus(existing);
   let nextProgress = progress_percent !== undefined ? progress_percent : existing.progress_percent;
@@ -221,6 +284,14 @@ projectTasksRouter.put('/:id', (req, res) => {
     return res.status(400).json({ error: 'Invalid assignee' });
   }
 
+  const prevAssignee = existing.assignee_id;
+  const nextEstimated = estimated_hours !== undefined
+    ? (nextKind === 'group' ? null : parseHoursInput(estimated_hours))
+    : existing.estimated_hours;
+  const nextActual = actual_hours !== undefined
+    ? (nextKind === 'group' ? null : parseHoursInput(actual_hours))
+    : existing.actual_hours;
+
   store.updateProjectTask(id, {
     name: name ?? existing.name,
     planned_start_date: planned_start_date !== undefined ? planned_start_date : existing.planned_start_date,
@@ -233,9 +304,39 @@ projectTasksRouter.put('/:id', (req, res) => {
     assignee_id: nextAssignee,
     parent_id: nextParentId,
     task_kind: nextKind,
+    work_package_id: nextWorkPackageId,
+    estimated_hours: nextEstimated,
+    actual_hours: nextActual,
   });
   const task = store.project_tasks.find(t => t.id === id);
-  res.json(withTaskMeta(task));
+  const meta = withTaskMeta(task);
+  if (
+    nextKind !== 'group'
+    && nextAssignee != null
+    && nextAssignee !== prevAssignee
+    && assignee_id !== undefined
+  ) {
+    const person = store.people.find((p) => p.id === nextAssignee);
+    notifyPersonInApp(nextAssignee, {
+      type: 'task_assigned',
+      title: `Task assigned: ${meta.name}`,
+      body: meta.project_name || '',
+      link: `/projects/${task.project_id}?tab=tasks`,
+      entity_type: 'project_task',
+      entity_id: id,
+    });
+    const to = emailForPerson(person);
+    if (to) {
+      sendTaskAssignedEmail({
+        to,
+        personName: person?.name,
+        taskName: meta.name,
+        projectName: meta.project_name,
+        assignedBy: req.user.name,
+      }).catch((e) => console.warn('task email:', e.message));
+    }
+  }
+  res.json(meta);
 });
 
 projectTasksRouter.delete('/:id', (req, res) => {
