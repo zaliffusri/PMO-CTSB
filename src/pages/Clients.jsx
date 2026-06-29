@@ -26,7 +26,10 @@ function companyMatchesSearch(company, q) {
 
 function formatPicLine(pic) {
   const parts = [];
-  if (pic.contact_name) parts.push(pic.contact_name);
+  if (pic.contact_name && !pic.contact_name.trim().startsWith('__pmo_contacts__:')) {
+    parts.push(pic.contact_name);
+  }
+  if (pic.title) parts.push(pic.title);
   if (pic.email) parts.push(pic.email);
   if (pic.phone) parts.push(pic.phone);
   return parts.join(' · ');

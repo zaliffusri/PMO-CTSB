@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
 import { validateImageDataUrl } from '../lib/validateImageDataUrl.js';
+import {
+  expandClientContacts,
+  repairAllLegacyClientContacts,
+  isLegacyContactBlob,
+} from '../lib/clientContactLegacy.js';
 
 export const clientsRouter = Router();
 
@@ -17,9 +22,11 @@ function companyProjects(clientId) {
 }
 
 function buildCompanyResponse(client) {
-  const contacts = store
-    .getClientContacts(client.id)
-    .sort((a, b) => (a.contact_name || '').localeCompare(b.contact_name || ''));
+  const contacts = expandClientContacts(
+    store
+      .getClientContacts(client.id)
+      .sort((a, b) => (a.contact_name || '').localeCompare(b.contact_name || '')),
+  );
   const projects = companyProjects(client.id);
   return {
     id: client.id,
@@ -32,14 +39,28 @@ function buildCompanyResponse(client) {
   };
 }
 
-clientsRouter.get('/', (req, res) => {
+async function maybeRepairLegacyContacts() {
+  const { clientsTouched, contactsCreated } = repairAllLegacyClientContacts(store);
+  if (contactsCreated > 0) {
+    try {
+      await store.persistToSupabase();
+    } catch (e) {
+      console.warn('clients: legacy contact repair persist failed', e.message);
+    }
+  }
+  return { clientsTouched, contactsCreated };
+}
+
+clientsRouter.get('/', async (req, res) => {
+  await maybeRepairLegacyContacts();
   const clients = store.clients
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     .map((c) => buildCompanyResponse(c));
   res.json(clients);
 });
 
-clientsRouter.get('/:id', (req, res) => {
+clientsRouter.get('/:id', async (req, res) => {
+  await maybeRepairLegacyContacts();
   const id = +req.params.id;
   const client = store.clients.find((c) => c.id === id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
@@ -71,6 +92,9 @@ clientsRouter.post('/', (req, res) => {
 
   const hasPic = [contact_name, email, phone].some((v) => v != null && String(v).trim() !== '');
   if (hasPic) {
+    if (isLegacyContactBlob(contact_name)) {
+      return res.status(400).json({ error: 'Invalid contact name — use separate PIC fields, not embedded JSON.' });
+    }
     store.addClientContact({
       client_id: clientId,
       contact_name: contact_name || null,
