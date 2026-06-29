@@ -27,16 +27,33 @@ Government and PBT-style **project portfolio management**: delivery workspaces, 
 
 ## Quick start (local)
 
+### Windows (recommended)
+
+Double-click **`run-local.cmd`** in the project folder, or run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-local.ps1
+```
+
+This finds Node.js (system install or `.tools/node`), installs dependencies if needed, and starts dev servers.
+
+### All platforms
+
 ```bash
 npm install
-npm run seed:demo   # optional rich demo (v9+ — includes bulk volume data)
 npm run dev
+```
+
+Optional richer demo reset:
+
+```bash
+npm run seed:demo
 ```
 
 - Frontend: `http://localhost:5173`
 - API: `http://localhost:3001`
 
-Demo accounts (after `seed:demo`):
+Demo accounts (auto-loaded on first `npm run dev` with local store):
 
 | Email | Password | Role |
 |-------|----------|------|
@@ -44,6 +61,14 @@ Demo accounts (after `seed:demo`):
 | pmo@pmo.local | pmo123 | PMO |
 | finance@pmo.local | finance123 | Finance |
 | ahmadrizal@company.com | user123 | Team member |
+
+**Troubleshooting**
+
+| Problem | Fix |
+|---------|-----|
+| `npm` not recognized | Install [Node.js LTS](https://nodejs.org) or use `run-local.cmd` |
+| Port 3001 / 5173 in use | Stop the other terminal (`Ctrl+C`) or close the old dev window |
+| Blank page / build error | Run `npm run build` to see compile errors; pull latest `main` |
 
 Single-process local run:
 
@@ -88,6 +113,7 @@ Test email: `npm run email:test`
 | Command | Purpose |
 |---------|---------|
 | `npm run dev` | Dev server + API with hot reload |
+| `scripts/run-local.ps1` / `run-local.cmd` | Windows helper (finds Node, runs `npm run dev`) |
 | `npm run build` | Production frontend build |
 | `npm run test` | Unit tests (Vitest) |
 | `npm run seed:demo` | Load demo portfolio |
