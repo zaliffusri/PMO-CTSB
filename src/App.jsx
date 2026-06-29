@@ -244,7 +244,7 @@ function Layout({ children }) {
           ) : (
             <>
               <div className="nav-section-label">Overview</div>
-              <NavItem to="/" end icon="dashboard" label="Command Center" onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/" end icon="dashboard" label="Dashboard" onNavigate={closeNav} compact={sidebarCompact} />
               <NavItem to="/reports" icon="reports" label="Reports" onNavigate={closeNav} compact={sidebarCompact} />
               {showFinance && (
                 <NavItem to="/finance" icon="finance" label="Finance" onNavigate={closeNav} compact={sidebarCompact} />
