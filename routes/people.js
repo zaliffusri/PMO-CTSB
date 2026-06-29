@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
-import { PMO_ROLES, normalizeRole } from '../lib/permissions.js';
+import { requirePmoOrAdmin } from '../middleware/requireRole.js';
 import {
   isPersonLinkedToUser,
   syncAllUsersToTeamPeople,
@@ -9,12 +9,6 @@ import {
 } from '../lib/teamUserSync.js';
 
 export const peopleRouter = Router();
-
-function requirePmoOrAdmin(req, res, next) {
-  const role = normalizeRole(req.user?.role);
-  if (role === 'admin' || PMO_ROLES.has(role)) return next();
-  return res.status(403).json({ error: 'Admin or PMO access required' });
-}
 
 peopleRouter.get('/', (req, res) => {
   const linkedOnly = req.query.linked_only === '1' || req.query.linked_only === 'true';

@@ -9,6 +9,7 @@ import PageLoadError from '../components/PageLoadError';
 import PageLoadingState from '../components/PageLoadingState';
 import EntityAttachments from '../components/EntityAttachments';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import { priorityClass, levelClass } from '../utils/issueUi';
 import {
   ISSUE_STATUSES,
   ISSUE_PRIORITIES,
@@ -30,20 +31,6 @@ import {
 
 function statusLabel(id) {
   return ISSUE_STATUSES.find((s) => s.id === id)?.label || id;
-}
-
-function priorityClass(p) {
-  if (p === 'critical') return 'issue-priority--critical';
-  if (p === 'high') return 'issue-priority--high';
-  if (p === 'medium') return 'issue-priority--medium';
-  return 'issue-priority--low';
-}
-
-function levelClass(stage) {
-  const code = String(stage || 'L1').toLowerCase();
-  if (code === 'backlog' || code === 'l3') return 'helpdesk-level helpdesk-level--backlog';
-  const l = code.toUpperCase();
-  return `helpdesk-level helpdesk-level--${l}`;
 }
 
 function helpdeskStageShortLabel(issue) {

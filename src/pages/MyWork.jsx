@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader';
 import UiEmptyState from '../components/UiEmptyState';
 import PageLoadError from '../components/PageLoadError';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import { priorityClass } from '../utils/issueUi';
 import { OPEN_BACKLOG_STATUSES, BACKLOG_TYPES, BACKLOG_STATUSES } from '../../lib/backlogConstants.js';
 import { ISSUE_STATUSES } from '../../lib/issueConstants.js';
 import { supportLevelLabel } from '../../lib/issueWorkflow.js';
@@ -61,13 +62,6 @@ function greetingForUser(name) {
   const first = name?.split(' ')[0] || '';
   const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return first ? `${timeGreeting}, ${first}` : timeGreeting;
-}
-
-function priorityClass(p) {
-  if (p === 'critical') return 'issue-priority--critical';
-  if (p === 'high') return 'issue-priority--high';
-  if (p === 'medium') return 'issue-priority--medium';
-  return 'issue-priority--low';
 }
 
 function QueueIcon({ kind }) {

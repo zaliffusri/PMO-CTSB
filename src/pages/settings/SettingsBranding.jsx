@@ -40,7 +40,7 @@ export default function SettingsBranding() {
     <form onSubmit={save} className="settings-branding ui-card">
       <h2 className="settings-section-title">Workspace branding</h2>
       <p className="settings-section-desc">
-        Upload your organization logo and a banner image. These appear on the sign-in screen, sidebar, and Command Center welcome area.
+        Upload your organization logo and a banner image. These appear on the sign-in screen, sidebar, and dashboard welcome area.
       </p>
 
       {err && <p className="settings-msg settings-msg--error">{err}</p>}
@@ -80,7 +80,7 @@ export default function SettingsBranding() {
         />
         <ImageUploadField
           label="Workspace banner"
-          hint="Wide image for Command Center welcome. Recommended 1200×320px."
+          hint="Wide image for dashboard welcome. Recommended 1200×320px."
           value={form.org_banner_url}
           onChange={(org_banner_url) => setForm((f) => ({ ...f, org_banner_url }))}
           onError={setErr}

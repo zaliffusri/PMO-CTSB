@@ -7,19 +7,7 @@ import PageLoadingState from '../components/PageLoadingState';
 import { engagementTypeLabel, deliveryScopeLabel } from '../../lib/projectConstants.js';
 import HBarChart from '../components/charts/HBarChart';
 
-function downloadCsv(filename, rows) {
-  const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const csv = rows.map((r) => r.map(escape).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export default function Reports() {
+import { downloadCsv } from '../utils/downloadCsv';
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [workload, setWorkload] = useState([]);

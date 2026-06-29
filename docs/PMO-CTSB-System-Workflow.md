@@ -159,30 +159,29 @@ flowchart LR
 | Waiting agency | Blocked on client / agency |
 | Resolved | Closed at the current support level |
 
-### Support levels (L1 → L2 → L3)
+### Support levels (L1 → L2 → Backlog)
+
+Helpdesk tickets are handled at **L1** and **L2** only. Work that needs development, data fixes, or formal delivery tracking is promoted to the **product backlog** — not a third helpdesk tier.
 
 ```mermaid
 flowchart TD
   L1[L1 - First line support]
   L2[L2 - Senior support]
-  L3[L3 - Dev / data / formal work]
   RES[Resolved on ticket]
   BL[→ Product Backlog]
 
   L1 -->|Escalate| L2
-  L2 -->|Escalate| L3
   L1 -->|Resolve| RES
   L2 -->|Resolve| RES
   L1 -->|Promote| BL
   L2 -->|Promote| BL
-  L3 -->|Promote| BL
 ```
 
-| Level | Typical handling |
+| Stage | Typical handling |
 |-------|------------------|
 | **L1** | Password resets, how-to, basic troubleshooting |
 | **L2** | Deeper analysis, configuration, recurring issues |
-| **L3** | Defects, data fixes, changes needing backlog/task tracking |
+| **Backlog** | Defects, data fixes, enhancements — tracked as backlog items with required assignee |
 
 ### Who can promote Helpdesk → Backlog?
 
@@ -190,16 +189,17 @@ flowchart TD
 - Ticket **reporter** (person who logged it)
 - Any **rostered team member**
 
-L1 can promote **directly** to backlog without going through L2/L3 first (when work clearly needs dev/data).
+L1 can promote **directly** to backlog without going through L2 first (when work clearly needs dev/data).
 
 ### Promote to backlog — what happens?
 
 1. User selects target **project** (if not already linked).
-2. System **creates** a new backlog item **or links** to an existing one (see [Linking rules](#14-linking-rules-eticket--backlog)).
-3. Issue status moves to **in progress** (linked to delivery).
-4. **Attachments** copy from issue → backlog.
-5. **Assignee** on the backlog is notified.
-6. **Creator** (who promoted) is stored for later status notifications.
+2. User **assigns a team member** (required).
+3. System **creates** a new backlog item **or links** to an existing one (see [Linking rules](#14-linking-rules-eticket--backlog)).
+4. Issue status moves to **in progress** (linked to delivery).
+5. **Attachments** copy from issue → backlog.
+6. **Assignee** on the backlog is notified.
+7. **Creator** (who promoted) is stored for later status notifications.
 
 ### Helpdesk notifications
 

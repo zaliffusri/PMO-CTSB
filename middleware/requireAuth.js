@@ -1,10 +1,7 @@
 import { store } from '../db/store.js';
+import { getTokenFromHeader } from './authUtils.js';
 
-function getTokenFromHeader(req) {
-  const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ')) return null;
-  return auth.slice('Bearer '.length).trim();
-}
+export { requireAdmin } from './requireRole.js';
 
 export function requireAuth(req, res, next) {
   (async () => {
@@ -24,11 +21,4 @@ export function requireAuth(req, res, next) {
     req.user = { id: user.id, email: user.email, role: user.role, name: user.name };
     next();
   })().catch(() => res.status(401).json({ error: 'Unauthorized' }));
-}
-
-export function requireAdmin(req, res, next) {
-  if (!req.user || req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  next();
 }

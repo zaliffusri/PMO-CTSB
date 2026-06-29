@@ -6,19 +6,7 @@ import UiEmptyState from '../components/UiEmptyState';
 import ModuleFilterBar from '../components/ModuleFilterBar';
 import PageLoadingState from '../components/PageLoadingState';
 import DataPanel from '../components/DataPanel';
-
-const ROLE_LABELS = { admin: 'Admin', pmo: 'PMO', finance: 'Finance', hr: 'HR', user: 'User' };
-const ROLE_OPTIONS = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'pmo', label: 'PMO' },
-  { value: 'finance', label: 'Finance' },
-  { value: 'hr', label: 'HR' },
-  { value: 'user', label: 'User' },
-];
-
-function roleLabel(role) {
-  return ROLE_LABELS[role] || role;
-}
+import { ROLE_OPTIONS, roleLabel } from '../constants/roles';
 
 function UserFormModal({ open, title, subtitle, onClose, onSubmit, pending, submitLabel, children }) {
   if (!open) return null;

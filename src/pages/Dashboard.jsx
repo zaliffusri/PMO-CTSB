@@ -91,14 +91,14 @@ export default function Dashboard() {
   }), [issues, backlogs]);
 
   if (loading) {
-    return <PageLoadingState message="Loading PMO command center…" />;
+    return <PageLoadingState message="Loading dashboard…" />;
   }
 
   return (
     <div className="page-module dashboard">
       <PageHeader
         eyebrow="Portfolio"
-        title="PMO Command Center"
+        title="Dashboard"
         subtitle="Portfolio health, project status, and resource alerts at a glance."
       />
 

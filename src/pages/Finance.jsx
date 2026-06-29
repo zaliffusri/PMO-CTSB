@@ -117,17 +117,7 @@ function formatMoneyCompact(amount, currency = 'MYR') {
   return formatMoney(n, currency);
 }
 
-function downloadCsv(filename, rows) {
-  const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const csv = rows.map((r) => r.map(escape).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import { downloadCsv } from '../utils/downloadCsv';
 
 function PaymentBadge({ status }) {
   const tone =

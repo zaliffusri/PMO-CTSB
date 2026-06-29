@@ -4,7 +4,9 @@ import PageHeader from '../components/PageHeader';
 import UiEmptyState from '../components/UiEmptyState';
 import ModuleFilterBar from '../components/ModuleFilterBar';
 import PageLoadingState from '../components/PageLoadingState';
+import PageLoadError from '../components/PageLoadError';
 import DataPanel from '../components/DataPanel';
+import { useAsyncData } from '../hooks/useAsyncData';
 
 const ACTION_LABEL = { create: 'Create', update: 'Update', delete: 'Delete' };
 
@@ -18,9 +20,6 @@ function formatDetail(detail) {
 }
 
 export default function History() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState('');
   const [offset, setOffset] = useState(0);
   const [userFilter, setUserFilter] = useState('');
   const [users, setUsers] = useState([]);
@@ -33,25 +32,13 @@ export default function History() {
       .catch(() => setUsers([]));
   }, []);
 
-  const load = useCallback(async () => {
-    setErr('');
-    setLoading(true);
-    try {
-      const params = { limit, offset };
-      if (userFilter) params.user_id = userFilter;
-      const res = await api.auditLog.list(params);
-      setData(res);
-    } catch (e) {
-      setErr(e.message || 'Failed to load history');
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
+  const loadAudit = useCallback(async () => {
+    const params = { limit, offset };
+    if (userFilter) params.user_id = userFilter;
+    return api.auditLog.list(params);
   }, [offset, userFilter]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data, loading, error, reload } = useAsyncData(loadAudit, [offset, userFilter]);
 
   const entries = data?.entries ?? [];
   const total = data?.total ?? 0;
@@ -60,6 +47,16 @@ export default function History() {
 
   if (loading && !data) {
     return <PageLoadingState message="Loading audit history…" />;
+  }
+
+  if (error && !data) {
+    return (
+      <PageLoadError
+        title="Could not load audit history"
+        message={error}
+        onRetry={reload}
+      />
+    );
   }
 
   const userLabel = userFilter
@@ -74,10 +71,10 @@ export default function History() {
         subtitle="Record of important changes — who did what and when. Up to the last 5,000 events are kept."
       />
 
-      {err && (
+      {error && (
         <div className="alert-banner" role="alert">
-          <span>{err}</span>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => load()}>
+          <span>{error}</span>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => reload()}>
             Retry
           </button>
         </div>

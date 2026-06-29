@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { store } from '../db/store.js';
 import { generateToken, hashPassword, verifyPassword } from '../lib/auth.js';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { getTokenFromHeader } from '../middleware/authUtils.js';
 
 export const authRouter = Router();
 
@@ -23,12 +24,6 @@ function sanitizeUser(user) {
 
 const MAX_AVATAR_BYTES = 1_500_000;
 const AVATAR_DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
-
-function getTokenFromHeader(req) {
-  const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ')) return null;
-  return auth.slice('Bearer '.length).trim();
-}
 
 async function createUserSession(user) {
   const token = generateToken();
