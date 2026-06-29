@@ -119,7 +119,11 @@ export const api = {
     delete: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   },
   people: {
-    list: () => request('/people'),
+    list: (params) => {
+      const q = new URLSearchParams(params || {}).toString();
+      return request(`/people${q ? `?${q}` : ''}`);
+    },
+    syncFromUsers: () => request('/people/sync-from-users', { method: 'POST' }),
     get: (id) => request(`/people/${id}`),
     create: (body) => request('/people', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/people/${id}`, { method: 'PUT', body: JSON.stringify(body) }),

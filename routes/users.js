@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { store } from '../db/store.js';
 import { hashPassword } from '../lib/auth.js';
 import { requireAdmin } from '../middleware/requireAuth.js';
+import { syncUserToTeamPerson } from '../lib/teamUserSync.js';
 
 export const usersRouter = Router();
 
@@ -15,34 +16,6 @@ function safeUser(u) {
     created_at: u.created_at,
     avatar_url: u.avatar_url || null,
   };
-}
-
-function findPersonByEmail(email) {
-  const key = String(email || '').trim().toLowerCase();
-  if (!key) return null;
-  return store.people.find((p) => String(p.email || '').trim().toLowerCase() === key) || null;
-}
-
-function syncUserToTeamPerson({ name, email, role, previousEmail }) {
-  const emailKey = String(email || '').trim().toLowerCase();
-  const prevKey = String(previousEmail || '').trim().toLowerCase();
-  let person = findPersonByEmail(emailKey);
-  if (!person && prevKey && prevKey !== emailKey) {
-    person = findPersonByEmail(prevKey);
-  }
-  if (person) {
-    store.updatePerson(person.id, {
-      name,
-      email: emailKey || null,
-      role,
-    });
-    return person.id;
-  }
-  return store.addPerson({
-    name,
-    email: emailKey || null,
-    role,
-  });
 }
 
 usersRouter.get('/', (req, res) => {
@@ -71,7 +44,7 @@ usersRouter.post('/', requireAdmin, async (req, res) => {
     password_hash: hashPassword(finalPassword),
   });
   const created = store.findUserById(id);
-  syncUserToTeamPerson({
+  syncUserToTeamPerson(store, {
     name: created.name,
     email: created.email,
     role: created.role,
@@ -153,7 +126,7 @@ usersRouter.put('/:id', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: e.message || 'Failed to revoke sessions' });
     }
   }
-  syncUserToTeamPerson({
+  syncUserToTeamPerson(store, {
     name: updated.name,
     email: updated.email,
     role: updated.role,

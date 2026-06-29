@@ -1,14 +1,62 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
+import { PMO_ROLES, normalizeRole } from '../lib/permissions.js';
+import {
+  isPersonLinkedToUser,
+  syncAllUsersToTeamPeople,
+  pruneOrphanPeople,
+  findOrphanPeople,
+} from '../lib/teamUserSync.js';
 
 export const peopleRouter = Router();
 
+function requirePmoOrAdmin(req, res, next) {
+  const role = normalizeRole(req.user?.role);
+  if (role === 'admin' || PMO_ROLES.has(role)) return next();
+  return res.status(403).json({ error: 'Admin or PMO access required' });
+}
+
 peopleRouter.get('/', (req, res) => {
-  const rows = store.people.map(pe => {
+  const linkedOnly = req.query.linked_only === '1' || req.query.linked_only === 'true';
+  const activeUsers = store.users.filter((u) => u.active !== false);
+  let rows = store.people.map(pe => {
     const project_count = store.project_assignments.filter(a => a.person_id === pe.id).length;
-    return { ...pe, project_count };
-  }).sort((a, b) => a.name.localeCompare(b.name));
+    const linked_to_user = isPersonLinkedToUser(pe, activeUsers);
+    return { ...pe, project_count, linked_to_user };
+  });
+  if (linkedOnly) {
+    rows = rows.filter((pe) => pe.linked_to_user);
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
   res.json(rows);
+});
+
+peopleRouter.post('/sync-from-users', requirePmoOrAdmin, async (req, res) => {
+  const synced = syncAllUsersToTeamPeople(store);
+  const pruned = pruneOrphanPeople(store, { requireNoAssignments: true });
+  const orphanRemaining = findOrphanPeople(store).map((p) => ({
+    id: p.id,
+    name: p.name,
+    email: p.email || null,
+    project_count: store.project_assignments.filter((a) => a.person_id === p.id).length,
+  }));
+
+  store.appendAuditLog(req.user, {
+    action: 'sync',
+    target_type: 'people',
+    target_id: null,
+    summary: `Synced ${synced} user(s) to team roster; removed ${pruned.length} orphan roster row(s)`,
+    detail: { pruned, orphanRemaining },
+  });
+
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.error('people sync-from-users persist failed', e);
+    return res.status(500).json({ error: e.message || 'Failed to save to database' });
+  }
+
+  res.json({ synced, pruned, orphanRemaining });
 });
 
 peopleRouter.get('/:id', (req, res) => {

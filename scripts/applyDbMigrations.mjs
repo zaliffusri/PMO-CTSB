@@ -1,7 +1,15 @@
 /**
- * Apply all Supabase schema scripts in order:
- * 1) push_schema_updates.sql (client/project legacy migration)
- * 2) supabase/migrations/*.sql (sorted by filename)
+ * Apply Supabase schema scripts in order.
+ *
+ * Schema only — never reads db/data.json or imports local demo data.
+ *
+ * Options (env or CLI):
+ *   --skip-push     Skip supabase/push_schema_updates.sql (legacy client/project reshape)
+ *   --from=20260627 Only run migration files with prefix >= that date string
+ *
+ * Examples:
+ *   npm run db:migrate              Full idempotent schema (all SQL files)
+ *   npm run db:migrate:features     New app tables only (helpdesk, backlog, …)
  */
 import { readFileSync, readdirSync } from 'fs';
 import path from 'path';
@@ -14,6 +22,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 
 dotenv.config({ path: path.join(root, '.env') });
+
+const args = process.argv.slice(2);
+const skipPush = args.includes('--skip-push') || process.env.DB_MIGRATE_SKIP_PUSH === '1';
+const fromArg = args.find((a) => a.startsWith('--from='));
+const fromPrefix = fromArg ? fromArg.slice('--from='.length) : (process.env.DB_MIGRATE_FROM || '');
 
 const dbUrl = getSupabaseDbUrl();
 
@@ -29,10 +42,14 @@ if (!dbUrl) {
 function migrationFiles() {
   const push = path.join(root, 'supabase', 'push_schema_updates.sql');
   const dir = path.join(root, 'supabase', 'migrations');
-  const sorted = readdirSync(dir)
+  let sorted = readdirSync(dir)
     .filter((f) => f.endsWith('.sql'))
     .sort();
-  return [push, ...sorted.map((f) => path.join(dir, f))];
+  if (fromPrefix) {
+    sorted = sorted.filter((f) => f >= fromPrefix);
+  }
+  const files = skipPush ? sorted.map((f) => path.join(dir, f)) : [push, ...sorted.map((f) => path.join(dir, f))];
+  return files;
 }
 
 const client = new pg.Client({
@@ -43,6 +60,9 @@ const client = new pg.Client({
 async function main() {
   await client.connect();
   const files = migrationFiles();
+  console.log('Schema-only migration (local db/data.json is NOT imported).');
+  if (skipPush) console.log('Skipping push_schema_updates.sql (existing Supabase rows unchanged except new DDL).');
+  if (fromPrefix) console.log(`Only migrations from: ${fromPrefix}`);
   console.log(`Applying ${files.length} schema script(s)…`);
   for (const file of files) {
     const rel = path.relative(root, file);

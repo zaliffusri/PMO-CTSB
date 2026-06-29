@@ -12,6 +12,7 @@
     "import:eticket": "cross-env ALLOW_LOCAL_STORE=1 node scripts/importETicketCsv.mjs",
     "email:test": "node scripts/email-test.mjs",
     "db:migrate": "node scripts/applyDbMigrations.mjs",
+    "db:migrate:features": "node scripts/applyDbMigrations.mjs --skip-push --from=20260627120000",
     "db:verify": "node scripts/verifyDbSchema.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

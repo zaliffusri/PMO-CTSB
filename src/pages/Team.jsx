@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../AuthContext';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import PageHeader from '../components/PageHeader';
 import ModuleTabs from '../components/ModuleTabs';
@@ -11,6 +12,7 @@ import DonutChart from '../components/charts/DonutChart';
 import HBarChart from '../components/charts/HBarChart';
 import VBarChart from '../components/charts/VBarChart';
 import { chartCapacityBands, chartCapacityData } from '../../lib/pmoMetrics.js';
+import { PMO_ROLES, normalizeRole } from '../../lib/permissions.js';
 
 const TEAM_TABS = [
   { id: 'capacity', label: 'Capacity' },
@@ -103,6 +105,7 @@ function PersonDetailPanel({ personDetail, availability, from, to, onClose }) {
 }
 
 export default function Team() {
+  const { user } = useAuth();
   const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('capacity');
@@ -122,11 +125,26 @@ export default function Team() {
   });
   const { pending: saving, run } = useSubmitLock();
 
-  const load = () => api.people.list().then(setPeople).catch(console.error).finally(() => setLoading(false));
+  const canSyncRoster = user && (normalizeRole(user.role) === 'admin' || PMO_ROLES.has(normalizeRole(user.role)));
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (canSyncRoster) {
+        await api.people.syncFromUsers();
+      }
+      const list = await api.people.list({ linked_only: '1' });
+      setPeople(list);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [canSyncRoster]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (!selected) {
@@ -225,7 +243,7 @@ export default function Team() {
     <div className="page-module team-page">
       <PageHeader
         title="Team & capacity"
-        subtitle="Plan resources, review allocation, and check availability before assigning work."
+        subtitle="Roster matches system users (Users module). Plan allocation and check availability before assigning work."
         actions={
           <button type="button" className="btn btn-primary" onClick={() => setShowForm(true)}>
             + Add person
@@ -322,7 +340,7 @@ export default function Team() {
             <div className="section-card__header">
               <div>
                 <h2 className="section-card__title">Resource capacity</h2>
-                <p className="section-card__desc">Green &lt;80%, amber 80–100%, red &gt;100% allocation.</p>
+                <p className="section-card__desc">Green &lt;80%, amber 80–100%, red &gt;100% allocation. Only active login users are shown.</p>
               </div>
             </div>
             <div className="pmo-capacity-grid">
