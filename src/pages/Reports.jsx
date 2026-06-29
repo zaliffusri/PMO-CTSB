@@ -8,6 +8,8 @@ import { engagementTypeLabel, deliveryScopeLabel } from '../../lib/projectConsta
 import HBarChart from '../components/charts/HBarChart';
 
 import { downloadCsv } from '../utils/downloadCsv';
+
+export default function Reports() {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [workload, setWorkload] = useState([]);
