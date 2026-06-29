@@ -7,7 +7,8 @@ import { EPBT_MODULES } from '../lib/epbtModules.js';
 
 const ISSUE_STATUSES = ['open', 'in_progress', 'waiting_agency', 'resolved'];
 const ISSUE_STATUS_WEIGHTS = [0.35, 0.28, 0.12, 0.25];
-const SUPPORT_LEVELS = ['L1', 'L2', 'L3'];
+const SUPPORT_LEVELS = ['L1', 'L2'];
+const SUPPORT_LEVEL_WEIGHTS = [0.62, 0.38];
 const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 const CATEGORIES = ['defect', 'support', 'change_request', 'data', 'access', 'infrastructure', 'other'];
 const INCIDENT_TYPES = ['bug_defect', 'inquiry', 'change_request', 'issue', 'request'];
@@ -181,10 +182,11 @@ export function seedBulkVolumeData(store, ctx) {
     'Certificate expiry on staging environment',
   ];
 
-  // —— Helpdesk issues (~120) ——
+  // —— Helpdesk issues (~200) ——
   let ticketSeq = 6;
   const issueIds = [];
-  for (let i = 0; i < 120; i++) {
+  const ISSUE_BULK_COUNT = 200;
+  for (let i = 0; i < ISSUE_BULK_COUNT; i++) {
     const mod = EPBT_MODULES[i % EPBT_MODULES.length];
     const code = mod.code;
     const ticketNo = `eT-${code}-${pad4(ticketSeq++)}`;
@@ -210,7 +212,7 @@ export function seedBulkVolumeData(store, ctx) {
       assignee_person_id: assignee,
       reporter_user_id: i % 3 === 0 ? adminId : pmoId,
       external_ticket_ref: `QA-HD-2026-${pad4(200 + i)}`,
-      support_level: pick(SUPPORT_LEVELS),
+      support_level: pickWeighted(SUPPORT_LEVEL_WEIGHTS, SUPPORT_LEVELS),
       l1_assignee_label: 'CTSB | Helpdesk L1',
       l2_assignee_label: status !== 'open' ? 'CTSB | Senior Support' : null,
       created_at: isoDaysAgo(daysAgo, 8 + (i % 9)),
@@ -220,9 +222,10 @@ export function seedBulkVolumeData(store, ctx) {
     issueIds.push(id);
   }
 
-  // —— Backlog items (~75) ——
+  // —— Backlog items (~120) ——
   const backlogIds = [];
-  for (let i = 0; i < 75; i++) {
+  const BACKLOG_BULK_COUNT = 120;
+  for (let i = 0; i < BACKLOG_BULK_COUNT; i++) {
     const projectId = pick(projectIds);
     const mod = EPBT_MODULES[i % EPBT_MODULES.length];
     const refNo = `${mod.code}-${1000 + i}`;
@@ -246,14 +249,15 @@ export function seedBulkVolumeData(store, ctx) {
       actual_hours: status === 'fixed' || status === 'closed' ? 8 + (i % 6) * 2 : null,
     });
     backlogIds.push(id);
-    if (i < 15 && issueIds[i]) {
+    if (i < 35 && issueIds[i]) {
       store.updateBacklog(id, { issue_id: issueIds[i] });
       store.updateIssue(issueIds[i], { backlog_ref: refNo, status: 'in_progress' });
     }
   }
 
-  // —— Project tasks (~55) ——
-  for (let i = 0; i < 55; i++) {
+  // —— Project tasks (~90) ——
+  const TASK_BULK_COUNT = 90;
+  for (let i = 0; i < TASK_BULK_COUNT; i++) {
     const projectId = pick(projectIds);
     const status = pickWeighted(TASK_STATUS_WEIGHTS, TASK_STATUSES);
     const progress = status === 'done' ? 100 : status === 'ongoing' ? 15 + (i % 8) * 10 : 0;
@@ -276,7 +280,7 @@ export function seedBulkVolumeData(store, ctx) {
     });
   }
 
-  // —— Calendar activities (~100 across ±45 days) ——
+  // —— Calendar activities (~160 across ±45 days) ——
   const activityTitles = [
     'Client status meeting',
     'Sprint planning',
@@ -289,7 +293,8 @@ export function seedBulkVolumeData(store, ctx) {
     'Weekly team sync',
     'Defect triage',
   ];
-  for (let i = 0; i < 100; i++) {
+  const ACTIVITY_BULK_COUNT = 160;
+  for (let i = 0; i < ACTIVITY_BULK_COUNT; i++) {
     const day = -45 + (i % 90);
     const hour = 8 + (i % 9);
     const personId = pick(people);
@@ -305,7 +310,7 @@ export function seedBulkVolumeData(store, ctx) {
     });
   }
 
-  // —— Backlog comments (~30) ——
+  // —— Backlog comments (~50) ——
   const commentBodies = [
     'Investigating root cause — will update EOD.',
     'Waiting for client to confirm UAT window.',
@@ -315,7 +320,7 @@ export function seedBulkVolumeData(store, ctx) {
     'Blocked on agency VPN access.',
     'Fixed in build 2026.06.28 — ready for QA.',
   ];
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 50; i++) {
     const backlogId = backlogIds[i % backlogIds.length];
     if (!backlogId) continue;
     store.addBacklogComment({
@@ -326,8 +331,8 @@ export function seedBulkVolumeData(store, ctx) {
     });
   }
 
-  // —— Notifications (~35) ——
-  for (let i = 0; i < 35; i++) {
+  // —— Notifications (~60) ——
+  for (let i = 0; i < 60; i++) {
     const userId = i % 3 === 0 ? adminId : (i % 3 === 1 ? pmoId : null);
     const personId = people[i % people.length];
     const targetUser = userId ?? findUserIdForPerson(store, personId);
@@ -347,12 +352,12 @@ export function seedBulkVolumeData(store, ctx) {
     extraClients: EXTRA_CLIENTS.length,
     extraPeople: EXTRA_PEOPLE.length,
     extraProjects: EXTRA_PROJECTS.length,
-    issuesAdded: 120,
-    backlogsAdded: 75,
-    tasksAdded: 55,
-    activitiesAdded: 100,
-    commentsAdded: 30,
-    notificationsAdded: 35,
+    issuesAdded: ISSUE_BULK_COUNT,
+    backlogsAdded: BACKLOG_BULK_COUNT,
+    tasksAdded: TASK_BULK_COUNT,
+    activitiesAdded: ACTIVITY_BULK_COUNT,
+    commentsAdded: 50,
+    notificationsAdded: 60,
     totalPeople: people.length,
     totalProjects: projectIds.length,
   };

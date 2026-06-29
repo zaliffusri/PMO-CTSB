@@ -2,7 +2,7 @@ import { hashPassword } from '../lib/auth.js';
 import { templateForClassification } from '../lib/phaseConstants.js';
 import { seedBulkVolumeData } from './demoSeedBulk.js';
 
-export const DEMO_SEED_VERSION = 9;
+export const DEMO_SEED_VERSION = 10;
 
 function dayOffset(n) {
   const d = new Date();
@@ -793,7 +793,7 @@ export function runRichDemoSeed(store) {
     assignee_person_id: p2,
     reporter_user_id: adminId,
     external_ticket_ref: 'QA-HD-2026-0115',
-    support_level: 'L3',
+    support_level: 'L2',
     l1_assignee_label: 'CTSB | Helpdesk L1',
     l2_assignee_label: 'CTSB | Senior Support',
     backlog_ref: 'PBL-2026-DEMO-01',
@@ -911,6 +911,71 @@ export function runRichDemoSeed(store) {
     priority: 'medium',
     assignee_person_id: p3,
     effort_days: 5,
+  });
+
+  // Extra curated records for full-cycle walkthrough (L1 → L2 → backlog → task → finance)
+  store.addIssue({
+    ticket_no: 'eT-ABB-0099',
+    title: 'Assessment bill PDF shows wrong owner name',
+    description: 'MBSA reported wrong name on printed notice — needs dev fix.',
+    priority: 'high',
+    category: 'defect',
+    incident_type: 'bug_defect',
+    module_code: 'ABB',
+    epbt_module: 'Akaun Bil',
+    intake_channel: 'email',
+    client_pic: 'MBSA Assessment Unit',
+    status: 'open',
+    project_id: projPortal,
+    client_id: mbsaId,
+    assignee_person_id: p6,
+    reporter_user_id: pmoId,
+    support_level: 'L1',
+    l1_assignee_label: 'CTSB | Helpdesk L1',
+  });
+  store.addIssue({
+    ticket_no: 'eT-CK-0100',
+    title: 'Batch payment file rejected by treasury',
+    description: 'Escalated from L1 — treasury validation error on file format.',
+    priority: 'critical',
+    category: 'data',
+    incident_type: 'issue',
+    module_code: 'CK',
+    epbt_module: 'Cukai',
+    intake_channel: 'helpdesk',
+    client_pic: 'DBKL Treasury',
+    status: 'in_progress',
+    project_id: projPortal,
+    client_id: dbklId,
+    assignee_person_id: p1,
+    reporter_user_id: pmoId,
+    support_level: 'L2',
+    l1_assignee_label: 'CTSB | Helpdesk L1',
+    l2_assignee_label: 'CTSB | Senior Support',
+  });
+  store.addProjectTask({
+    project_id: projPortal,
+    name: 'UAT regression — licensing module',
+    task_kind: 'task',
+    assignee_id: p1,
+    work_package_id: wpPortal,
+    planned_start_date: dayOffset(0),
+    planned_end_date: dayOffset(10),
+    progress_percent: 15,
+    status: 'ongoing',
+    estimated_hours: 24,
+    actual_hours: 4,
+  });
+  store.addProjectTask({
+    project_id: projApi,
+    name: 'Document OpenAPI spec for MOH consumers',
+    task_kind: 'task',
+    assignee_id: p1,
+    planned_start_date: dayOffset(-5),
+    planned_end_date: dayOffset(12),
+    progress_percent: 40,
+    status: 'ongoing',
+    estimated_hours: 16,
   });
 
   seedCalendarActivities(store, {

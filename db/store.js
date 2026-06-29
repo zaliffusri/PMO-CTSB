@@ -13,12 +13,12 @@ import { createBacklogsRepository } from './repositories/backlogsRepository.js';
 import { createDeliveryRepository } from './repositories/deliveryRepository.js';
 import { createAttachmentsRepository } from './repositories/attachmentsRepository.js';
 import { persistDataToSupabase } from './runtime/supabaseSync.js';
+import { mergeRepositories } from './runtime/mergeRepositories.js';
 
 const ctx = await initDataState();
 let store;
 const getStore = () => store;
-store = Object.assign(
-  {},
+store = mergeRepositories(
   createClientsRepository(ctx, getStore),
   createPeopleRepository(ctx, getStore),
   createProjectsRepository(ctx, getStore),
