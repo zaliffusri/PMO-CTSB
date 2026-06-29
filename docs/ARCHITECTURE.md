@@ -9,7 +9,7 @@ Ringkasan struktur kod untuk backend (Express) dan frontend (React + Vite). Doku
 | Frontend | React 18, Vite, React Router | UI workspace PMO |
 | API | Express 4, ES modules | REST `/api/*` |
 | Domain logic | `lib/` | Peraturan perniagaan, metrik, workflow |
-| Data | `db/store.js` + Supabase (prod) | Persistensi & query |
+| Data | `db/store.js`, `db/repositories/`, `db/runtime/` + Supabase (prod) | Persistensi & query |
 | Auth | Bearer token + `sessions` | Login, role-based access |
 
 ---
@@ -31,7 +31,9 @@ lib/
   issueWorkflow.js        # Helpdesk L1/L2, promote → backlog
   teamUserSync.js         # Sync users_app ↔ people
 db/
-  store.js                # Data access (target: pecah ke repositories)
+  store.js                # Composer: gabung semua repository ke satu `store`
+  repositories/           # Domain repositories (clients, projects, issues, …)
+  runtime/                # dataState, Supabase sync, shared helpers
   schema.js               # initDb, seed demo
 ```
 
@@ -51,9 +53,7 @@ db/
 
 ### Data store
 
-`db/store.js` ialah pusat akses data. Pada production, data dimuat dari Supabase. Untuk dev tempatan: `ALLOW_LOCAL_STORE=1` + `db/data.json`.
-
-**Rancangan seterusnya (belum diimplement):** pecah `store.js` kepada `db/repositories/{projects,issues,people,…}.js`.
+`db/store.js` ialah composer nipis yang menggabungkan repository domain di `db/repositories/` (clients, projects, issues, people, …). Runtime bersama (muat data, simpan, sync Supabase) berada di `db/runtime/`. Pada production, data dimuat dari Supabase. Untuk dev tempatan: `ALLOW_LOCAL_STORE=1` + `db/data.json`.
 
 ---
 
