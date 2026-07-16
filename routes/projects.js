@@ -50,7 +50,7 @@ projectsRouter.get('/:id', (req, res) => {
   res.json(enrichProject(project, { members }));
 });
 
-projectsRouter.post('/', (req, res) => {
+projectsRouter.post('/', async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO officers can create projects' });
   }
@@ -81,11 +81,16 @@ projectsRouter.post('/', (req, res) => {
     target_id: id,
     summary: `Created project "${name}"`,
   });
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.warn('persist:', e.message);
+  }
   const project = store.projects.find((p) => p.id === id);
   res.status(201).json(enrichProject(project));
 });
 
-projectsRouter.put('/:id', (req, res) => {
+projectsRouter.put('/:id', async (req, res) => {
   const { name, description, status, start_date, end_date, classification, engagement_type } = req.body;
   const id = +req.params.id;
   const existing = store.projects.find((p) => p.id === id);
@@ -125,11 +130,16 @@ projectsRouter.put('/:id', (req, res) => {
     target_id: id,
     summary: `Updated project "${store.projects.find((p) => p.id === id)?.name || id}"`,
   });
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.warn('persist:', e.message);
+  }
   const project = store.projects.find((p) => p.id === id);
   res.json(enrichProject(project));
 });
 
-projectsRouter.delete('/:id', (req, res) => {
+projectsRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
   const existing = store.projects.find((p) => p.id === id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
@@ -140,5 +150,10 @@ projectsRouter.delete('/:id', (req, res) => {
     target_id: id,
     summary: `Deleted project "${existing.name}"`,
   });
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.warn('persist:', e.message);
+  }
   res.status(204).send();
 });
