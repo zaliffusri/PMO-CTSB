@@ -104,11 +104,12 @@ assignmentsRouter.post('/', async (req, res) => {
       summary: `Assigned ${person?.name || 'member'} to project "${project?.name || pa.project_id}"`,
     });
     try {
-      await store.persistToSupabase();
+      await store.persistAssignmentsToSupabase();
     } catch (e) {
-      console.error('assignments POST persistToSupabase failed', e);
+      console.error('assignments POST persistAssignmentsToSupabase failed', e);
       return res.status(500).json({ error: e.message || 'Failed to save assignment to database' });
     }
+    store.persistToSupabase().catch((err) => console.warn('assignments POST full persist:', err.message));
     const email_notification = await notifyAssignmentEmail({
       person,
       project,
@@ -137,11 +138,12 @@ assignmentsRouter.delete('/:id', async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Assignment not found' });
   store.deleteAssignment(id);
   try {
-    await store.persistToSupabase();
+    await store.persistAssignmentsToSupabase();
   } catch (e) {
-    console.error('assignments DELETE persistToSupabase failed', e);
+    console.error('assignments DELETE persistAssignmentsToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save to database' });
   }
+  store.persistToSupabase().catch((err) => console.warn('assignments DELETE full persist:', err.message));
   res.status(204).send();
 });
 
@@ -164,11 +166,12 @@ assignmentsRouter.put('/:id', async (req, res) => {
     summary: `Updated assignment: ${person?.name || 'member'} ↔ "${project?.name || pa.project_id}"`,
   });
   try {
-    await store.persistToSupabase();
+    await store.persistAssignmentsToSupabase();
   } catch (e) {
-    console.error('assignments PUT persistToSupabase failed', e);
+    console.error('assignments PUT persistAssignmentsToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save to database' });
   }
+  store.persistToSupabase().catch((err) => console.warn('assignments PUT full persist:', err.message));
   const email_notification = await notifyAssignmentEmail({
     person,
     project,

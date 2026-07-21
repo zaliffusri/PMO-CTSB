@@ -33,6 +33,48 @@ async function upsertAll(table, rows, onConflict = 'id') {
   if (error) throw error;
 }
 
+/** Upsert rows; if PostgREST reports missing columns, strip them and retry. */
+async function upsertStrippingMissingColumns(table, rows, optionalColumns = [], onConflict = 'id') {
+  if (!rows || rows.length === 0) return;
+  let payload = rows.map((r) => ({ ...r }));
+  let { error } = await supabase.from(table).upsert(payload, { onConflict });
+  if (!error) return;
+
+  const isSchemaError = (err) =>
+    /schema cache|PGRST204|Could not find|does not exist|column/i.test(String(err?.message || ''));
+
+  for (const column of optionalColumns) {
+    if (!error || !isSchemaError(error)) break;
+    const msg = String(error?.message || '');
+    if (!new RegExp(column, 'i').test(msg) && !/schema cache|PGRST204/i.test(msg)) continue;
+    payload = payload.map((row) => {
+      const next = { ...row };
+      delete next[column];
+      return next;
+    });
+    ({ error } = await supabase.from(table).upsert(payload, { onConflict }));
+    if (!error) return;
+  }
+
+  throw error;
+}
+
+async function upsertProjectTasks(rows) {
+  await upsertStrippingMissingColumns(
+    'project_tasks',
+    rows || [],
+    ['actual_hours', 'estimated_hours', 'work_package_id', 'backlog_id', 'task_kind', 'parent_id', 'assignee_id'],
+  );
+}
+
+async function upsertBacklogs(rows) {
+  await upsertStrippingMissingColumns(
+    'backlogs_app',
+    rows || [],
+    ['actual_hours', 'estimated_hours', 'work_package_id', 'phase_id', 'effort_days'],
+  );
+}
+
 async function upsertUsersApp(rows) {
   if (!rows || rows.length === 0) return;
   const prepared = rows.map((u) => normalizeUserRow(u));
@@ -271,7 +313,7 @@ export async function pushSnapshotToSupabase(snapshot) {
   await upsertProjectClients(snapshot.project_clients || []);
   await upsertAll('project_assignments', snapshot.project_assignments || []);
   await upsertActivitiesApp(snapshot.activities || []);
-  await upsertAll('project_tasks', snapshot.project_tasks || []);
+  await upsertProjectTasks(snapshot.project_tasks || []);
   await upsertUsersApp(snapshot.users || []);
   await upsertAll('sessions_app', snapshot.sessions || []);
   const settingsRow = { id: 1, ...(snapshot.settings || {}) };
@@ -279,7 +321,20 @@ export async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('audit_log', snapshot.audit_log || []);
   await upsertOptionalTable('issues_app', snapshot.issues || [], 'id', 'issues');
   await upsertOptionalTable('notifications_app', snapshot.notifications || [], 'id', 'notifications');
-  await upsertOptionalTable('backlogs_app', snapshot.backlogs || [], 'id', 'backlogs');
+  try {
+    await upsertBacklogs(snapshot.backlogs || []);
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const tableMissing = /backlogs_app/i.test(msg) && /schema cache|Could not find|does not exist|PGRST204/i.test(msg);
+    if (tableMissing) {
+      if (!warnedBacklogsTable) {
+        warnedBacklogsTable = true;
+        console.warn('store: backlogs_app not in DB — backlogs kept in memory. Run supabase migration.');
+      }
+    } else {
+      throw e;
+    }
+  }
   await upsertOptionalTable('project_phases_app', snapshot.project_phases || [], 'id', 'phases');
   await upsertOptionalTable('project_work_packages_app', snapshot.work_packages || [], 'id', 'work_packages');
   await upsertOptionalTable('attachments_app', snapshot.attachments || [], 'id', 'attachments');
@@ -474,6 +529,14 @@ export async function persistProjectById(data, projectId) {
   await upsertProjects([project]);
   const links = (data.project_clients || []).filter((pc) => Number(pc.project_id) === pid);
   await upsertProjectClientLinks(links);
+}
+
+/** Persist assignment rows only — avoids unrelated schema gaps blocking assign. */
+export async function persistAssignmentsToSupabase(data) {
+  if (!supabase) return;
+  const snap = JSON.parse(JSON.stringify(data));
+  await upsertAll('project_assignments', snap.project_assignments || []);
+  await upsertAll('audit_log', snap.audit_log || []);
 }
 
 export { supabase };
