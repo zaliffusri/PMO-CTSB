@@ -219,6 +219,20 @@ async function upsertOptionalTable(table, rows, onConflict = 'id', warnKey) {
   throw error;
 }
 
+/** Like optional upsert, but missing tables fail hard (used for workspace writes). */
+async function upsertRequiredTable(table, rows, onConflict = 'id', hint) {
+  if (!rows || rows.length === 0) return;
+  const { error } = await supabase.from(table).upsert(rows, { onConflict });
+  if (!error) return;
+  const msg = String(error.message || '');
+  if (/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) {
+    throw new Error(
+      `${table} is missing in Supabase${hint ? ` — ${hint}` : ''}. (${msg})`,
+    );
+  }
+  throw error;
+}
+
 async function upsertProjects(rows) {
   if (!rows || rows.length === 0) return;
   const toDateOnly = (v) => {
@@ -327,16 +341,24 @@ export async function pushSnapshotToSupabase(snapshot) {
     const msg = String(e?.message || '');
     const tableMissing = /backlogs_app/i.test(msg) && /schema cache|Could not find|does not exist|PGRST204/i.test(msg);
     if (tableMissing) {
-      if (!warnedBacklogsTable) {
-        warnedBacklogsTable = true;
-        console.warn('store: backlogs_app not in DB — backlogs kept in memory. Run supabase migration.');
-      }
-    } else {
-      throw e;
+      throw new Error(
+        'backlogs_app table missing in Supabase. Run backlog migrations (e.g. supabase/migrations/20260627140000_backlog_phases.sql).',
+      );
     }
+    throw e;
   }
-  await upsertOptionalTable('project_phases_app', snapshot.project_phases || [], 'id', 'phases');
-  await upsertOptionalTable('project_work_packages_app', snapshot.work_packages || [], 'id', 'work_packages');
+  await upsertRequiredTable(
+    'project_phases_app',
+    snapshot.project_phases || [],
+    'id',
+    'project_phases_app (run supabase/migrations/20260627160000_work_packages.sql and backlog_phases)',
+  );
+  await upsertRequiredTable(
+    'project_work_packages_app',
+    snapshot.work_packages || [],
+    'id',
+    'project_work_packages_app (run supabase/migrations/20260627160000_work_packages.sql)',
+  );
   await upsertOptionalTable('attachments_app', snapshot.attachments || [], 'id', 'attachments');
   await upsertOptionalTable('backlog_comments_app', snapshot.backlog_comments || [], 'id', 'backlog_comments');
 }
