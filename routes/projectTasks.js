@@ -4,6 +4,7 @@ import { normalizeTaskStatus } from '../lib/taskStatus.js';
 import { notifyPersonInApp, emailForPerson } from '../lib/notifyUser.js';
 import { sendTaskAssignedEmail } from '../lib/mailer.js';
 import { parseHoursInput } from '../lib/hoursUtils.js';
+import { reloadStore, persistStore } from '../lib/storeSync.js';
 
 export const projectTasksRouter = Router();
 
@@ -72,7 +73,8 @@ function applySort(tasks) {
   return hierarchicalTaskSort(tasks);
 }
 
-projectTasksRouter.get('/', (req, res) => {
+projectTasksRouter.get('/', async (req, res) => {
+  await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
   let tasks = store.project_tasks.map(t => withTaskMeta(t));
@@ -102,7 +104,7 @@ projectTasksRouter.get('/gantt', (req, res) => {
   res.json(tasks);
 });
 
-projectTasksRouter.post('/', (req, res) => {
+projectTasksRouter.post('/', async (req, res) => {
   const {
     project_id,
     name,
@@ -196,10 +198,11 @@ projectTasksRouter.post('/', (req, res) => {
       }).catch((e) => console.warn('task email:', e.message));
     }
   }
+  if (!(await persistStore(res))) return;
   res.status(201).json(withTaskMeta(task));
 });
 
-projectTasksRouter.put('/:id', (req, res) => {
+projectTasksRouter.put('/:id', async (req, res) => {
   const id = +req.params.id;
   const existing = store.project_tasks.find(t => t.id === id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
@@ -336,10 +339,11 @@ projectTasksRouter.put('/:id', (req, res) => {
       }).catch((e) => console.warn('task email:', e.message));
     }
   }
+  if (!(await persistStore(res))) return;
   res.json(meta);
 });
 
-projectTasksRouter.delete('/:id', (req, res) => {
+projectTasksRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
   const existing = store.project_tasks.find(t => t.id === id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
@@ -351,5 +355,6 @@ projectTasksRouter.delete('/:id', (req, res) => {
     target_id: id,
     summary: `Deleted task "${existing.name}" from "${proj?.name || existing.project_id}"`,
   });
+  if (!(await persistStore(res))) return;
   res.status(204).send();
 });

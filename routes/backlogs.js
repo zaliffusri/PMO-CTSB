@@ -24,6 +24,8 @@ import {
   canUserCommentOnBacklog,
 } from '../lib/permissions.js';
 
+import { reloadStore, persistStore } from '../lib/storeSync.js';
+
 import { emailForPerson } from '../lib/notifyUser.js';
 
 import { sendTaskAssignedEmail } from '../lib/mailer.js';
@@ -174,7 +176,8 @@ function enrichComment(comment) {
 
 
 
-backlogsRouter.get('/', (req, res) => {
+backlogsRouter.get('/', async (req, res) => {
+  await reloadStore();
 
   const projectId = req.query.project_id ? +req.query.project_id : null;
 
@@ -220,7 +223,7 @@ backlogsRouter.get('/:id/comments', (req, res) => {
 
 
 
-backlogsRouter.post('/:id/comments', (req, res) => {
+backlogsRouter.post('/:id/comments', async (req, res) => {
 
   const id = +req.params.id;
 
@@ -276,6 +279,8 @@ backlogsRouter.post('/:id/comments', (req, res) => {
 
   });
 
+  if (!(await persistStore(res))) return;
+
   res.status(201).json(comment);
 
 });
@@ -294,7 +299,7 @@ backlogsRouter.get('/:id', (req, res) => {
 
 
 
-backlogsRouter.post('/', (req, res) => {
+backlogsRouter.post('/', async (req, res) => {
 
   if (!canCreateProject(req.user)) {
 
@@ -384,13 +389,15 @@ backlogsRouter.post('/', (req, res) => {
 
   });
 
+  if (!(await persistStore(res))) return;
+
   res.status(201).json(item);
 
 });
 
 
 
-backlogsRouter.put('/:id', (req, res) => {
+backlogsRouter.put('/:id', async (req, res) => {
 
   const id = +req.params.id;
 
@@ -556,6 +563,10 @@ backlogsRouter.put('/:id', (req, res) => {
 
 
 
+  if (!(await persistStore(res))) return;
+
+
+
   res.json(updated);
 
 });
@@ -689,6 +700,10 @@ backlogsRouter.post('/:id/promote-task', async (req, res) => {
     }
 
   }
+
+
+
+  if (!(await persistStore(res))) return;
 
 
 

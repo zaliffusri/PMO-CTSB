@@ -7,6 +7,7 @@ import {
 } from '../lib/phaseConstants.js';
 import { buildMaintenanceRenewals } from '../lib/financeRenewals.js';
 import { canCreateProject, canViewFinance } from '../lib/permissions.js';
+import { reloadStore, persistStore } from '../lib/storeSync.js';
 
 export const projectPhasesRouter = Router();
 
@@ -133,7 +134,8 @@ projectPhasesRouter.get('/finance-summary', (req, res) => {
   });
 });
 
-projectPhasesRouter.get('/', (req, res) => {
+projectPhasesRouter.get('/', async (req, res) => {
+  await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
   let list = (store.project_phases || []).map(enrichPhase);
@@ -143,7 +145,7 @@ projectPhasesRouter.get('/', (req, res) => {
   res.json(list);
 });
 
-projectPhasesRouter.post('/init-template', (req, res) => {
+projectPhasesRouter.post('/init-template', async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO can initialize phases' });
   }
@@ -185,10 +187,11 @@ projectPhasesRouter.post('/init-template', (req, res) => {
     target_id: projectId,
     summary: `Initialized ${phases.length} delivery phases for ${project.name}`,
   });
+  if (!(await persistStore(res))) return;
   res.status(201).json(phases);
 });
 
-projectPhasesRouter.post('/', (req, res) => {
+projectPhasesRouter.post('/', async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO can create phases' });
   }
@@ -214,10 +217,11 @@ projectPhasesRouter.post('/', (req, res) => {
     payment_status: PAYMENT_STATUS_SET.has(body.payment_status) ? body.payment_status : 'pending',
     notes: body.notes || null,
   });
+  if (!(await persistStore(res))) return;
   res.status(201).json(enrichPhase(store.project_phases.find((p) => p.id === id)));
 });
 
-projectPhasesRouter.put('/:id', (req, res) => {
+projectPhasesRouter.put('/:id', async (req, res) => {
   const id = +req.params.id;
   const cur = (store.project_phases || []).find((p) => p.id === id);
   if (!cur) return res.status(404).json({ error: 'Phase not found' });
@@ -256,5 +260,6 @@ projectPhasesRouter.put('/:id', (req, res) => {
     }
   }
   store.updateProjectPhase(id, patch);
+  if (!(await persistStore(res))) return;
   res.json(enrichPhase(store.project_phases.find((p) => p.id === id)));
 });

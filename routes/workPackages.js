@@ -5,6 +5,7 @@ import { templateForClassification } from '../lib/phaseConstants.js';
 import { WORK_PACKAGE_STATUS_SET } from '../lib/workPackageConstants.js';
 import { OPEN_BACKLOG_STATUSES } from '../lib/backlogConstants.js';
 import { canCreateProject } from '../lib/permissions.js';
+import { reloadStore, persistStore } from '../lib/storeSync.js';
 
 export const workPackagesRouter = Router();
 
@@ -32,7 +33,8 @@ function enrichWorkPackage(wp) {
   };
 }
 
-workPackagesRouter.get('/', (req, res) => {
+workPackagesRouter.get('/', async (req, res) => {
+  await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
   let list = (store.work_packages || []).map(enrichWorkPackage);
   if (projectId) list = list.filter((w) => w.project_id === projectId);
@@ -40,13 +42,14 @@ workPackagesRouter.get('/', (req, res) => {
   res.json(list);
 });
 
-workPackagesRouter.get('/:id', (req, res) => {
+workPackagesRouter.get('/:id', async (req, res) => {
+  await reloadStore();
   const wp = (store.work_packages || []).find((w) => w.id === +req.params.id);
   if (!wp) return res.status(404).json({ error: 'Work package not found' });
   res.json(enrichWorkPackage(wp));
 });
 
-workPackagesRouter.post('/', (req, res) => {
+workPackagesRouter.post('/', async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO can create work packages' });
   }
@@ -79,10 +82,11 @@ workPackagesRouter.post('/', (req, res) => {
     target_id: id,
     summary: `Created work package "${wp.name}" (${wp.classification}) in ${project.name}`,
   });
+  if (!(await persistStore(res))) return;
   res.status(201).json(wp);
 });
 
-workPackagesRouter.put('/:id', (req, res) => {
+workPackagesRouter.put('/:id', async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO can update work packages' });
   }
@@ -107,10 +111,11 @@ workPackagesRouter.put('/:id', (req, res) => {
   if (body.sort_order != null) patch.sort_order = +body.sort_order;
 
   store.updateWorkPackage(id, patch);
+  if (!(await persistStore(res))) return;
   res.json(enrichWorkPackage(store.work_packages.find((w) => w.id === id)));
 });
 
-workPackagesRouter.delete('/:id', (req, res) => {
+workPackagesRouter.delete('/:id', async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO can delete work packages' });
   }
@@ -125,10 +130,11 @@ workPackagesRouter.delete('/:id', (req, res) => {
     target_id: id,
     summary: `Deleted work package "${cur.name}"`,
   });
+  if (!(await persistStore(res))) return;
   res.json({ ok: true });
 });
 
-workPackagesRouter.post('/:id/init-phases', (req, res) => {
+workPackagesRouter.post('/:id/init-phases', async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO can initialize phases' });
   }
@@ -159,5 +165,6 @@ workPackagesRouter.post('/:id/init-phases', (req, res) => {
     target_id: wp.project_id,
     summary: `Initialized ${phases.length} delivery phases for work package "${wp.name}" in ${project?.name || 'project'}`,
   });
+  if (!(await persistStore(res))) return;
   res.status(201).json(phases);
 });
