@@ -37,14 +37,24 @@ projectsRouter.get('/', (req, res) => {
   res.json(list);
 });
 
-projectsRouter.get('/:id', (req, res) => {
+projectsRouter.get('/:id', async (req, res) => {
   const id = +req.params.id;
-  const project = store.projects.find((p) => p.id === id);
+  const findProject = () => store.projects.find((p) => Number(p.id) === id);
+  let project = findProject();
+  if (!project) {
+    // Warm serverless instances may still have a pre-create in-memory snapshot.
+    try {
+      await store.reloadFromSupabase();
+    } catch (e) {
+      console.warn('reload:', e.message);
+    }
+    project = findProject();
+  }
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const members = store.project_assignments
-    .filter((a) => a.project_id === id)
+    .filter((a) => Number(a.project_id) === id)
     .map((a) => {
-      const person = store.people.find((pe) => pe.id === a.person_id);
+      const person = store.people.find((pe) => Number(pe.id) === Number(a.person_id));
       return { ...a, name: person?.name, email: person?.email, role: person?.role };
     });
   res.json(enrichProject(project, { members }));
@@ -82,18 +92,25 @@ projectsRouter.post('/', async (req, res) => {
     summary: `Created project "${name}"`,
   });
   try {
-    await store.persistToSupabase();
+    // Persist projects first (not full snapshot) so unrelated table errors don't block create.
+    await store.persistProjectsToSupabase();
   } catch (e) {
     console.warn('persist:', e.message);
+    return res.status(500).json({
+      error: 'Project created in memory but failed to save. Please try again.',
+      detail: e.message,
+    });
   }
-  const project = store.projects.find((p) => p.id === id);
+  // Best-effort full sync (audit log, etc.) — do not block the response.
+  store.persistToSupabase().catch((e) => console.warn('persist full:', e.message));
+  const project = store.projects.find((p) => Number(p.id) === id);
   res.status(201).json(enrichProject(project));
 });
 
 projectsRouter.put('/:id', async (req, res) => {
   const { name, description, status, start_date, end_date, classification, engagement_type } = req.body;
   const id = +req.params.id;
-  const existing = store.projects.find((p) => p.id === id);
+  const existing = store.projects.find((p) => Number(p.id) === id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
   const clientIds = parseClientIds(req.body);
   const nextEngagementType = engagement_type !== undefined
@@ -128,20 +145,21 @@ projectsRouter.put('/:id', async (req, res) => {
     action: 'update',
     target_type: 'project',
     target_id: id,
-    summary: `Updated project "${store.projects.find((p) => p.id === id)?.name || id}"`,
+    summary: `Updated project "${store.projects.find((p) => Number(p.id) === id)?.name || id}"`,
   });
   try {
     await store.persistToSupabase();
   } catch (e) {
     console.warn('persist:', e.message);
+    return res.status(500).json({ error: 'Failed to save project changes', detail: e.message });
   }
-  const project = store.projects.find((p) => p.id === id);
+  const project = store.projects.find((p) => Number(p.id) === id);
   res.json(enrichProject(project));
 });
 
 projectsRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.projects.find((p) => p.id === id);
+  const existing = store.projects.find((p) => Number(p.id) === id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
   store.deleteProject(id);
   store.appendAuditLog(req.user, {
@@ -154,6 +172,7 @@ projectsRouter.delete('/:id', async (req, res) => {
     await store.persistToSupabase();
   } catch (e) {
     console.warn('persist:', e.message);
+    return res.status(500).json({ error: 'Failed to delete project in database', detail: e.message });
   }
   res.status(204).send();
 });

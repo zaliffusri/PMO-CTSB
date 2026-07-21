@@ -96,8 +96,21 @@ export function companyRowForDb(c) {
 }
 
 export function projectRowForDb(p) {
-  const { client_id: _c, tags: _t, ...rest } = p;
-  return { ...rest, tags: [] };
+  // Explicit columns only — spreading unknown fields (e.g. cover_image_url) breaks upsert on older schemas.
+  const row = {
+    id: p.id,
+    name: p.name,
+    description: p.description ?? null,
+    classification: p.classification ?? null,
+    engagement_type: p.engagement_type ?? null,
+    status: p.status || 'active',
+    start_date: p.start_date || null,
+    end_date: p.end_date || null,
+    tags: Array.isArray(p.tags) ? p.tags : [],
+    created_at: p.created_at || new Date().toISOString(),
+  };
+  if (p.cover_image_url !== undefined) row.cover_image_url = p.cover_image_url;
+  return row;
 }
 
 export function normalizeBacklogRows(rows) {

@@ -177,11 +177,40 @@ async function upsertOptionalTable(table, rows, onConflict = 'id', warnKey) {
   throw error;
 }
 
+async function upsertProjects(rows) {
+  if (!rows || rows.length === 0) return;
+  const prepared = rows.map(projectRowForDb);
+  const tryUpsert = async (payload) => supabase.from('projects').upsert(payload, { onConflict: 'id' });
+
+  let { error } = await tryUpsert(prepared);
+  if (!error) return;
+
+  const isMissingColumn = (err, column) => {
+    const msg = String(err?.message || '');
+    return new RegExp(column, 'i').test(msg) &&
+      /projects|schema cache|column|Could not find|does not exist|PGRST204/i.test(msg);
+  };
+
+  if (isMissingColumn(error, 'cover_image_url')) {
+    const stripped = prepared.map(({ cover_image_url: _c, ...rest }) => rest);
+    ({ error } = await tryUpsert(stripped));
+    if (!error) return;
+  }
+
+  if (isMissingColumn(error, 'engagement_type')) {
+    const stripped = prepared.map(({ engagement_type: _e, cover_image_url: _c, ...rest }) => rest);
+    ({ error } = await tryUpsert(stripped));
+    if (!error) return;
+  }
+
+  throw error;
+}
+
 export async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('clients', (snapshot.clients || []).map(companyRowForDb));
   await upsertClientContacts(snapshot.client_contacts || []);
   await upsertAll('people', snapshot.people || []);
-  await upsertAll('projects', (snapshot.projects || []).map(projectRowForDb));
+  await upsertProjects(snapshot.projects || []);
   await upsertProjectClients(snapshot.project_clients || []);
   await upsertAll('project_assignments', snapshot.project_assignments || []);
   await upsertActivitiesApp(snapshot.activities || []);
@@ -369,6 +398,14 @@ export async function persistDataToSupabase(data) {
   if (!supabase) return;
   const snap = JSON.parse(JSON.stringify(data));
   await pushSnapshotToSupabase(snap);
+}
+
+/** Persist projects (+ links) only — used on create so unrelated table errors don't block. */
+export async function persistProjectsToSupabase(data) {
+  if (!supabase) return;
+  const snap = JSON.parse(JSON.stringify(data));
+  await upsertProjects(snap.projects || []);
+  await upsertProjectClients(snap.project_clients || []);
 }
 
 export { supabase };
