@@ -50,7 +50,6 @@ export default function Users() {
   const [statusFilter, setStatusFilter] = useState('');
   const { pending: createPending, run: runCreate } = useSubmitLock();
   const { pending: editPending, run: runEdit } = useSubmitLock();
-  const { pending: statusBusy, run: runStatus } = useSubmitLock();
   const createFirstFieldRef = useRef(null);
   const editFirstFieldRef = useRef(null);
 
@@ -143,19 +142,6 @@ export default function Users() {
         await api.users.update(editingId, body);
         cancelEdit();
         load();
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  };
-
-  const setUserActiveInline = async (u, nextActive) => {
-    const current = u.active !== false;
-    if (current === nextActive) return;
-    await runStatus(async () => {
-      try {
-        await api.users.update(u.id, { active: nextActive });
-        await load();
       } catch (err) {
         alert(err.message);
       }
@@ -291,14 +277,19 @@ export default function Users() {
             placeholder="Leave blank to keep current"
           />
         </div>
-        <label className="form-field" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={editForm.active}
-            onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.checked }))}
-          />
-          <span>Account active (inactive users cannot sign in)</span>
-        </label>
+        <div className="form-field">
+          <label className="form-field__label" htmlFor="edit-user-status">Status</label>
+          <select
+            id="edit-user-status"
+            className="form-field__input ui-input"
+            value={editForm.active ? 'active' : 'inactive'}
+            onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.value === 'active' }))}
+          >
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <p className="form-field__hint">Inactive users cannot sign in.</p>
+        </div>
       </UserFormModal>
 
       {users.length > 0 && (
@@ -401,17 +392,9 @@ export default function Users() {
                       <td>{u.email}</td>
                       <td>{roleLabel(u.role)}</td>
                       <td>
-                        <select
-                          className="ui-input"
-                          style={{ minWidth: '7.5rem', padding: '0.35rem 0.5rem' }}
-                          value={u.active === false ? 'inactive' : 'active'}
-                          disabled={statusBusy}
-                          onChange={(e) => setUserActiveInline(u, e.target.value === 'active')}
-                          aria-label={`Status for ${u.name}`}
-                        >
-                          <option value="active">Active</option>
-                          <option value="inactive">Inactive</option>
-                        </select>
+                        <span className={`dashboard-badge dashboard-badge-${u.active === false ? 'on-hold' : 'active'}`}>
+                          {u.active === false ? 'Inactive' : 'Active'}
+                        </span>
                       </td>
                       <td>{new Date(u.created_at).toLocaleString()}</td>
                       <td>
