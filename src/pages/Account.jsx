@@ -19,7 +19,7 @@ const ROLE_DESCRIPTIONS = {
   admin: 'Full system access — manage users, projects, settings, and audit history.',
   pmo: 'Manage projects, clients, assignments, and team scheduling.',
   finance: 'View projects and activities for financial reporting.',
-  hr: 'Manage team members and view activity logs.',
+  hr: 'View team calendar and schedules only.',
   user: 'Log activities and view your assignments and schedule.',
 };
 

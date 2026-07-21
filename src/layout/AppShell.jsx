@@ -6,7 +6,7 @@ import NavIcon from '../components/NavIcon';
 import UserAvatar from '../components/UserAvatar';
 import ThemeToggle from '../components/ThemeToggle';
 import { useBranding } from '../context/BrandingContext';
-import { canViewFinance } from '../../lib/permissions.js';
+import { canViewFinance, isHrCalendarOnly } from '../../lib/permissions.js';
 import { ROLE_LABELS } from '../constants/roles.js';
 import { pageTitle } from '../navigation/pageTitles.js';
 
@@ -50,6 +50,7 @@ export default function AppShell({ children }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'admin';
+  const hrOnly = isHrCalendarOnly(user);
   const showFinance = canViewFinance(user);
   const isSettingsSidebar = isAdmin && (pathname.startsWith('/settings') || settingsSidebarPeek);
   const title = useMemo(() => pageTitle(pathname), [pathname]);
@@ -169,7 +170,12 @@ export default function AppShell({ children }) {
         </div>
 
         <div className="nav-scroll">
-          {isSettingsSidebar ? (
+          {hrOnly ? (
+            <>
+              <div className="nav-section-label">Schedule</div>
+              <NavItem to="/calendar" icon="calendar" label="Calendar" onNavigate={closeNav} compact={sidebarCompact} />
+            </>
+          ) : isSettingsSidebar ? (
             <>
               <button
                 type="button"
@@ -248,13 +254,23 @@ export default function AppShell({ children }) {
 
         {user && (
           <div className="nav-footer">
-            <NavLink to="/account" className="nav-user-card" title={sidebarCompact ? 'My account' : undefined} onClick={closeNav}>
-              <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="md" />
-              <div className="nav-user-meta">
-                <div className="nav-user-name">{user.name || user.email}</div>
-                <div className="nav-user-role">{ROLE_LABELS[user.role] || user.role}</div>
+            {hrOnly ? (
+              <div className="nav-user-card">
+                <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="md" />
+                <div className="nav-user-meta">
+                  <div className="nav-user-name">{user.name || user.email}</div>
+                  <div className="nav-user-role">{ROLE_LABELS[user.role] || user.role}</div>
+                </div>
               </div>
-            </NavLink>
+            ) : (
+              <NavLink to="/account" className="nav-user-card" title={sidebarCompact ? 'My account' : undefined} onClick={closeNav}>
+                <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="md" />
+                <div className="nav-user-meta">
+                  <div className="nav-user-name">{user.name || user.email}</div>
+                  <div className="nav-user-role">{ROLE_LABELS[user.role] || user.role}</div>
+                </div>
+              </NavLink>
+            )}
             <button type="button" className="btn btn-ghost btn-sm nav-logout" onClick={logout}>
               <span className="nav-link-label">Sign out</span>
             </button>
@@ -284,13 +300,20 @@ export default function AppShell({ children }) {
             </div>
           </div>
           <div className="app-topbar-actions">
-            <NotificationBell />
+            {!hrOnly && <NotificationBell />}
             <ThemeToggle />
             {user && (
-              <NavLink to="/account" className="app-topbar-user">
-                <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />
-                <span className="app-topbar-user-name">{user.name?.split(' ')[0] || 'Account'}</span>
-              </NavLink>
+              hrOnly ? (
+                <div className="app-topbar-user">
+                  <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />
+                  <span className="app-topbar-user-name">{user.name?.split(' ')[0] || 'Account'}</span>
+                </div>
+              ) : (
+                <NavLink to="/account" className="app-topbar-user">
+                  <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />
+                  <span className="app-topbar-user-name">{user.name?.split(' ')[0] || 'Account'}</span>
+                </NavLink>
+              )
             )}
           </div>
         </header>

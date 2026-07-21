@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
-import { canViewFinance } from '../../lib/permissions.js';
+import { canViewFinance, isHrCalendarOnly } from '../../lib/permissions.js';
 import Dashboard from '../pages/Dashboard';
 import Projects from '../pages/Projects';
 import ProjectDetail from '../pages/ProjectDetail';
@@ -22,6 +22,16 @@ import SettingsBranding from '../pages/settings/SettingsBranding';
 export default function AppRoutes() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const hrOnly = isHrCalendarOnly(user);
+
+  if (hrOnly) {
+    return (
+      <Routes>
+        <Route path="/calendar" element={<Calendar />} />
+        <Route path="*" element={<Navigate to="/calendar" replace />} />
+      </Routes>
+    );
+  }
 
   return (
     <Routes>
