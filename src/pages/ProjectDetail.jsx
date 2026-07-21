@@ -16,6 +16,7 @@ import ProjectBacklogPanel from '../components/ProjectBacklogPanel';
 import ProjectDeliveryPanel from '../components/ProjectDeliveryPanel';
 import ProjectOverviewCharts from '../components/ProjectOverviewCharts';
 import ProjectTasksPanel from '../components/ProjectTasksPanel';
+import ProjectWorkPackagesPanel from '../components/ProjectWorkPackagesPanel';
 import ModuleTabs from '../components/ModuleTabs';
 import PageLoadError from '../components/PageLoadError';
 import { PROJECT_ENGAGEMENT_TYPES, engagementTypeLabel, deliveryScopeLabel } from '../../lib/projectConstants.js';
