@@ -179,30 +179,87 @@ async function upsertOptionalTable(table, rows, onConflict = 'id', warnKey) {
 
 async function upsertProjects(rows) {
   if (!rows || rows.length === 0) return;
-  const prepared = rows.map(projectRowForDb);
+  const toDateOnly = (v) => {
+    if (v == null || v === '') return null;
+    const s = String(v).trim();
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+  };
+  const prepared = rows.map((p) => {
+    const row = projectRowForDb(p);
+    row.start_date = toDateOnly(row.start_date);
+    row.end_date = toDateOnly(row.end_date);
+    return row;
+  });
   const tryUpsert = async (payload) => supabase.from('projects').upsert(payload, { onConflict: 'id' });
 
   let { error } = await tryUpsert(prepared);
   if (!error) return;
 
-  const isMissingColumn = (err, column) => {
-    const msg = String(err?.message || '');
-    return new RegExp(column, 'i').test(msg) &&
-      /projects|schema cache|column|Could not find|does not exist|PGRST204/i.test(msg);
-  };
+  const isSchemaError = (err) =>
+    /schema cache|PGRST204|Could not find|does not exist|column/i.test(String(err?.message || ''));
+  const mentions = (err, column) => new RegExp(column, 'i').test(String(err?.message || ''));
 
-  if (isMissingColumn(error, 'cover_image_url')) {
-    const stripped = prepared.map(({ cover_image_url: _c, ...rest }) => rest);
-    ({ error } = await tryUpsert(stripped));
+  // Progressively strip optional columns when production schema lags migrations.
+  let payload = prepared.map((row) => ({ ...row }));
+  for (const column of ['cover_image_url', 'engagement_type', 'classification']) {
+    if (!error || !isSchemaError(error)) break;
+    if (!mentions(error, column) && column !== 'cover_image_url') {
+      // Still strip known-optional cols on generic schema-cache errors.
+      if (!/schema cache|PGRST204/i.test(String(error?.message || ''))) continue;
+    }
+    payload = payload.map((row) => {
+      const next = { ...row };
+      delete next[column];
+      return next;
+    });
+    ({ error } = await tryUpsert(payload));
     if (!error) return;
   }
 
-  if (isMissingColumn(error, 'engagement_type')) {
-    const stripped = prepared.map(({ engagement_type: _e, cover_image_url: _c, ...rest }) => rest);
-    ({ error } = await tryUpsert(stripped));
+  // Last resort: core columns only.
+  if (error) {
+    const minimal = prepared.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description ?? null,
+      status: p.status || 'active',
+      start_date: toDateOnly(p.start_date),
+      end_date: toDateOnly(p.end_date),
+      tags: [],
+      created_at: p.created_at || new Date().toISOString(),
+    }));
+    ({ error } = await tryUpsert(minimal));
     if (!error) return;
   }
 
+  throw error;
+}
+
+async function upsertProjectClientLinks(rows) {
+  if (!rows?.length) return;
+  // Use natural key — surrogate ids drift across serverless instances and cause unique violations.
+  const payload = rows.map((r) => ({
+    project_id: Number(r.project_id),
+    client_id: Number(r.client_id),
+    created_at: r.created_at || new Date().toISOString(),
+  })).filter((r) => Number.isFinite(r.project_id) && Number.isFinite(r.client_id));
+  if (!payload.length) return;
+
+  const { error } = await supabase
+    .from('project_clients')
+    .upsert(payload, { onConflict: 'project_id,client_id' });
+  if (!error) return;
+
+  const msg = String(error?.message || '');
+  if (/project_clients|schema cache|column|Could not find|does not exist|PGRST204/i.test(msg)) {
+    if (!warnedProjectClientsTable) {
+      warnedProjectClientsTable = true;
+      console.warn(
+        'store: project_clients table missing — run supabase/migrations/20260518130000_project_clients.sql',
+      );
+    }
+    return;
+  }
   throw error;
 }
 
@@ -405,7 +462,18 @@ export async function persistProjectsToSupabase(data) {
   if (!supabase) return;
   const snap = JSON.parse(JSON.stringify(data));
   await upsertProjects(snap.projects || []);
-  await upsertProjectClients(snap.project_clients || []);
+  await upsertProjectClientLinks(snap.project_clients || []);
+}
+
+/** Persist a single project (and its client links) — safest path for serverless create. */
+export async function persistProjectById(data, projectId) {
+  if (!supabase) return;
+  const pid = Number(projectId);
+  const project = (data.projects || []).find((p) => Number(p.id) === pid);
+  if (!project) throw new Error(`Project ${pid} not found in memory`);
+  await upsertProjects([project]);
+  const links = (data.project_clients || []).filter((pc) => Number(pc.project_id) === pid);
+  await upsertProjectClientLinks(links);
 }
 
 export { supabase };

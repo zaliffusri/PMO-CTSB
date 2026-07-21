@@ -92,13 +92,13 @@ projectsRouter.post('/', async (req, res) => {
     summary: `Created project "${name}"`,
   });
   try {
-    // Persist projects first (not full snapshot) so unrelated table errors don't block create.
-    await store.persistProjectsToSupabase();
+    // Persist only this project (+ its client links) to avoid full-snapshot / id-skew failures.
+    await store.persistProjectById(id);
   } catch (e) {
-    console.warn('persist:', e.message);
+    const detail = e?.message || String(e);
+    console.warn('persist:', detail);
     return res.status(500).json({
-      error: 'Project created in memory but failed to save. Please try again.',
-      detail: e.message,
+      error: `Failed to save project: ${detail}`,
     });
   }
   // Best-effort full sync (audit log, etc.) — do not block the response.
