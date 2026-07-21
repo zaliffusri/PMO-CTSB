@@ -28,6 +28,7 @@ export default function AppRoutes() {
     return (
       <Routes>
         <Route path="/calendar" element={<Calendar />} />
+        <Route path="/account" element={<Account />} />
         <Route path="*" element={<Navigate to="/calendar" replace />} />
       </Routes>
     );

@@ -254,23 +254,13 @@ export default function AppShell({ children }) {
 
         {user && (
           <div className="nav-footer">
-            {hrOnly ? (
-              <div className="nav-user-card">
-                <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="md" />
-                <div className="nav-user-meta">
-                  <div className="nav-user-name">{user.name || user.email}</div>
-                  <div className="nav-user-role">{ROLE_LABELS[user.role] || user.role}</div>
-                </div>
+            <NavLink to="/account" className="nav-user-card" title={sidebarCompact ? 'My account' : undefined} onClick={closeNav}>
+              <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="md" />
+              <div className="nav-user-meta">
+                <div className="nav-user-name">{user.name || user.email}</div>
+                <div className="nav-user-role">{ROLE_LABELS[user.role] || user.role}</div>
               </div>
-            ) : (
-              <NavLink to="/account" className="nav-user-card" title={sidebarCompact ? 'My account' : undefined} onClick={closeNav}>
-                <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="md" />
-                <div className="nav-user-meta">
-                  <div className="nav-user-name">{user.name || user.email}</div>
-                  <div className="nav-user-role">{ROLE_LABELS[user.role] || user.role}</div>
-                </div>
-              </NavLink>
-            )}
+            </NavLink>
             <button type="button" className="btn btn-ghost btn-sm nav-logout" onClick={logout}>
               <span className="nav-link-label">Sign out</span>
             </button>
@@ -303,17 +293,10 @@ export default function AppShell({ children }) {
             {!hrOnly && <NotificationBell />}
             <ThemeToggle />
             {user && (
-              hrOnly ? (
-                <div className="app-topbar-user">
-                  <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />
-                  <span className="app-topbar-user-name">{user.name?.split(' ')[0] || 'Account'}</span>
-                </div>
-              ) : (
-                <NavLink to="/account" className="app-topbar-user">
-                  <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />
-                  <span className="app-topbar-user-name">{user.name?.split(' ')[0] || 'Account'}</span>
-                </NavLink>
-              )
+              <NavLink to="/account" className="app-topbar-user">
+                <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />
+                <span className="app-topbar-user-name">{user.name?.split(' ')[0] || 'Account'}</span>
+              </NavLink>
             )}
           </div>
         </header>
