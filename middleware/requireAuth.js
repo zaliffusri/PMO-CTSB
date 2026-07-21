@@ -15,7 +15,7 @@ export function requireAuth(req, res, next) {
     const user = await store.findUserByIdAny(session.user_id);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
     if (user.active === false) {
-      store.deleteSessionByToken(token);
+      await store.deleteSessionByToken(token);
       return res.status(401).json({ error: 'Unauthorized' });
     }
     req.user = { id: user.id, email: user.email, role: user.role, name: user.name };

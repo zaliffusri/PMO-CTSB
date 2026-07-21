@@ -45,7 +45,8 @@ export function getAuthToken() {
 async function request(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = { 'Content-Type': 'application/json', ...options.headers };
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const token = authToken || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : '') || '';
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   let res;
   try {
@@ -67,10 +68,12 @@ async function request(path, options = {}) {
 
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    // Session/token is invalid or expired.
-    setAuthToken('');
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+    // Do not wipe session on failed login attempt — only when an authenticated call is rejected.
+    if (token && !String(path).startsWith('/auth/login')) {
+      setAuthToken('');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+      }
     }
   }
   if (!res.ok) {

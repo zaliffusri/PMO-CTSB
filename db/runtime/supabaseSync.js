@@ -319,6 +319,18 @@ async function upsertProjectClientLinks(rows) {
   throw error;
 }
 
+async function upsertSessions(rows) {
+  if (!rows?.length) return;
+  const payload = rows.map(({ user_id, token, expires_at, created_at }) => ({
+    user_id,
+    token,
+    expires_at,
+    created_at: created_at || new Date().toISOString(),
+  }));
+  const { error } = await supabase.from('sessions_app').upsert(payload, { onConflict: 'token' });
+  if (error) throw error;
+}
+
 export async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('clients', (snapshot.clients || []).map(companyRowForDb));
   await upsertClientContacts(snapshot.client_contacts || []);
@@ -329,7 +341,7 @@ export async function pushSnapshotToSupabase(snapshot) {
   await upsertActivitiesApp(snapshot.activities || []);
   await upsertProjectTasks(snapshot.project_tasks || []);
   await upsertUsersApp(snapshot.users || []);
-  await upsertAll('sessions_app', snapshot.sessions || []);
+  await upsertSessions(snapshot.sessions || []);
   const settingsRow = { id: 1, ...(snapshot.settings || {}) };
   await upsertAll('settings_app', [settingsRow], 'id');
   await upsertAll('audit_log', snapshot.audit_log || []);
@@ -558,6 +570,15 @@ export async function persistAssignmentsToSupabase(data) {
   if (!supabase) return;
   const snap = JSON.parse(JSON.stringify(data));
   await upsertAll('project_assignments', snap.project_assignments || []);
+  await upsertAll('audit_log', snap.audit_log || []);
+}
+
+/** Persist user (+ linked team person) updates without touching sessions. */
+export async function persistUsersToSupabase(data) {
+  if (!supabase) return;
+  const snap = JSON.parse(JSON.stringify(data));
+  await upsertUsersApp(snap.users || []);
+  await upsertAll('people', snap.people || []);
   await upsertAll('audit_log', snap.audit_log || []);
 }
 

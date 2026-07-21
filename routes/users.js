@@ -56,9 +56,9 @@ usersRouter.post('/', requireAdmin, async (req, res) => {
     summary: `Created user "${created.name}" (${created.email}) as ${created.role}`,
   });
   try {
-    await store.persistToSupabase();
+    await store.persistUsersToSupabase();
   } catch (e) {
-    console.error('users POST persistToSupabase failed', e);
+    console.error('users POST persistUsersToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save to database' });
   }
   res.status(201).json(safeUser(created));
@@ -146,9 +146,9 @@ usersRouter.put('/:id', requireAdmin, async (req, res) => {
     detail: { fields: changed },
   });
   try {
-    await store.persistToSupabase();
+    await store.persistUsersToSupabase();
   } catch (e) {
-    console.error('users PUT persistToSupabase failed', e);
+    console.error('users PUT persistUsersToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save to database' });
   }
   res.json(safeUser(updated));

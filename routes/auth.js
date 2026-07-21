@@ -99,15 +99,15 @@ authRouter.get('/me', async (req, res) => {
   const user = await store.findUserByIdAny(session.user_id);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
   if (!isUserActive(user)) {
-    store.deleteSessionByToken(token);
+    await store.deleteSessionByToken(token);
     return res.status(401).json({ error: 'Unauthorized' });
   }
   return res.json({ user: sanitizeUser(user) });
 });
 
-authRouter.post('/logout', (req, res) => {
+authRouter.post('/logout', async (req, res) => {
   const token = getTokenFromHeader(req);
-  if (token) store.deleteSessionByToken(token);
+  if (token) await store.deleteSessionByToken(token);
   res.status(204).send();
 });
 

@@ -60,19 +60,26 @@ export function createAuthRepository(ctx, getStore) {
 
     async createSession(user_id, token, expires_at) {
       const data = getData();
-      const id = nextId(data.sessions);
       const created_at = new Date().toISOString();
-      const session = { id, user_id, token, expires_at, created_at };
-      data.sessions.push(session);
+      const row = { user_id, token, expires_at, created_at };
       if (supabase) {
-        const { error } = await supabase.from('sessions_app').upsert([session], { onConflict: 'id' });
-        if (error) {
-          data.sessions = data.sessions.filter((s) => s.id !== id);
-          throw error;
-        }
+        // Upsert by token — never by surrogate id (serverless instances skew ids and overwrite valid sessions).
+        const { data: saved, error } = await supabase
+          .from('sessions_app')
+          .upsert([row], { onConflict: 'token' })
+          .select('*')
+          .maybeSingle();
+        if (error) throw error;
+        const session = saved || { id: nextId(data.sessions), ...row };
+        const existingIdx = data.sessions.findIndex((s) => s.token === token);
+        if (existingIdx === -1) data.sessions.push(session);
+        else data.sessions[existingIdx] = session;
+      } else {
+        const id = nextId(data.sessions);
+        data.sessions.push({ id, ...row });
       }
       save();
-      return session;
+      return data.sessions.find((s) => s.token === token) || row;
     },
 
     findSessionByToken(token) {
@@ -96,12 +103,16 @@ export function createAuthRepository(ctx, getStore) {
       return row;
     },
 
-    deleteSessionByToken(token) {
+    async deleteSessionByToken(token) {
       const data = getData();
       const i = data.sessions.findIndex((s) => s.token === token);
-      if (i === -1) return false;
-      data.sessions.splice(i, 1);
-      save();
+      if (i === -1 && !supabase) return false;
+      if (i !== -1) data.sessions.splice(i, 1);
+      if (supabase) {
+        const { error } = await supabase.from('sessions_app').delete().eq('token', token);
+        if (error) throw error;
+      } else if (i === -1) return false;
+      if (i !== -1) save();
       return true;
     },
 
