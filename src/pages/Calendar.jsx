@@ -581,16 +581,15 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, o
             >
               Edit activity
             </button>
-            {smtpConfigured && (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => onNotify?.(a)}
-                disabled={actionPending}
-              >
-                {actionPending ? 'Please wait…' : 'Resend email'}
-              </button>
-            )}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => onNotify?.(a)}
+              disabled={actionPending || !smtpConfigured}
+              title={!smtpConfigured ? 'SMTP is not configured on the server' : undefined}
+            >
+              {actionPending ? 'Please wait…' : 'Resend email'}
+            </button>
             <button
               type="button"
               className="btn btn-ghost calendar-detail-actions__danger"
@@ -862,8 +861,9 @@ export default function Calendar() {
     }
     await runMutation(async () => {
       try {
+        let result;
         if (editingActivityId != null) {
-          await api.activities.update(editingActivityId, {
+          result = await api.activities.update(editingActivityId, {
             person_ids: form.person_ids.map((pid) => +pid),
             external_attendees: extTrim,
             project_id: form.project_id || null,
@@ -876,7 +876,7 @@ export default function Calendar() {
             notify_email: form.notify_email,
           });
         } else {
-          await api.activities.create({
+          result = await api.activities.create({
             person_ids: form.person_ids.map((pid) => +pid),
             external_attendees: extTrim,
             project_id: form.project_id || undefined,
@@ -888,6 +888,16 @@ export default function Calendar() {
             end_at: toApiDateTimeValue(form.end_at),
             notify_email: form.notify_email,
           });
+        }
+        const emailNotify = result?.email_notify;
+        if (form.notify_email) {
+          if (!smtpConfigured || emailNotify?.smtp_configured === false) {
+            alert('Activity saved. Email was not sent because SMTP is not configured on the server.');
+          } else if (emailNotify && emailNotify.sent > 0) {
+            alert(`Activity saved. Email notification sent to ${emailNotify.sent} recipient(s).`);
+          } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
+            alert('Activity saved, but email notification could not be delivered. Check assignee emails and SMTP settings.');
+          }
         }
         setForm({
           person_ids: [],
@@ -1869,22 +1879,23 @@ export default function Calendar() {
                 End *{' '}
                 <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
               </label>
-              {smtpConfigured && (
-                <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+              <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: smtpConfigured ? 'pointer' : 'default' }}>
                   <input
                     type="checkbox"
                     checked={form.notify_email}
+                    disabled={!smtpConfigured}
                     onChange={(e) => setForm((f) => ({ ...f, notify_email: e.target.checked }))}
                     style={{ marginTop: '0.2rem' }}
                   />
                   <span>
                     <strong>Email assignees</strong>
                     <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                      Send a designed HTML notification to assignees and guest emails when saved.
+                      {smtpConfigured
+                        ? 'Send an email notification to selected assignees (and guest emails) when this activity is saved.'
+                        : 'Email is not available yet — ask an admin to set SMTP_USER / SMTP_PASS / SMTP_FROM (or SMTP_HOST) in Vercel environment variables.'}
                     </span>
                   </span>
                 </label>
-              )}
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="submit" className="btn btn-primary" disabled={mutating}>
                   {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}

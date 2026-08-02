@@ -88,7 +88,7 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
   return { fromMs, toExclusive };
 }
 
-function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, description, loggedBy }) {
+async function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, description, loggedBy }) {
   const assignee = store.findUserById(uid);
   let recipientEmail = String(assignee?.email || '').trim();
   if (!recipientEmail && assignee?.name) {
@@ -97,10 +97,16 @@ function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_a
     );
     recipientEmail = String(pe?.email || '').trim();
   }
+  if (!recipientEmail) {
+    return { sent: false, reason: 'no_email', to: null, name: assignee?.name || null };
+  }
+  if (!isMailerConfigured()) {
+    return { sent: false, reason: 'smtp_not_configured', to: recipientEmail, name: assignee?.name || null };
+  }
   const startLabel = formatEmailDateTime(start_at);
   const endLabel = formatEmailDateTime(end_at);
-  if (recipientEmail && isMailerConfigured()) {
-    sendActivityLoggedEmail({
+  try {
+    const result = await sendActivityLoggedEmail({
       to: recipientEmail,
       recipientName: assignee?.name,
       title,
@@ -111,39 +117,63 @@ function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_a
       projectName,
       description,
       loggedBy,
-    }).catch((e) => {
-      console.warn(`activities: failed to send notification email (${e.message})`);
     });
-    return true;
+    return {
+      sent: Boolean(result?.sent),
+      reason: result?.reason || null,
+      to: recipientEmail,
+      name: assignee?.name || null,
+    };
+  } catch (e) {
+    console.warn(`activities: failed to send notification email (${e.message})`);
+    return { sent: false, reason: e.message || 'send_failed', to: recipientEmail, name: assignee?.name || null };
   }
-  return false;
 }
 
-function notifyActivityGuests(external_attendees, payload) {
-  if (!external_attendees || !isMailerConfigured()) return 0;
+async function notifyActivityGuests(external_attendees, payload) {
+  if (!external_attendees) return [];
+  if (!isMailerConfigured()) {
+    return extractEmailsFromText(external_attendees).map((to) => ({
+      sent: false,
+      reason: 'smtp_not_configured',
+      to,
+      name: to.split('@')[0],
+    }));
+  }
   const guestEmails = extractEmailsFromText(external_attendees);
   const startLabel = formatEmailDateTime(payload.start_at);
   const endLabel = formatEmailDateTime(payload.end_at);
-  guestEmails.forEach((to) => {
-    sendActivityLoggedEmail({
-      to,
-      recipientName: to.split('@')[0],
-      title: payload.title,
-      typeKey: payload.typeKey,
-      location: payload.location,
-      startAt: startLabel,
-      endAt: endLabel,
-      projectName: payload.projectName,
-      description: payload.description,
-      loggedBy: payload.loggedBy,
-    }).catch((e) => {
+  const results = [];
+  for (const to of guestEmails) {
+    try {
+      const result = await sendActivityLoggedEmail({
+        to,
+        recipientName: to.split('@')[0],
+        title: payload.title,
+        typeKey: payload.typeKey,
+        location: payload.location,
+        startAt: startLabel,
+        endAt: endLabel,
+        projectName: payload.projectName,
+        description: payload.description,
+        loggedBy: payload.loggedBy,
+      });
+      results.push({
+        sent: Boolean(result?.sent),
+        reason: result?.reason || null,
+        to,
+        name: to.split('@')[0],
+      });
+    } catch (e) {
       console.warn(`activities: failed to send guest email (${e.message})`);
-    });
-  });
-  return guestEmails.length;
+      results.push({ sent: false, reason: e.message || 'send_failed', to, name: to.split('@')[0] });
+    }
+  }
+  return results;
 }
 
-function dispatchActivityNotifications({
+/** Await emails before responding — required on Vercel serverless or sends get killed. */
+async function dispatchActivityNotifications({
   assigneeUids,
   title,
   typeKey,
@@ -156,19 +186,7 @@ function dispatchActivityNotifications({
   external_attendees,
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
-  uniqueUids.forEach((uid) => {
-    notifyActivityAssignee(uid, {
-      title,
-      typeKey,
-      location,
-      start_at,
-      end_at,
-      projectName,
-      description,
-      loggedBy,
-    });
-  });
-  notifyActivityGuests(external_attendees, {
+  const payload = {
     title,
     typeKey,
     location,
@@ -177,7 +195,20 @@ function dispatchActivityNotifications({
     projectName,
     description,
     loggedBy,
-  });
+  };
+  const assigneeResults = [];
+  for (const uid of uniqueUids) {
+    assigneeResults.push(await notifyActivityAssignee(uid, payload));
+  }
+  const guestResults = await notifyActivityGuests(external_attendees, payload);
+  const results = [...assigneeResults, ...guestResults];
+  return {
+    smtp_configured: isMailerConfigured(),
+    attempted: results.length,
+    sent: results.filter((r) => r.sent).length,
+    failed: results.filter((r) => !r.sent).length,
+    recipients: results,
+  };
 }
 
 activitiesRouter.get('/', async (req, res) => {
@@ -407,7 +438,7 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
   const loggedBy = req.user?.name || req.user?.email || '';
   const typeKey = normalizeActivityType(existing.type);
   const ext = String(existing.external_attendees || '').trim();
-  dispatchActivityNotifications({
+  const emailNotify = await dispatchActivityNotifications({
     assigneeUids: groupRows.map((row) => row.person_id),
     title: existing.title,
     typeKey,
@@ -420,13 +451,12 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
     external_attendees: ext,
   });
 
-  const assigneeCount = new Set(groupRows.map((row) => row.person_id).filter(Boolean)).size;
-  const guestCount = extractEmailsFromText(ext).length;
-
   res.json({
     ok: true,
-    notified: assigneeCount + guestCount,
-    smtp_configured: true,
+    notified: emailNotify.sent,
+    attempted: emailNotify.attempted,
+    smtp_configured: emailNotify.smtp_configured,
+    email_notify: emailNotify,
   });
 });
 
@@ -541,8 +571,9 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
 
   const loggedBy = req.user?.name || req.user?.email || '';
   const shouldNotify = notifyEmailRaw !== false;
+  let emailNotify = null;
   if (shouldNotify) {
-    dispatchActivityNotifications({
+    emailNotify = await dispatchActivityNotifications({
       assigneeUids: created.map((a) => a.person_id),
       title,
       typeKey: normalizedType,
@@ -563,8 +594,12 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
     external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
     project_name: project?.name,
   }));
-  if (responseRows.length === 1) return res.status(201).json(responseRows[0]);
-  return res.status(201).json(responseRows);
+  const meta = {
+    email_notify: emailNotify,
+    notify_email_requested: shouldNotify,
+  };
+  if (responseRows.length === 1) return res.status(201).json({ ...responseRows[0], ...meta });
+  return res.status(201).json({ activities: responseRows, ...meta });
 });
 
 activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
@@ -662,21 +697,6 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     createdRows.push(row);
   }
 
-  if (shouldNotify) {
-    dispatchActivityNotifications({
-      assigneeUids: uniqueUids,
-      title: nextTitle,
-      typeKey: nextType,
-      location: nextLocation,
-      start_at: nextStart,
-      end_at: nextEnd,
-      projectName: project?.name || null,
-      description: nextDescription || null,
-      loggedBy,
-      external_attendees: extForRow,
-    });
-  }
-
   if (uniqueUids.length === 0) {
     const newId = store.addActivity({
       activity_group_id: activityGroupId,
@@ -692,6 +712,22 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     });
     const row = store.activities.find((x) => x.id === newId);
     if (row) createdRows.push(row);
+  }
+
+  let emailNotify = null;
+  if (shouldNotify) {
+    emailNotify = await dispatchActivityNotifications({
+      assigneeUids: uniqueUids,
+      title: nextTitle,
+      typeKey: nextType,
+      location: nextLocation,
+      start_at: nextStart,
+      end_at: nextEnd,
+      projectName: project?.name || null,
+      description: nextDescription || null,
+      loggedBy,
+      external_attendees: extForRow,
+    });
   }
 
   const firstNewId = createdRows[0]?.id ?? id;
@@ -730,6 +766,8 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       person_name: activityPersonName(r.person_id),
     })) : null,
     replaced_id: id,
+    email_notify: emailNotify,
+    notify_email_requested: shouldNotify,
   });
 });
 
