@@ -74,6 +74,11 @@ create table if not exists activities (
   start_at timestamptz not null,
   end_at timestamptz not null,
   created_at timestamptz not null default now(),
+  created_by_user_id bigint references users_app(id) on delete set null,
+  created_by_name text,
+  updated_by_user_id bigint references users_app(id) on delete set null,
+  updated_by_name text,
+  updated_at timestamptz,
   constraint activities_person_or_external_chk check (
     person_id is not null
     or (external_attendees is not null and length(btrim(external_attendees)) > 0)

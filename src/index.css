@@ -2373,6 +2373,26 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   letter-spacing: 0.04em;
   color: var(--text-muted);
 }
+.calendar-detail-audit {
+  margin: 0.85rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+.calendar-detail-audit__line {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.calendar-detail-audit__line + .calendar-detail-audit__line {
+  margin-top: 0.25rem;
+}
+.calendar-detail-audit__label {
+  font-weight: 600;
+  color: var(--text);
+}
 .calendar-detail-actions {
   display: flex;
   flex-direction: column;

@@ -124,31 +124,19 @@ async function upsertUsersApp(rows) {
 
 async function upsertActivitiesApp(rows) {
   if (!rows || rows.length === 0) return;
-  const prepared = rows.map((r) => ({ ...r }));
-  const { error } = await supabase.from('activities').upsert(prepared, { onConflict: 'id' });
-  if (!error) return;
-  const msg = String(error.message || '');
-  const missingExternal =
-    /external_attendees/i.test(msg) &&
-    /schema cache|column|Could not find|does not exist|PGRST204/i.test(msg);
-  if (!missingExternal) throw error;
-
-  const guestOnly = prepared.some((r) => r.person_id == null || r.person_id === '');
-  if (guestOnly) {
-    throw new Error(
-      'Database needs migration for guest activities: in Supabase → SQL Editor, run `supabase/migrations/20260412120000_add_activities_external_attendees.sql`. Then Dashboard → Settings → API → reload schema (or wait ~1 min).',
-    );
-  }
-
-  const stripped = prepared.map(({ external_attendees: _ext, ...rest }) => rest);
-  const retry = await supabase.from('activities').upsert(stripped, { onConflict: 'id' });
-  if (retry.error) throw retry.error;
-  if (!warnedActivitiesExternalAttendees) {
-    warnedActivitiesExternalAttendees = true;
-    console.warn(
-      'store: activities.external_attendees missing from DB — saved without guest text. Run supabase/migrations/20260412120000_add_activities_external_attendees.sql',
-    );
-  }
+  await upsertStrippingMissingColumns(
+    'activities',
+    rows.map((r) => ({ ...r })),
+    [
+      'external_attendees',
+      'activity_group_id',
+      'created_by_user_id',
+      'created_by_name',
+      'updated_by_user_id',
+      'updated_by_name',
+      'updated_at',
+    ],
+  );
 }
 
 async function upsertProjectClients(rows) {

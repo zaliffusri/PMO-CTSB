@@ -13,7 +13,7 @@ export function createActivitiesRepository(ctx, getStore) {
     addActivity(row) {
       const data = getData();
       const id = nextId(data.activities);
-      const created_at = new Date().toISOString();
+      const created_at = row?.created_at || new Date().toISOString();
       data.activities.push({ id, ...row, created_at });
       save();
       return id;

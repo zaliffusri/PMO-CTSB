@@ -76,7 +76,38 @@ function groupActivitiesForCalendar(activities) {
       person_name = person_name ? `${person_name}; ${ext}` : ext;
     }
     const person_ids = [...new Set(group.map((g) => g.person_id).filter((x) => x != null))];
-    result.push({ ...primary, person_name, person_ids });
+    // Prefer earliest create + latest update across assignee rows.
+    let created_at = primary.created_at;
+    let created_by_name = primary.created_by_name;
+    let created_by_user_id = primary.created_by_user_id;
+    let updated_at = primary.updated_at;
+    let updated_by_name = primary.updated_by_name;
+    let updated_by_user_id = primary.updated_by_user_id;
+    for (const g of group) {
+      if (g.created_at && (!created_at || new Date(g.created_at) < new Date(created_at))) {
+        created_at = g.created_at;
+        created_by_name = g.created_by_name || created_by_name;
+        created_by_user_id = g.created_by_user_id ?? created_by_user_id;
+      }
+      if (g.updated_at && (!updated_at || new Date(g.updated_at) > new Date(updated_at))) {
+        updated_at = g.updated_at;
+        updated_by_name = g.updated_by_name || updated_by_name;
+        updated_by_user_id = g.updated_by_user_id ?? updated_by_user_id;
+      }
+      if (!created_by_name && g.created_by_name) created_by_name = g.created_by_name;
+      if (!updated_by_name && g.updated_by_name) updated_by_name = g.updated_by_name;
+    }
+    result.push({
+      ...primary,
+      person_name,
+      person_ids,
+      created_at,
+      created_by_name,
+      created_by_user_id,
+      updated_at,
+      updated_by_name,
+      updated_by_user_id,
+    });
   }
   result.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
   return result;
@@ -170,6 +201,19 @@ function formatActivityTimeRange(a) {
   }
   const fullOpts = { ...dateOpts, ...timeOpts };
   return `${start.toLocaleString(undefined, fullOpts)} – ${end.toLocaleString(undefined, fullOpts)}`;
+}
+
+function formatAuditWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 /** Calendar popovers / detail sheet: hide import audit text; real notes still show; full description stays in edit & API. */
@@ -569,6 +613,36 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onCancel, o
           <div className="calendar-detail-notes">
             <h4 className="calendar-detail-notes__title">Notes</h4>
             <p className="calendar-detail-sheet-desc">{descForCalendar}</p>
+          </div>
+        )}
+        {(a.created_by_name || a.updated_by_name || a.created_at || a.updated_at) && (
+          <div className="calendar-detail-audit" aria-label="Activity history">
+            {a.created_by_name || a.created_at ? (
+              <p className="calendar-detail-audit__line">
+                <span className="calendar-detail-audit__label">Created</span>
+                {a.created_by_name ? ` by ${a.created_by_name}` : ''}
+                {a.created_at ? ` · ${formatAuditWhen(a.created_at)}` : ''}
+              </p>
+            ) : null}
+            {(() => {
+              const edited =
+                a.updated_by_name
+                || (a.updated_at && a.created_at && a.updated_at !== a.created_at);
+              if (!edited) return null;
+              const sameActor =
+                a.created_by_name
+                && a.updated_by_name
+                && String(a.created_by_name).trim().toLowerCase() === String(a.updated_by_name).trim().toLowerCase();
+              const sameTime = a.updated_at && a.created_at && a.updated_at === a.created_at;
+              if (sameActor && sameTime) return null;
+              return (
+                <p className="calendar-detail-audit__line">
+                  <span className="calendar-detail-audit__label">Last edited</span>
+                  {a.updated_by_name ? ` by ${a.updated_by_name}` : ''}
+                  {a.updated_at ? ` · ${formatAuditWhen(a.updated_at)}` : ''}
+                </p>
+              );
+            })()}
           </div>
         )}
         {canEdit && (

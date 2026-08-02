@@ -59,6 +59,59 @@ function activityPersonName(storedId) {
   return person?.name ?? null;
 }
 
+function actorSnapshot(user) {
+  const id = user?.id != null && Number.isFinite(Number(user.id)) ? Number(user.id) : null;
+  const name = String(user?.name || user?.email || '').trim() || null;
+  return { id, name };
+}
+
+function enrichActivityForClient(a) {
+  const project = store.projects.find((p) => p.id === a.project_id);
+  const createdByName =
+    (a.created_by_name && String(a.created_by_name).trim())
+    || activityPersonName(a.created_by_user_id)
+    || null;
+  const updatedByName =
+    (a.updated_by_name && String(a.updated_by_name).trim())
+    || activityPersonName(a.updated_by_user_id)
+    || null;
+  return {
+    ...a,
+    type: normalizeActivityType(a.type),
+    person_name: activityPersonName(a.person_id),
+    external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
+    project_name: project?.name,
+    created_by_name: createdByName,
+    updated_by_name: updatedByName,
+    created_by_user_id: a.created_by_user_id ?? null,
+    updated_by_user_id: a.updated_by_user_id ?? null,
+    updated_at: a.updated_at || null,
+  };
+}
+
+/** Prefer earliest creator + latest editor across a multi-assignee group before recreate. */
+function inheritAuditFromGroup(groupRows, existing) {
+  const rows = (groupRows || []).filter(Boolean);
+  const seed = existing || rows[0] || {};
+  let created_at = seed.created_at || null;
+  let created_by_user_id = seed.created_by_user_id ?? null;
+  let created_by_name = seed.created_by_name || null;
+  for (const r of rows) {
+    if (r.created_at && (!created_at || new Date(r.created_at) < new Date(created_at))) {
+      created_at = r.created_at;
+      created_by_user_id = r.created_by_user_id ?? created_by_user_id;
+      created_by_name = r.created_by_name || created_by_name;
+    }
+    if (!created_by_name && r.created_by_name) created_by_name = r.created_by_name;
+    if (created_by_user_id == null && r.created_by_user_id != null) created_by_user_id = r.created_by_user_id;
+  }
+  return {
+    created_at: created_at || new Date().toISOString(),
+    created_by_user_id,
+    created_by_name: created_by_name || activityPersonName(created_by_user_id) || null,
+  };
+}
+
 function normalizeExternalAttendees(raw) {
   if (raw == null) return '';
   const s = String(raw).trim();
@@ -242,16 +295,7 @@ activitiesRouter.get('/', async (req, res) => {
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const from = req.query.from;
   const to = req.query.to;
-  let rows = store.activities.map(a => {
-    const project = store.projects.find(p => p.id === a.project_id);
-    return {
-      ...a,
-      type: normalizeActivityType(a.type),
-      person_name: activityPersonName(a.person_id),
-      external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
-      project_name: project?.name,
-    };
-  });
+  let rows = store.activities.map((a) => enrichActivityForClient(a));
   if (personId) rows = rows.filter(r => r.person_id === personId);
   if (projectId) rows = rows.filter(r => r.project_id === projectId);
   const range = parseActivityRangeFilter(from, to);
@@ -269,16 +313,7 @@ activitiesRouter.get('/', async (req, res) => {
 
 function listActivitiesInRange(from, to) {
   const range = parseActivityRangeFilter(from, to);
-  let rows = store.activities.map((a) => {
-    const project = store.projects.find((p) => p.id === a.project_id);
-    return {
-      ...a,
-      type: normalizeActivityType(a.type),
-      person_name: activityPersonName(a.person_id),
-      external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
-      project_name: project?.name,
-    };
-  });
+  let rows = store.activities.map((a) => enrichActivityForClient(a));
   if (range) {
     const { fromMs, toExclusive } = range;
     rows = rows.filter((r) => {
@@ -535,6 +570,15 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   const activityGroupId = crypto.randomUUID();
   const created = [];
   const extForRow = external_attendees || null;
+  const actor = actorSnapshot(req.user);
+  const nowIso = new Date().toISOString();
+  const auditFields = {
+    created_by_user_id: actor.id,
+    created_by_name: actor.name,
+    updated_by_user_id: actor.id,
+    updated_by_name: actor.name,
+    updated_at: nowIso,
+  };
 
   if (uniqueResolved.length === 0) {
     const id = store.addActivity({
@@ -548,6 +592,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       location: loc,
       start_at,
       end_at,
+      ...auditFields,
     });
     const a = store.activities.find((x) => x.id === id);
     if (a) created.push(a);
@@ -564,6 +609,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
         location: loc,
         start_at,
         end_at,
+        ...auditFields,
       });
       const a = store.activities.find((x) => x.id === id);
       if (a) created.push(a);
@@ -608,13 +654,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
     });
   }
 
-  const responseRows = created.map((a) => ({
-    ...a,
-    type: normalizeActivityType(a.type),
-    person_name: activityPersonName(a.person_id),
-    external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
-    project_name: project?.name,
-  }));
+  const responseRows = created.map((a) => enrichActivityForClient(a));
   const meta = {
     email_notify: emailNotify,
     notify_email_requested: shouldNotify,
@@ -696,6 +736,20 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   const shouldNotify = notifyEmailRaw !== false;
   const activityGroupId = existing.activity_group_id || crypto.randomUUID();
   const previousGroupIds = idsInSameLogicalGroup(store.activities, id);
+  const previousRows = previousGroupIds
+    .map((aid) => store.activities.find((a) => a.id === aid))
+    .filter(Boolean);
+  const inherited = inheritAuditFromGroup(previousRows, existing);
+  const actor = actorSnapshot(req.user);
+  const nowIso = new Date().toISOString();
+  const auditFields = {
+    created_at: inherited.created_at,
+    created_by_user_id: inherited.created_by_user_id ?? actor.id,
+    created_by_name: inherited.created_by_name || actor.name,
+    updated_by_user_id: actor.id,
+    updated_by_name: actor.name,
+    updated_at: nowIso,
+  };
   await store.deleteActivityLogicalGroupByAnyMemberId(id);
   const createdRows = [];
   const project = store.projects.find(p => p.id === (nextProjectId || null));
@@ -713,6 +767,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       location: nextLocation,
       start_at: nextStart,
       end_at: nextEnd,
+      ...auditFields,
     });
     const row = store.activities.find(x => x.id === newId);
     createdRows.push(row);
@@ -730,6 +785,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       location: nextLocation,
       start_at: nextStart,
       end_at: nextEnd,
+      ...auditFields,
     });
     const row = store.activities.find((x) => x.id === newId);
     if (row) createdRows.push(row);
@@ -777,11 +833,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
 
   const first = createdRows[0];
   return res.json({
-    ...first,
-    type: normalizeActivityType(first.type),
-    person_name: activityPersonName(first.person_id),
-    external_attendees: first.external_attendees != null ? String(first.external_attendees) : null,
-    project_name: project?.name,
+    ...enrichActivityForClient(first),
     split_into: createdRows.length > 1 ? createdRows.map((r) => ({
       id: r.id,
       person_id: r.person_id,
