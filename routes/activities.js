@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { store } from '../db/store.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
-import { isMailerConfigured, sendActivityLoggedEmail, sendActivityCancelledEmail, sendTeamScheduleEmail } from '../lib/mailer.js';
+import { isMailerConfigured, sendActivityLoggedEmail, sendActivityUpdatedEmail, sendActivityCancelledEmail, sendTeamScheduleEmail } from '../lib/mailer.js';
 import { publicSmtpStatus } from '../lib/smtpConfig.js';
 import { buildTeamScheduleEmail } from '../lib/emailTemplates.js';
 import {
@@ -106,7 +106,12 @@ async function notifyActivityAssignee(uid, { title, typeKey, location, start_at,
   }
   const startLabel = formatEmailDateTime(start_at);
   const endLabel = formatEmailDateTime(end_at);
-  const sendFn = variant === 'cancelled' ? sendActivityCancelledEmail : sendActivityLoggedEmail;
+  const sendFn =
+    variant === 'cancelled'
+      ? sendActivityCancelledEmail
+      : variant === 'updated'
+        ? sendActivityUpdatedEmail
+        : sendActivityLoggedEmail;
   try {
     const result = await sendFn({
       to: recipientEmail,
@@ -120,6 +125,7 @@ async function notifyActivityAssignee(uid, { title, typeKey, location, start_at,
       description,
       loggedBy,
       cancelledBy: loggedBy,
+      updatedBy: loggedBy,
     });
     return {
       sent: Boolean(result?.sent),
@@ -146,8 +152,13 @@ async function notifyActivityGuests(external_attendees, payload) {
   const guestEmails = extractEmailsFromText(external_attendees);
   const startLabel = formatEmailDateTime(payload.start_at);
   const endLabel = formatEmailDateTime(payload.end_at);
-  const variant = payload.variant === 'cancelled' ? 'cancelled' : 'scheduled';
-  const sendFn = variant === 'cancelled' ? sendActivityCancelledEmail : sendActivityLoggedEmail;
+  const variant = payload.variant || 'scheduled';
+  const sendFn =
+    variant === 'cancelled'
+      ? sendActivityCancelledEmail
+      : variant === 'updated'
+        ? sendActivityUpdatedEmail
+        : sendActivityLoggedEmail;
   const results = [];
   for (const to of guestEmails) {
     try {
@@ -163,6 +174,7 @@ async function notifyActivityGuests(external_attendees, payload) {
         description: payload.description,
         loggedBy: payload.loggedBy,
         cancelledBy: payload.loggedBy,
+        updatedBy: payload.loggedBy,
       });
       results.push({
         sent: Boolean(result?.sent),
@@ -736,6 +748,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       description: nextDescription || null,
       loggedBy,
       external_attendees: extForRow,
+      variant: 'updated',
     });
   }
 

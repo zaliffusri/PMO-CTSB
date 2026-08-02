@@ -904,14 +904,21 @@ export default function Calendar() {
           });
         }
         const emailNotify = result?.email_notify;
+        const isEdit = editingActivityId != null;
         if (form.notify_email) {
           // Trust the API response only — client smtpConfigured can be stale after Settings save.
           if (emailNotify && emailNotify.smtp_configured === false) {
             alert('Activity saved. Email was not sent because SMTP is not configured on the server.');
           } else if (emailNotify && emailNotify.sent > 0) {
-            alert(`Activity saved. Email notification sent to ${emailNotify.sent} recipient(s).`);
+            alert(
+              isEdit
+                ? `Activity updated. Update email sent to ${emailNotify.sent} recipient(s).`
+                : `Activity saved. Email notification sent to ${emailNotify.sent} recipient(s).`,
+            );
           } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
             alert('Activity saved, but email notification could not be delivered. Check assignee emails and SMTP settings.');
+          } else if (emailNotify && emailNotify.attempted === 0) {
+            alert('Activity saved. No email recipients found (assignees need a user email, or add guest emails).');
           } else if (!emailNotify) {
             alert('Activity saved. Email notification status was not returned by the server.');
           }
@@ -1912,22 +1919,23 @@ export default function Calendar() {
                 End *{' '}
                 <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
               </label>
-              <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: smtpConfigured ? 'pointer' : 'default' }}>
+              <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={form.notify_email}
-                    disabled={!smtpConfigured}
                     onChange={(e) => setForm((f) => ({ ...f, notify_email: e.target.checked }))}
                     style={{ marginTop: '0.2rem' }}
                   />
                   <span>
-                    <strong>Email assignees</strong>
+                    <strong>{editingActivityId != null ? 'Email update to assignees' : 'Email assignees'}</strong>
                     <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                       {smtpConfigured
-                        ? 'Send an email notification to selected assignees (and guest emails) when this activity is saved.'
+                        ? (editingActivityId != null
+                          ? 'Send an “Activity updated” email with the new dates/details (previous schedule email is not changed).'
+                          : 'Send an email notification to selected assignees (and guest emails) when this activity is saved.')
                         : (
                           <>
-                            Email is not configured yet.{' '}
+                            Email may fail until SMTP is configured.{' '}
                             {user?.role === 'admin' ? (
                               <Link to="/settings/email">Open Settings → Email</Link>
                             ) : (
@@ -1937,7 +1945,7 @@ export default function Calendar() {
                         )}
                     </span>
                   </span>
-                </label>
+              </label>
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 <button type="submit" className="btn btn-primary" disabled={mutating}>
                   {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}
