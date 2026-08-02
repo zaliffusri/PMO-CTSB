@@ -525,7 +525,7 @@ function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   );
 }
 
-function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, onNotify, actionPending, canEdit, smtpConfigured }) {
+function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onCancel, onNotify, actionPending, canEdit, smtpConfigured }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
   const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
@@ -593,10 +593,10 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onDelete, o
             <button
               type="button"
               className="btn btn-ghost calendar-detail-actions__danger"
-              onClick={() => onDelete?.(a)}
+              onClick={() => onCancel?.(a)}
               disabled={actionPending}
             >
-              {actionPending ? 'Please wait…' : 'Delete'}
+              {actionPending ? 'Please wait…' : 'Cancel activity'}
             </button>
           </div>
         )}
@@ -1048,7 +1048,7 @@ export default function Calendar() {
     });
   };
 
-  const deleteActivity = async (a) => {
+  const cancelActivity = async (a) => {
     if (!canEditCalendar) return;
     if (!a?.id) return;
     const assigneeCount = Array.isArray(a.person_ids) && a.person_ids.length > 0 ? a.person_ids.length : 1;
@@ -1056,10 +1056,23 @@ export default function Calendar() {
       assigneeCount > 1
         ? ` All ${assigneeCount} assignee records for this activity will be removed.`
         : '';
-    if (!confirm(`Delete activity "${a.title}"?${multiHint}`)) return;
+    const emailHint = smtpConfigured
+      ? ' Assignees and guests will receive a cancellation email.'
+      : ' (SMTP is not configured — no cancellation email will be sent.)';
+    if (!confirm(`Cancel activity "${a.title}"?${multiHint}${emailHint}`)) return;
     await runMutation(async () => {
       try {
-        await api.activities.delete(a.id);
+        const result = await api.activities.cancel(a.id, { notify_email: true });
+        const emailNotify = result?.email_notify;
+        if (emailNotify?.smtp_configured === false) {
+          alert('Activity cancelled. Cancellation email was not sent because SMTP is not configured.');
+        } else if (emailNotify && emailNotify.sent > 0) {
+          alert(`Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s).`);
+        } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
+          alert('Activity cancelled, but cancellation email could not be delivered. Check assignee emails and SMTP settings.');
+        } else {
+          alert('Activity cancelled.');
+        }
         setDetailActivityId(null);
         setDayListDay(null);
         if (editingActivityId === a.id) {
@@ -2100,7 +2113,7 @@ export default function Calendar() {
           activity={detailActivity}
           onClose={() => setDetailActivityId(null)}
           onEdit={openEditActivity}
-          onDelete={deleteActivity}
+          onCancel={cancelActivity}
           onNotify={resendActivityEmail}
           actionPending={mutating}
           canEdit={canEditCalendar}

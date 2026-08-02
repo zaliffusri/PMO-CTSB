@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { store } from '../db/store.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
-import { isMailerConfigured, sendActivityLoggedEmail, sendTeamScheduleEmail } from '../lib/mailer.js';
+import { isMailerConfigured, sendActivityLoggedEmail, sendActivityCancelledEmail, sendTeamScheduleEmail } from '../lib/mailer.js';
 import { publicSmtpStatus } from '../lib/smtpConfig.js';
 import { buildTeamScheduleEmail } from '../lib/emailTemplates.js';
 import {
@@ -89,7 +89,7 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
   return { fromMs, toExclusive };
 }
 
-async function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, description, loggedBy }) {
+async function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, description, loggedBy, variant = 'scheduled' }) {
   const assignee = store.findUserById(uid);
   let recipientEmail = String(assignee?.email || '').trim();
   if (!recipientEmail && assignee?.name) {
@@ -106,8 +106,9 @@ async function notifyActivityAssignee(uid, { title, typeKey, location, start_at,
   }
   const startLabel = formatEmailDateTime(start_at);
   const endLabel = formatEmailDateTime(end_at);
+  const sendFn = variant === 'cancelled' ? sendActivityCancelledEmail : sendActivityLoggedEmail;
   try {
-    const result = await sendActivityLoggedEmail({
+    const result = await sendFn({
       to: recipientEmail,
       recipientName: assignee?.name,
       title,
@@ -118,6 +119,7 @@ async function notifyActivityAssignee(uid, { title, typeKey, location, start_at,
       projectName,
       description,
       loggedBy,
+      cancelledBy: loggedBy,
     });
     return {
       sent: Boolean(result?.sent),
@@ -144,10 +146,12 @@ async function notifyActivityGuests(external_attendees, payload) {
   const guestEmails = extractEmailsFromText(external_attendees);
   const startLabel = formatEmailDateTime(payload.start_at);
   const endLabel = formatEmailDateTime(payload.end_at);
+  const variant = payload.variant === 'cancelled' ? 'cancelled' : 'scheduled';
+  const sendFn = variant === 'cancelled' ? sendActivityCancelledEmail : sendActivityLoggedEmail;
   const results = [];
   for (const to of guestEmails) {
     try {
-      const result = await sendActivityLoggedEmail({
+      const result = await sendFn({
         to,
         recipientName: to.split('@')[0],
         title: payload.title,
@@ -158,6 +162,7 @@ async function notifyActivityGuests(external_attendees, payload) {
         projectName: payload.projectName,
         description: payload.description,
         loggedBy: payload.loggedBy,
+        cancelledBy: payload.loggedBy,
       });
       results.push({
         sent: Boolean(result?.sent),
@@ -185,6 +190,7 @@ async function dispatchActivityNotifications({
   description,
   loggedBy,
   external_attendees,
+  variant = 'scheduled',
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
   const payload = {
@@ -196,6 +202,7 @@ async function dispatchActivityNotifications({
     projectName,
     description,
     loggedBy,
+    variant,
   };
   const assigneeResults = [];
   for (const uid of uniqueUids) {
@@ -205,6 +212,7 @@ async function dispatchActivityNotifications({
   const results = [...assigneeResults, ...guestResults];
   return {
     smtp_configured: isMailerConfigured(),
+    variant,
     attempted: results.length,
     sent: results.filter((r) => r.sent).length,
     failed: results.filter((r) => !r.sent).length,
@@ -781,16 +789,55 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   const id = +req.params.id;
   const existing = store.activities.find((a) => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
+
+  const notifyRaw = req.query.notify_email ?? req.body?.notify_email;
+  const shouldNotify = notifyRaw === undefined || notifyRaw === null || notifyRaw === ''
+    ? true
+    : !(notifyRaw === false || notifyRaw === 'false' || notifyRaw === 0 || notifyRaw === '0');
+
   const deletedIds = idsInSameLogicalGroup(store.activities, id);
+  const groupRows = deletedIds
+    .map((aid) => store.activities.find((a) => a.id === aid))
+    .filter(Boolean);
+  const assigneeUids = [...new Set(groupRows.map((r) => r.person_id).filter((x) => x != null))];
+  const external_attendees = groupRows.map((r) => r.external_attendees).find((x) => x != null && String(x).trim())
+    || existing.external_attendees
+    || null;
+  const project = store.projects.find((p) => p.id === existing.project_id);
+  const cancelledBy = req.user?.name || req.user?.email || '';
+
+  let emailNotify = null;
+  if (shouldNotify) {
+    emailNotify = await dispatchActivityNotifications({
+      assigneeUids,
+      title: existing.title,
+      typeKey: normalizeActivityType(existing.type),
+      location: existing.location,
+      start_at: existing.start_at,
+      end_at: existing.end_at,
+      projectName: project?.name || null,
+      description: existing.description || null,
+      loggedBy: cancelledBy,
+      external_attendees,
+      variant: 'cancelled',
+    });
+  }
+
   const { deleted } = await store.deleteActivityLogicalGroupByAnyMemberId(id);
   if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
   const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';
   store.appendAuditLog(req.user, {
-    action: 'delete',
+    action: 'cancel',
     target_type: 'activity',
     target_id: id,
-    summary: `Deleted activity "${existing.title}"${suffix}`,
-    detail: { deleted_activity_ids: deletedIds },
+    summary: `Cancelled activity "${existing.title}"${suffix}`,
+    detail: {
+      cancelled_activity_ids: deletedIds,
+      notify_email: shouldNotify,
+      email_notify: emailNotify
+        ? { attempted: emailNotify.attempted, sent: emailNotify.sent, failed: emailNotify.failed }
+        : null,
+    },
   });
   try {
     await store.persistToSupabase();
@@ -798,5 +845,12 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     console.error('activities DELETE persistToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save to database' });
   }
-  res.status(204).send();
+  res.json({
+    cancelled: true,
+    id,
+    title: existing.title,
+    removed: deleted,
+    notify_email_requested: shouldNotify,
+    email_notify: emailNotify,
+  });
 });

@@ -142,7 +142,20 @@ export const api = {
     list: (params) => request('/activities?' + new URLSearchParams(params).toString()),
     create: (body) => request('/activities', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-    delete: (id) => request(`/activities/${id}`, { method: 'DELETE' }),
+    delete: (id, params = {}) => {
+      const q = new URLSearchParams();
+      if (params.notify_email !== undefined) q.set('notify_email', String(params.notify_email));
+      const qs = q.toString();
+      return request(`/activities/${id}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
+    },
+    /** Alias — calendar activities are cancelled (with optional email), not hard-deleted silently. */
+    cancel: (id, params = {}) => {
+      const q = new URLSearchParams();
+      if (params.notify_email !== undefined) q.set('notify_email', String(params.notify_email));
+      else q.set('notify_email', 'true');
+      const qs = q.toString();
+      return request(`/activities/${id}?${qs}`, { method: 'DELETE' });
+    },
     mailStatus: () => request('/activities/mail-status'),
     scheduleEmailPreview: (params) =>
       request('/activities/schedule-email/preview?' + new URLSearchParams(params).toString()),
