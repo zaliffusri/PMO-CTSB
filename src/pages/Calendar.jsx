@@ -736,7 +736,21 @@ export default function Calendar() {
   }, []);
 
   useEffect(() => {
-    api.activities.mailStatus().then((r) => setSmtpConfigured(Boolean(r?.smtp_configured))).catch(() => setSmtpConfigured(false));
+    const refreshSmtp = () => {
+      api.activities.mailStatus()
+        .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
+        .catch(() => setSmtpConfigured(false));
+    };
+    refreshSmtp();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshSmtp();
+    };
+    window.addEventListener('focus', refreshSmtp);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', refreshSmtp);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -891,13 +905,19 @@ export default function Calendar() {
         }
         const emailNotify = result?.email_notify;
         if (form.notify_email) {
-          if (!smtpConfigured || emailNotify?.smtp_configured === false) {
+          // Trust the API response only — client smtpConfigured can be stale after Settings save.
+          if (emailNotify && emailNotify.smtp_configured === false) {
             alert('Activity saved. Email was not sent because SMTP is not configured on the server.');
           } else if (emailNotify && emailNotify.sent > 0) {
             alert(`Activity saved. Email notification sent to ${emailNotify.sent} recipient(s).`);
           } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
             alert('Activity saved, but email notification could not be delivered. Check assignee emails and SMTP settings.');
+          } else if (!emailNotify) {
+            alert('Activity saved. Email notification status was not returned by the server.');
           }
+          api.activities.mailStatus()
+            .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
+            .catch(() => {});
         }
         setForm({
           person_ids: [],

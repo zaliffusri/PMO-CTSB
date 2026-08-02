@@ -1,4 +1,10 @@
 import { defaultSettings } from '../../lib/defaultSettings.js';
+import {
+  SMTP_EMBED_KEY,
+  applySmtpEmbedToSettings,
+  embedSmtpIntoSettings,
+  stripSmtpEmbedFromMileage,
+} from '../../lib/smtpSettingsEmbed.js';
 import { AUDIT_LOG_MAX, nextId } from '../runtime/helpers.js';
 
 export function createSettingsRepository(ctx, getStore) {
@@ -7,40 +13,47 @@ export function createSettingsRepository(ctx, getStore) {
   function getSettings() {
     const data = getData();
     const d = defaultSettings();
-    const s = data.settings || {};
+    const raw = data.settings || {};
     const activity_locations =
-      Array.isArray(s.activity_locations) && s.activity_locations.length > 0
-        ? s.activity_locations.map((x) => String(x).trim()).filter(Boolean)
+      Array.isArray(raw.activity_locations) && raw.activity_locations.length > 0
+        ? raw.activity_locations.map((x) => String(x).trim()).filter(Boolean)
         : d.activity_locations;
-    const mileage = { ...(s.mileage_from_office_km && typeof s.mileage_from_office_km === 'object' ? s.mileage_from_office_km : {}) };
+    const rawMileage = {
+      ...(raw.mileage_from_office_km && typeof raw.mileage_from_office_km === 'object'
+        ? raw.mileage_from_office_km
+        : {}),
+    };
+    const withSmtp = applySmtpEmbedToSettings({ ...d, ...raw }, rawMileage);
+    const mileage = { ...rawMileage };
     for (const k of Object.keys(mileage)) {
+      if (k === SMTP_EMBED_KEY) continue;
       if (!activity_locations.includes(k)) delete mileage[k];
     }
     return {
       ...d,
-      ...s,
+      ...withSmtp,
       activity_locations,
-      mileage_from_office_km: mileage,
-      reference_office_name: s.reference_office_name != null && String(s.reference_office_name).trim()
-        ? String(s.reference_office_name).trim()
+      mileage_from_office_km: stripSmtpEmbedFromMileage(mileage),
+      reference_office_name: withSmtp.reference_office_name != null && String(withSmtp.reference_office_name).trim()
+        ? String(withSmtp.reference_office_name).trim()
         : d.reference_office_name,
-      general_notes: s.general_notes != null ? String(s.general_notes) : d.general_notes,
-      currency_code: s.currency_code != null && String(s.currency_code).trim()
-        ? String(s.currency_code).trim().toUpperCase().slice(0, 8)
+      general_notes: withSmtp.general_notes != null ? String(withSmtp.general_notes) : d.general_notes,
+      currency_code: withSmtp.currency_code != null && String(withSmtp.currency_code).trim()
+        ? String(withSmtp.currency_code).trim().toUpperCase().slice(0, 8)
         : d.currency_code,
-      org_display_name: s.org_display_name != null && String(s.org_display_name).trim()
-        ? String(s.org_display_name).trim().slice(0, 80)
+      org_display_name: withSmtp.org_display_name != null && String(withSmtp.org_display_name).trim()
+        ? String(withSmtp.org_display_name).trim().slice(0, 80)
         : d.org_display_name,
-      org_tagline: s.org_tagline != null ? String(s.org_tagline).slice(0, 200) : d.org_tagline,
-      org_logo_url: s.org_logo_url || null,
-      org_banner_url: s.org_banner_url || null,
-      smtp_service: s.smtp_service != null ? String(s.smtp_service) : d.smtp_service,
-      smtp_host: s.smtp_host != null ? String(s.smtp_host) : d.smtp_host,
-      smtp_port: Number.isFinite(Number(s.smtp_port)) ? Number(s.smtp_port) : d.smtp_port,
-      smtp_secure: s.smtp_secure === true || s.smtp_secure === 'true',
-      smtp_user: s.smtp_user != null ? String(s.smtp_user) : d.smtp_user,
-      smtp_pass: s.smtp_pass != null ? String(s.smtp_pass) : d.smtp_pass,
-      smtp_from: s.smtp_from != null ? String(s.smtp_from) : d.smtp_from,
+      org_tagline: withSmtp.org_tagline != null ? String(withSmtp.org_tagline).slice(0, 200) : d.org_tagline,
+      org_logo_url: withSmtp.org_logo_url || null,
+      org_banner_url: withSmtp.org_banner_url || null,
+      smtp_service: withSmtp.smtp_service != null ? String(withSmtp.smtp_service) : d.smtp_service,
+      smtp_host: withSmtp.smtp_host != null ? String(withSmtp.smtp_host) : d.smtp_host,
+      smtp_port: Number.isFinite(Number(withSmtp.smtp_port)) ? Number(withSmtp.smtp_port) : d.smtp_port,
+      smtp_secure: withSmtp.smtp_secure === true || withSmtp.smtp_secure === 'true',
+      smtp_user: withSmtp.smtp_user != null ? String(withSmtp.smtp_user) : d.smtp_user,
+      smtp_pass: withSmtp.smtp_pass != null ? String(withSmtp.smtp_pass) : d.smtp_pass,
+      smtp_from: withSmtp.smtp_from != null ? String(withSmtp.smtp_from) : d.smtp_from,
     };
   }
 
@@ -54,6 +67,7 @@ export function createSettingsRepository(ctx, getStore) {
     updateSettings(patch) {
       const data = getData();
       const cur = getSettings();
+      const prevEmbed = data.settings?.mileage_from_office_km?.[SMTP_EMBED_KEY];
       const next = { ...cur, ...patch };
       if (patch.activity_locations) {
         next.activity_locations = patch.activity_locations.map((x) => String(x).trim()).filter(Boolean);
@@ -64,8 +78,14 @@ export function createSettingsRepository(ctx, getStore) {
       const allowed = new Set(next.activity_locations);
       next.mileage_from_office_km = { ...(next.mileage_from_office_km || {}) };
       for (const k of Object.keys(next.mileage_from_office_km)) {
+        if (k === SMTP_EMBED_KEY) continue;
         if (!allowed.has(k)) delete next.mileage_from_office_km[k];
       }
+      // Keep prior embed if patch cleared smtp fields accidentally (e.g. mileage-only update).
+      if (prevEmbed && typeof prevEmbed === 'object' && !String(next.smtp_pass || '').trim()) {
+        Object.assign(next, applySmtpEmbedToSettings(next, { [SMTP_EMBED_KEY]: prevEmbed }));
+      }
+      embedSmtpIntoSettings(next);
       data.settings = next;
       save();
     },

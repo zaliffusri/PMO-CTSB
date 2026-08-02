@@ -5,6 +5,7 @@ import {
   projectRowForDb,
   normalizeBacklogRows,
 } from './helpers.js';
+import { embedSmtpIntoSettings, applySmtpEmbedToSettings, SMTP_EMBED_KEY } from '../../lib/smtpSettingsEmbed.js';
 
 let warnedSupabase = false;
 let syncInFlight = false;
@@ -331,6 +332,44 @@ async function upsertSessions(rows) {
   if (error) throw error;
 }
 
+/**
+ * Persist settings without relying on smtp_* columns (often missing in prod).
+ * SMTP is embedded in mileage_from_office_km under SMTP_EMBED_KEY.
+ */
+async function upsertSettingsApp(settings) {
+  const s = embedSmtpIntoSettings({ ...(settings || {}) });
+  const mileage = {
+    ...(s.mileage_from_office_km && typeof s.mileage_from_office_km === 'object'
+      ? s.mileage_from_office_km
+      : {}),
+  };
+  if (!mileage[SMTP_EMBED_KEY]) {
+    embedSmtpIntoSettings(s);
+    Object.assign(mileage, s.mileage_from_office_km || {});
+  }
+
+  const row = {
+    id: 1,
+    activity_locations: s.activity_locations ?? [],
+    reference_office_name: s.reference_office_name ?? 'Main Office',
+    mileage_from_office_km: mileage,
+    general_notes: s.general_notes ?? '',
+    currency_code: s.currency_code ?? 'MYR',
+    updated_at: new Date().toISOString(),
+    org_display_name: s.org_display_name ?? null,
+    org_tagline: s.org_tagline ?? null,
+    org_logo_url: s.org_logo_url ?? null,
+    org_banner_url: s.org_banner_url ?? null,
+  };
+
+  await upsertStrippingMissingColumns(
+    'settings_app',
+    [row],
+    ['org_display_name', 'org_tagline', 'org_logo_url', 'org_banner_url'],
+    'id',
+  );
+}
+
 export async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('clients', (snapshot.clients || []).map(companyRowForDb));
   await upsertClientContacts(snapshot.client_contacts || []);
@@ -342,8 +381,7 @@ export async function pushSnapshotToSupabase(snapshot) {
   await upsertProjectTasks(snapshot.project_tasks || []);
   await upsertUsersApp(snapshot.users || []);
   await upsertSessions(snapshot.sessions || []);
-  const settingsRow = { id: 1, ...(snapshot.settings || {}) };
-  await upsertAll('settings_app', [settingsRow], 'id');
+  await upsertSettingsApp(snapshot.settings || {});
   await upsertAll('audit_log', snapshot.audit_log || []);
   await upsertOptionalTable('issues_app', snapshot.issues || [], 'id', 'issues');
   await upsertOptionalTable('notifications_app', snapshot.notifications || [], 'id', 'notifications');
@@ -497,7 +535,12 @@ export async function loadFromSupabase() {
     if (errs.length > 0) throw errs[0];
 
     const settingsRow = settingsRes.data || {};
-    const { id: _id, updated_at: _updatedAt, ...settings } = settingsRow;
+    const { id: _id, updated_at: _updatedAt, ...settingsRaw } = settingsRow;
+    const settings = applySmtpEmbedToSettings(
+      { ...settingsRaw },
+      settingsRaw.mileage_from_office_km,
+    );
+    embedSmtpIntoSettings(settings);
     const remote = {
       clients: clientsRes.data || [],
       client_contacts: clientContactsMissing ? [] : clientContactsRes.data || [],
