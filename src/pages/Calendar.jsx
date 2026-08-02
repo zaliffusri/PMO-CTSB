@@ -1892,7 +1892,16 @@ export default function Calendar() {
                     <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                       {smtpConfigured
                         ? 'Send an email notification to selected assignees (and guest emails) when this activity is saved.'
-                        : 'Email is not available yet — ask an admin to set SMTP_USER / SMTP_PASS / SMTP_FROM (or SMTP_HOST) in Vercel environment variables.'}
+                        : (
+                          <>
+                            Email is not configured yet.{' '}
+                            {user?.role === 'admin' ? (
+                              <Link to="/settings/email">Open Settings → Email</Link>
+                            ) : (
+                              'Ask an admin to open Settings → Email and save Gmail SMTP.'
+                            )}
+                          </>
+                        )}
                     </span>
                   </span>
                 </label>

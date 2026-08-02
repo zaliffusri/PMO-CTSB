@@ -12,5 +12,13 @@ export function mapApiToForm(s) {
     org_tagline: s.org_tagline || '',
     org_logo_url: s.org_logo_url || null,
     org_banner_url: s.org_banner_url || null,
+    smtp_service: s.smtp_service || 'gmail',
+    smtp_host: s.smtp_host || '',
+    smtp_port: s.smtp_port || 587,
+    smtp_secure: Boolean(s.smtp_secure),
+    smtp_user: s.smtp_user || '',
+    smtp_from: s.smtp_from || '',
+    smtp_pass_set: Boolean(s.smtp_pass_set),
+    smtp_configured: Boolean(s.smtp_configured),
   };
 }

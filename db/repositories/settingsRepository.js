@@ -34,6 +34,13 @@ export function createSettingsRepository(ctx, getStore) {
       org_tagline: s.org_tagline != null ? String(s.org_tagline).slice(0, 200) : d.org_tagline,
       org_logo_url: s.org_logo_url || null,
       org_banner_url: s.org_banner_url || null,
+      smtp_service: s.smtp_service != null ? String(s.smtp_service) : d.smtp_service,
+      smtp_host: s.smtp_host != null ? String(s.smtp_host) : d.smtp_host,
+      smtp_port: Number.isFinite(Number(s.smtp_port)) ? Number(s.smtp_port) : d.smtp_port,
+      smtp_secure: s.smtp_secure === true || s.smtp_secure === 'true',
+      smtp_user: s.smtp_user != null ? String(s.smtp_user) : d.smtp_user,
+      smtp_pass: s.smtp_pass != null ? String(s.smtp_pass) : d.smtp_pass,
+      smtp_from: s.smtp_from != null ? String(s.smtp_from) : d.smtp_from,
     };
   }
 

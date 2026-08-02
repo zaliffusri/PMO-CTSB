@@ -159,6 +159,7 @@ export const api = {
     get: () => request('/settings'),
     getPublic: () => request('/settings/public'),
     update: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
+    testEmail: (body) => request('/settings/test-email', { method: 'POST', body: JSON.stringify(body || {}) }),
   },
   projectTasks: {
     list: (params) => request('/project-tasks?' + (params ? new URLSearchParams(params).toString() : '')),

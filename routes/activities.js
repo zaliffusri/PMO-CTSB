@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { store } from '../db/store.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
 import { isMailerConfigured, sendActivityLoggedEmail, sendTeamScheduleEmail } from '../lib/mailer.js';
+import { publicSmtpStatus } from '../lib/smtpConfig.js';
 import { buildTeamScheduleEmail } from '../lib/emailTemplates.js';
 import {
   groupActivitiesForScheduleEmail,
@@ -289,7 +290,7 @@ function periodLabelFromRange(fromRaw, toRaw) {
 }
 
 activitiesRouter.get('/mail-status', (req, res) => {
-  res.json({ smtp_configured: isMailerConfigured() });
+  res.json({ smtp_configured: isMailerConfigured(), ...publicSmtpStatus() });
 });
 
 activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, (req, res) => {

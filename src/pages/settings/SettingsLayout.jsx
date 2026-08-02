@@ -70,6 +70,9 @@ export default function SettingsLayout() {
         <NavLink to="/settings/locations" className={({ isActive }) => `module-tab ${isActive ? 'active' : ''}`}>
           Locations
         </NavLink>
+        <NavLink to="/settings/email" className={({ isActive }) => `module-tab ${isActive ? 'active' : ''}`}>
+          Email
+        </NavLink>
       </nav>
 
       <div className={`settings-main${wideSettings ? ' settings-main--wide' : ''}`}>

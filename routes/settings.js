@@ -3,8 +3,23 @@ import { store } from '../db/store.js';
 import { requireAdmin } from '../middleware/requireAuth.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
 import { validateImageDataUrl } from '../lib/validateImageDataUrl.js';
+import { isMailerConfigured, invalidateMailerCache, sendAssignmentEmail } from '../lib/mailer.js';
+import { publicSmtpStatus, resolveSmtpConfig } from '../lib/smtpConfig.js';
 
 export const settingsRouter = Router();
+
+function settingsForClient(raw, { includeSecrets = false } = {}) {
+  const s = { ...raw };
+  const passSet = Boolean(String(s.smtp_pass || '').trim());
+  delete s.smtp_pass;
+  return {
+    ...s,
+    smtp_pass_set: passSet,
+    smtp_configured: isMailerConfigured(),
+    smtp_status: publicSmtpStatus(),
+    ...(includeSecrets ? {} : {}),
+  };
+}
 
 export function publicBrandingPayload() {
   const s = store.getSettings();
@@ -17,10 +32,10 @@ export function publicBrandingPayload() {
 }
 
 settingsRouter.get('/', (req, res) => {
-  res.json(store.getSettings());
+  res.json(settingsForClient(store.getSettings()));
 });
 
-settingsRouter.put('/', requireAdmin, (req, res) => {
+settingsRouter.put('/', requireAdmin, async (req, res) => {
   const body = req.body || {};
   const patch = {};
 
@@ -88,17 +103,86 @@ settingsRouter.put('/', requireAdmin, (req, res) => {
       : validateImageDataUrl(body.org_banner_url, { maxBytes: 320_000, field: 'org_banner_url' });
   }
 
+  if (body.smtp_service !== undefined) {
+    patch.smtp_service = String(body.smtp_service ?? '').trim().toLowerCase().slice(0, 32);
+  }
+  if (body.smtp_host !== undefined) {
+    patch.smtp_host = String(body.smtp_host ?? '').trim().slice(0, 200);
+  }
+  if (body.smtp_port !== undefined) {
+    const p = Number(body.smtp_port);
+    patch.smtp_port = Number.isFinite(p) && p > 0 ? Math.min(65535, Math.floor(p)) : 587;
+  }
+  if (body.smtp_secure !== undefined) {
+    patch.smtp_secure = body.smtp_secure === true || body.smtp_secure === 'true';
+  }
+  if (body.smtp_user !== undefined) {
+    patch.smtp_user = String(body.smtp_user ?? '').trim().slice(0, 200);
+  }
+  if (body.smtp_from !== undefined) {
+    patch.smtp_from = String(body.smtp_from ?? '').trim().slice(0, 200);
+  }
+  if (body.smtp_pass !== undefined) {
+    const pass = String(body.smtp_pass ?? '');
+    // Empty string = keep existing password (UI leaves blank when unchanged)
+    if (pass.trim()) {
+      patch.smtp_pass = pass;
+    }
+  }
+  if (body.clear_smtp_pass === true) {
+    patch.smtp_pass = '';
+  }
+
   if (Object.keys(patch).length === 0) {
     return res.status(400).json({ error: 'Nothing to update' });
   }
 
   store.updateSettings(patch);
+  invalidateMailerCache();
   store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'settings',
     target_id: null,
     summary: 'Updated system settings',
-    detail: { fields: Object.keys(patch) },
+    detail: {
+      fields: Object.keys(patch).map((k) => (k === 'smtp_pass' ? 'smtp_pass(updated)' : k)),
+    },
   });
-  res.json(store.getSettings());
+  try {
+    await store.persistToSupabase();
+  } catch (e) {
+    console.warn('settings persist:', e.message);
+  }
+  res.json(settingsForClient(store.getSettings()));
+});
+
+/** Admin: send a test email using current SMTP config. */
+settingsRouter.post('/test-email', requireAdmin, async (req, res) => {
+  const to = String(req.body?.to || req.user?.email || '').trim();
+  if (!to || !to.includes('@')) {
+    return res.status(400).json({ error: 'Provide a valid recipient email in "to"' });
+  }
+  if (!isMailerConfigured()) {
+    return res.status(503).json({
+      error: 'SMTP is not configured. Save Gmail/SMTP settings first (Settings → Email).',
+      smtp_status: publicSmtpStatus(),
+    });
+  }
+  try {
+    const result = await sendAssignmentEmail({
+      to,
+      personName: req.user?.name || 'Admin',
+      projectName: 'SMTP configuration test',
+      roleInProject: null,
+      allocationPercent: 100,
+      assignedBy: 'PMO CTSB Settings',
+      action: 'assigned',
+    });
+    if (!result.sent) {
+      return res.status(502).json({ error: result.reason || 'Failed to send', smtp_status: publicSmtpStatus() });
+    }
+    res.json({ ok: true, to, smtp_status: publicSmtpStatus(), config: { source: resolveSmtpConfig().source } });
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'SMTP send failed' });
+  }
 });
