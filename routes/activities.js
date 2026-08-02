@@ -67,14 +67,34 @@ function actorSnapshot(user) {
 
 function enrichActivityForClient(a) {
   const project = store.projects.find((p) => p.id === a.project_id);
-  const createdByName =
+  let createdByName =
     (a.created_by_name && String(a.created_by_name).trim())
     || activityPersonName(a.created_by_user_id)
     || null;
-  const updatedByName =
+  let updatedByName =
     (a.updated_by_name && String(a.updated_by_name).trim())
     || activityPersonName(a.updated_by_user_id)
     || null;
+  let createdAt = a.created_at || null;
+  let updatedAt = a.updated_at || null;
+  let createdByUserId = a.created_by_user_id ?? null;
+  let updatedByUserId = a.updated_by_user_id ?? null;
+
+  // Backfill from audit trail when older rows lack creator/editor fields.
+  if (!createdByName || !updatedByName) {
+    const fromAudit = actorsFromAuditLog(a);
+    if (!createdByName && fromAudit.created_by_name) {
+      createdByName = fromAudit.created_by_name;
+      createdByUserId = fromAudit.created_by_user_id ?? createdByUserId;
+      if (!createdAt && fromAudit.created_at) createdAt = fromAudit.created_at;
+    }
+    if (!updatedByName && fromAudit.updated_by_name) {
+      updatedByName = fromAudit.updated_by_name;
+      updatedByUserId = fromAudit.updated_by_user_id ?? updatedByUserId;
+      if (!updatedAt && fromAudit.updated_at) updatedAt = fromAudit.updated_at;
+    }
+  }
+
   return {
     ...a,
     type: normalizeActivityType(a.type),
@@ -83,10 +103,59 @@ function enrichActivityForClient(a) {
     project_name: project?.name,
     created_by_name: createdByName,
     updated_by_name: updatedByName,
-    created_by_user_id: a.created_by_user_id ?? null,
-    updated_by_user_id: a.updated_by_user_id ?? null,
-    updated_at: a.updated_at || null,
+    created_by_user_id: createdByUserId,
+    updated_by_user_id: updatedByUserId,
+    created_at: createdAt,
+    updated_at: updatedAt,
   };
+}
+
+/** Best-effort creator / latest editor from audit_log (for activities saved before actor columns). */
+function actorsFromAuditLog(activity) {
+  const empty = {
+    created_by_name: null,
+    created_by_user_id: null,
+    created_at: null,
+    updated_by_name: null,
+    updated_by_user_id: null,
+    updated_at: null,
+  };
+  try {
+    const logs = Array.isArray(store.audit_log) ? store.audit_log : [];
+    const id = activity?.id != null ? Number(activity.id) : null;
+    const groupId = activity?.activity_group_id != null ? String(activity.activity_group_id) : null;
+    const title = String(activity?.title || '').trim();
+    const related = logs.filter((e) => {
+      if (!e || e.target_type !== 'activity') return false;
+      if (id != null && Number(e.target_id) === id) return true;
+      const detail = e.detail && typeof e.detail === 'object' ? e.detail : {};
+      const prev = Array.isArray(detail.previous_activity_ids) ? detail.previous_activity_ids : [];
+      const next = Array.isArray(detail.new_activity_ids) ? detail.new_activity_ids : [];
+      const cancelled = Array.isArray(detail.cancelled_activity_ids) ? detail.cancelled_activity_ids : [];
+      if (id != null && [...prev, ...next, ...cancelled].some((x) => Number(x) === id)) return true;
+      if (groupId && String(detail.activity_group_id || '') === groupId) return true;
+      if (title && typeof e.summary === 'string' && e.summary.includes(`"${title}"`)) return true;
+      return false;
+    });
+    if (!related.length) return empty;
+
+    const sorted = [...related].sort((a, b) => new Date(a.at) - new Date(b.at));
+    const creates = sorted.filter((e) => e.action === 'create');
+    const updates = sorted.filter((e) => e.action === 'update');
+    const firstCreate = creates[0] || sorted[0];
+    const lastUpdate = updates.length ? updates[updates.length - 1] : null;
+
+    return {
+      created_by_name: firstCreate?.user_name || firstCreate?.user_email || null,
+      created_by_user_id: firstCreate?.user_id ?? null,
+      created_at: firstCreate?.at || null,
+      updated_by_name: lastUpdate?.user_name || lastUpdate?.user_email || null,
+      updated_by_user_id: lastUpdate?.user_id ?? null,
+      updated_at: lastUpdate?.at || null,
+    };
+  } catch {
+    return empty;
+  }
 }
 
 /** Prefer earliest creator + latest editor across a multi-assignee group before recreate. */

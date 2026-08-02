@@ -608,41 +608,32 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onCancel, o
               <dd>{a.location}</dd>
             </div>
           )}
+          <div>
+            <dt>Created by</dt>
+            <dd>
+              <strong>{a.created_by_name || '—'}</strong>
+              {a.created_at ? (
+                <span className="calendar-detail-facts__meta"> · {formatAuditWhen(a.created_at)}</span>
+              ) : null}
+            </dd>
+          </div>
+          {a.updated_by_name
+            && a.updated_at
+            && a.created_at
+            && a.updated_at !== a.created_at ? (
+            <div>
+              <dt>Last edited by</dt>
+              <dd>
+                <strong>{a.updated_by_name}</strong>
+                <span className="calendar-detail-facts__meta"> · {formatAuditWhen(a.updated_at)}</span>
+              </dd>
+            </div>
+          ) : null}
         </dl>
         {descForCalendar && (
           <div className="calendar-detail-notes">
             <h4 className="calendar-detail-notes__title">Notes</h4>
             <p className="calendar-detail-sheet-desc">{descForCalendar}</p>
-          </div>
-        )}
-        {(a.created_by_name || a.updated_by_name || a.created_at || a.updated_at) && (
-          <div className="calendar-detail-audit" aria-label="Activity history">
-            {a.created_by_name || a.created_at ? (
-              <p className="calendar-detail-audit__line">
-                <span className="calendar-detail-audit__label">Created</span>
-                {a.created_by_name ? ` by ${a.created_by_name}` : ''}
-                {a.created_at ? ` · ${formatAuditWhen(a.created_at)}` : ''}
-              </p>
-            ) : null}
-            {(() => {
-              const edited =
-                a.updated_by_name
-                || (a.updated_at && a.created_at && a.updated_at !== a.created_at);
-              if (!edited) return null;
-              const sameActor =
-                a.created_by_name
-                && a.updated_by_name
-                && String(a.created_by_name).trim().toLowerCase() === String(a.updated_by_name).trim().toLowerCase();
-              const sameTime = a.updated_at && a.created_at && a.updated_at === a.created_at;
-              if (sameActor && sameTime) return null;
-              return (
-                <p className="calendar-detail-audit__line">
-                  <span className="calendar-detail-audit__label">Last edited</span>
-                  {a.updated_by_name ? ` by ${a.updated_by_name}` : ''}
-                  {a.updated_at ? ` · ${formatAuditWhen(a.updated_at)}` : ''}
-                </p>
-              );
-            })()}
           </div>
         )}
         {canEdit && (
