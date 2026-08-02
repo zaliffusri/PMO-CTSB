@@ -1132,9 +1132,12 @@ export default function Calendar() {
       ? ' Assignees and guests will receive a cancellation email.'
       : ' (SMTP is not configured — no cancellation email will be sent.)';
     if (!confirm(`Cancel activity "${a.title}"?${multiHint}${emailHint}`)) return;
+    const cancelKey = activityLogicalGroupKey(a);
     await runMutation(async () => {
       try {
         const result = await api.activities.cancel(a.id, { notify_email: true });
+        // Remove from UI immediately so the chip disappears even before reload finishes.
+        setActivities((prev) => prev.filter((row) => activityLogicalGroupKey(row) !== cancelKey));
         const emailNotify = result?.email_notify;
         if (emailNotify?.smtp_configured === false) {
           alert('Activity cancelled. Cancellation email was not sent because SMTP is not configured.');
@@ -1151,9 +1154,10 @@ export default function Calendar() {
           setShowForm(false);
           setEditingActivityId(null);
         }
-        loadActivities(rangeStartIso, rangeEndExclusiveIso);
+        await loadActivities(rangeStartIso, rangeEndExclusiveIso);
       } catch (err) {
         alert(err.message);
+        await loadActivities(rangeStartIso, rangeEndExclusiveIso);
       }
     });
   };

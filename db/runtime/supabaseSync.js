@@ -408,9 +408,12 @@ export function queueSupabaseSync(snapshot) {
     return;
   }
   syncInFlight = true;
-  const snap = JSON.parse(JSON.stringify(snapshot));
   (async () => {
     try {
+      // Always push the latest in-memory snapshot at execution time.
+      // Freezing the queue-time snapshot can re-upsert rows that were deleted while a sync was in flight.
+      const fresh = latestDataRef ? latestDataRef() : snapshot;
+      const snap = JSON.parse(JSON.stringify(fresh));
       await pushSnapshotToSupabase(snap);
     } catch (e) {
       if (!warnedSupabase) {

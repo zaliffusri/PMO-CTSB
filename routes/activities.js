@@ -939,26 +939,37 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     || null;
   const project = store.projects.find((p) => p.id === existing.project_id);
   const cancelledBy = req.user?.name || req.user?.email || '';
+  const cancelPayload = {
+    title: existing.title,
+    typeKey: normalizeActivityType(existing.type),
+    location: existing.location,
+    start_at: existing.start_at,
+    end_at: existing.end_at,
+    projectName: project?.name || null,
+    description: existing.description || null,
+  };
+
+  // Delete from DB/memory first so the calendar clears even if email is slow/fails.
+  const { deleted, deleted_ids: removedIds } = await store.deleteActivityLogicalGroupByAnyMemberId(id);
+  if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
 
   let emailNotify = null;
   if (shouldNotify) {
     emailNotify = await dispatchActivityNotifications({
       assigneeUids,
-      title: existing.title,
-      typeKey: normalizeActivityType(existing.type),
-      location: existing.location,
-      start_at: existing.start_at,
-      end_at: existing.end_at,
-      projectName: project?.name || null,
-      description: existing.description || null,
+      title: cancelPayload.title,
+      typeKey: cancelPayload.typeKey,
+      location: cancelPayload.location,
+      start_at: cancelPayload.start_at,
+      end_at: cancelPayload.end_at,
+      projectName: cancelPayload.projectName,
+      description: cancelPayload.description,
       loggedBy: cancelledBy,
       external_attendees,
       variant: 'cancelled',
     });
   }
 
-  const { deleted } = await store.deleteActivityLogicalGroupByAnyMemberId(id);
-  if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
   const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';
   store.appendAuditLog(req.user, {
     action: 'cancel',
@@ -978,6 +989,13 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   } catch (e) {
     console.error('activities DELETE persistToSupabase failed', e);
     return res.status(500).json({ error: e.message || 'Failed to save to database' });
+  }
+  // Final hard-delete so a concurrent upsert cannot leave the event on the calendar.
+  const idsToPurge = [...new Set([...(removedIds || []), ...deletedIds].map(Number).filter(Number.isFinite))];
+  try {
+    await store.purgeActivityIdsFromSupabase(idsToPurge);
+  } catch (e) {
+    console.warn('activities DELETE final purge:', e?.message || e);
   }
   res.json({
     cancelled: true,
