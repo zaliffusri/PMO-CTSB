@@ -3,6 +3,13 @@ import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
 import { btnPrimary, btnSecondary, card, inputStyle, labelMuted } from './settingsStyles';
 
+const OFFICE365 = {
+  smtp_service: 'office365',
+  smtp_host: 'smtp.office365.com',
+  smtp_port: 587,
+  smtp_secure: false,
+};
+
 export default function SettingsEmail() {
   const { form, setForm, reload } = useOutletContext();
   const [saving, setSaving] = useState(false);
@@ -16,6 +23,27 @@ export default function SettingsEmail() {
 
   const service = form.smtp_service || 'gmail';
   const configured = Boolean(form.smtp_configured);
+  const isOffice365 = service === 'office365' || service === 'outlook' || service === 'microsoft365';
+  const isGmail = service === 'gmail';
+  const showCustomHost = !isGmail && !isOffice365;
+
+  const onProviderChange = (value) => {
+    if (value === 'office365') {
+      setForm((f) => ({ ...f, ...OFFICE365 }));
+      return;
+    }
+    if (value === 'gmail') {
+      setForm((f) => ({
+        ...f,
+        smtp_service: 'gmail',
+        smtp_host: '',
+        smtp_port: 587,
+        smtp_secure: false,
+      }));
+      return;
+    }
+    setForm((f) => ({ ...f, smtp_service: '' }));
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -23,11 +51,18 @@ export default function SettingsEmail() {
     setMsg('');
     setErr('');
     try {
+      const nextService = form.smtp_service || 'gmail';
       const body = {
-        smtp_service: form.smtp_service || 'gmail',
-        smtp_host: form.smtp_host || '',
-        smtp_port: Number(form.smtp_port) || 587,
-        smtp_secure: Boolean(form.smtp_secure),
+        smtp_service: nextService,
+        smtp_host: nextService === 'office365' || nextService === 'outlook'
+          ? 'smtp.office365.com'
+          : (form.smtp_host || ''),
+        smtp_port: nextService === 'office365' || nextService === 'outlook'
+          ? 587
+          : (Number(form.smtp_port) || 587),
+        smtp_secure: nextService === 'office365' || nextService === 'outlook'
+          ? false
+          : Boolean(form.smtp_secure),
         smtp_user: form.smtp_user || '',
         smtp_from: form.smtp_from || form.smtp_user || '',
       };
@@ -45,9 +80,12 @@ export default function SettingsEmail() {
         smtp_configured: Boolean(saved.smtp_configured),
       }));
       setPass('');
+      const svc = String(saved.smtp_service || '').toLowerCase();
       setMsg(saved.smtp_configured
-        ? 'Email settings saved. Calendar assign notifications are enabled.'
-        : 'Saved, but SMTP is still incomplete — check user, from, and app password.');
+        ? (svc === 'office365' || svc === 'outlook'
+          ? 'Microsoft 365 email saved. Teams/Outlook should accept calendar invites and cancellations.'
+          : 'Email settings saved. Calendar assign notifications are enabled.')
+        : 'Saved, but SMTP is still incomplete — check user, from, and password.');
       await reload();
     } catch (ex) {
       setErr(ex.message || 'Failed to save');
@@ -74,8 +112,8 @@ export default function SettingsEmail() {
     <form onSubmit={save} style={card}>
       <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Email notifications (SMTP)</h2>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Configure Gmail (or other SMTP) so Calendar assign, helpdesk, and schedule emails can be sent from production.
-        Status:{' '}
+        For <strong>Teams calendar invite + cancel</strong>, use <strong>Microsoft 365</strong> with your work email
+        (not Gmail). Status:{' '}
         <strong style={{ color: configured ? 'var(--success, #0a7)' : 'var(--danger)' }}>
           {configured ? 'Enabled' : 'Not configured'}
         </strong>
@@ -88,14 +126,22 @@ export default function SettingsEmail() {
       <label style={{ display: 'block', marginBottom: '0.75rem' }}>
         Provider
         <select
-          value={service}
-          onChange={(e) => setForm((f) => ({ ...f, smtp_service: e.target.value }))}
+          value={isOffice365 ? 'office365' : service}
+          onChange={(e) => onProviderChange(e.target.value)}
           style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
         >
+          <option value="office365">Microsoft 365 / Outlook (recommended for Teams)</option>
           <option value="gmail">Gmail (App Password)</option>
           <option value="">Custom SMTP host</option>
         </select>
       </label>
+
+      {isOffice365 && (
+        <p style={{ ...labelMuted, marginTop: 0, marginBottom: '0.85rem' }}>
+          Use the same work email you use for Teams (e.g. name@company.com). Host is set to smtp.office365.com automatically.
+          If send fails, ask IT to enable <strong>SMTP AUTH</strong> for that mailbox.
+        </p>
+      )}
 
       <label style={{ display: 'block', marginBottom: '0.75rem' }}>
         SMTP user (login email)
@@ -103,7 +149,7 @@ export default function SettingsEmail() {
           type="email"
           value={form.smtp_user || ''}
           onChange={(e) => setForm((f) => ({ ...f, smtp_user: e.target.value }))}
-          placeholder="you@gmail.com"
+          placeholder={isOffice365 ? 'you@yourcompany.com' : 'you@gmail.com'}
           style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
           autoComplete="off"
         />
@@ -115,29 +161,37 @@ export default function SettingsEmail() {
           type="email"
           value={form.smtp_from || ''}
           onChange={(e) => setForm((f) => ({ ...f, smtp_from: e.target.value }))}
-          placeholder="Same as SMTP user for Gmail"
+          placeholder="Same as SMTP user"
           style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
           autoComplete="off"
         />
-        <span style={labelMuted}>Recipients see this as the sender.</span>
+        <span style={labelMuted}>Must match your Microsoft 365 mailbox for Teams calendar cancel to work well.</span>
       </label>
 
       <label style={{ display: 'block', marginBottom: '0.75rem' }}>
-        App password / SMTP password
+        {isOffice365 ? 'Microsoft 365 password' : 'App password / SMTP password'}
         <input
           type="password"
           value={pass}
           onChange={(e) => setPass(e.target.value)}
-          placeholder={form.smtp_pass_set ? 'Leave blank to keep current password' : '16-character Gmail App Password'}
+          placeholder={
+            form.smtp_pass_set
+              ? 'Leave blank to keep current password'
+              : (isOffice365 ? 'Work account password (or app password if MFA)' : '16-character Gmail App Password')
+          }
           style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
           autoComplete="new-password"
         />
         <span style={labelMuted}>
-          Gmail: Google Account → Security → 2-Step Verification → App passwords.
+          {isGmail
+            ? 'Gmail: Google Account → Security → 2-Step Verification → App passwords.'
+            : isOffice365
+              ? 'If your account has MFA, create an app password or ask IT for SMTP AUTH access.'
+              : 'Use the password for your SMTP account.'}
         </span>
       </label>
 
-      {service !== 'gmail' && (
+      {showCustomHost && (
         <>
           <label style={{ display: 'block', marginBottom: '0.75rem' }}>
             SMTP host

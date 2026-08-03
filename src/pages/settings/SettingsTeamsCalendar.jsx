@@ -64,11 +64,11 @@ export default function SettingsTeamsCalendar() {
     <form onSubmit={save} style={card}>
       <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Teams / Outlook calendar sync</h2>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Connect Microsoft 365 so PMO can create and cancel meetings on assignee Teams calendars
-        (email ICS alone is often ignored by Teams when sent via Gmail).
+        Prefer the simple path first: <strong>Settings → Email → Microsoft 365 / Outlook</strong> with your work email.
+        Use this Graph page only if email cancel still does not update Teams.
         Status:{' '}
         <strong style={{ color: configured ? 'var(--success, #0a7)' : 'var(--danger)' }}>
-          {configured ? 'Enabled' : 'Not configured'}
+          {configured ? 'Enabled' : 'Not configured (optional)'}
         </strong>
         {form.ms_graph_secret_set ? ' · secret saved' : ''}
       </p>
