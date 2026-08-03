@@ -1,4 +1,5 @@
 import { idsInSameLogicalGroup } from '../../lib/activityLogicalGroup.js';
+import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 import { nextId } from '../runtime/helpers.js';
 import { supabase } from '../runtime/supabaseSync.js';
 
@@ -86,7 +87,20 @@ export function createActivitiesRepository(ctx, getStore) {
       const data = getData();
       const { data: rows, error } = await supabase.from('activities').select('*').order('id', { ascending: true });
       if (error) throw error;
-      data.activities = rows || [];
+      // Rehydrate actor fields from description embed when DB columns are missing.
+      data.activities = (rows || []).map((row) => {
+        const embedded = parseActorEmbedFromDescription(row.description);
+        if (!embedded) return row;
+        return {
+          ...row,
+          created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
+          created_by_name: row.created_by_name || embedded.created_by_name,
+          updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
+          updated_by_name: row.updated_by_name || embedded.updated_by_name,
+          updated_at: row.updated_at || embedded.updated_at,
+          created_at: row.created_at || embedded.created_at || row.created_at,
+        };
+      });
     },
   };
 }

@@ -232,7 +232,8 @@ function activityDescriptionForCalendarDisplay(description) {
   const isImportAuditSegment = (seg) =>
     /^Imported \(accounts\):/i.test(seg) ||
     /^Imported for:/i.test(seg) ||
-    /^Guests:/i.test(seg);
+    /^Guests:/i.test(seg) ||
+    /^__pmo_act_audit__:/i.test(seg);
   const kept = raw
     .split(/\s*\|\s*/)
     .map((s) => s.trim())

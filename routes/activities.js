@@ -12,6 +12,11 @@ import {
   extractEmailsFromText,
 } from '../lib/scheduleEmailUtils.js';
 import { canEditCalendarUser } from '../lib/permissions.js';
+import {
+  applyActorsToActivityRow,
+  resolveActivityActors,
+  stripActorEmbedFromDescription,
+} from '../lib/activityActorEmbed.js';
 
 export const activitiesRouter = Router();
 
@@ -67,49 +72,15 @@ function actorSnapshot(user) {
 
 function enrichActivityForClient(a) {
   const project = store.projects.find((p) => p.id === a.project_id);
-  let createdByName =
-    (a.created_by_name && String(a.created_by_name).trim())
-    || activityPersonName(a.created_by_user_id)
+  const actors = resolveActivityActors(a);
+  const createdByName =
+    actors.created_by_name
+    || activityPersonName(actors.created_by_user_id)
     || null;
-  let updatedByName =
-    (a.updated_by_name && String(a.updated_by_name).trim())
-    || activityPersonName(a.updated_by_user_id)
+  const updatedByName =
+    actors.updated_by_name
+    || activityPersonName(actors.updated_by_user_id)
     || null;
-  let createdAt = a.created_at || null;
-  let updatedAt = a.updated_at || null;
-  let createdByUserId = a.created_by_user_id ?? null;
-  let updatedByUserId = a.updated_by_user_id ?? null;
-
-  // Backfill only from id-linked audit rows (never by title — that mixes up unrelated events).
-  if (!createdByName || !updatedByName) {
-    const fromAudit = actorsFromAuditLog(a);
-    if (!createdByName && fromAudit.created_by_name) {
-      createdByName = fromAudit.created_by_name;
-      createdByUserId = fromAudit.created_by_user_id ?? createdByUserId;
-      // Keep the activity row's created_at; do not replace with audit time.
-    }
-    if (!updatedByName && fromAudit.updated_by_name && fromAudit.updated_at) {
-      const createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
-      const updatedMs = new Date(fromAudit.updated_at).getTime();
-      // Ignore audit "updates" that are not after this row was created.
-      if (Number.isFinite(updatedMs) && (!Number.isFinite(createdMs) || updatedMs > createdMs + 2000)) {
-        updatedByName = fromAudit.updated_by_name;
-        updatedByUserId = fromAudit.updated_by_user_id ?? updatedByUserId;
-        if (!updatedAt) updatedAt = fromAudit.updated_at;
-      }
-    }
-  }
-
-  // Brand-new creates set updated_* equal (or within a couple seconds) — hide as not edited.
-  if (createdAt && updatedAt) {
-    const createdMs = new Date(createdAt).getTime();
-    const updatedMs = new Date(updatedAt).getTime();
-    if (Number.isFinite(createdMs) && Number.isFinite(updatedMs) && updatedMs <= createdMs + 2000) {
-      updatedByName = null;
-      updatedByUserId = null;
-      updatedAt = null;
-    }
-  }
 
   return {
     ...a,
@@ -117,86 +88,45 @@ function enrichActivityForClient(a) {
     person_name: activityPersonName(a.person_id),
     external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
     project_name: project?.name,
+    // Never expose embed marker to clients as "notes".
+    description: stripActorEmbedFromDescription(a.description) || null,
     created_by_name: createdByName,
     updated_by_name: updatedByName,
-    created_by_user_id: createdByUserId,
-    updated_by_user_id: updatedByUserId,
-    created_at: createdAt,
-    updated_at: updatedAt,
+    created_by_user_id: actors.created_by_user_id,
+    updated_by_user_id: actors.updated_by_user_id,
+    created_at: actors.created_at || a.created_at || null,
+    updated_at: actors.updated_at,
   };
 }
 
-/**
- * Best-effort creator / latest editor from audit_log for legacy rows.
- * Matches only by activity id / group id links — never by title.
- */
-function actorsFromAuditLog(activity) {
-  const empty = {
-    created_by_name: null,
-    created_by_user_id: null,
-    created_at: null,
-    updated_by_name: null,
-    updated_by_user_id: null,
-    updated_at: null,
-  };
-  try {
-    const logs = Array.isArray(store.audit_log) ? store.audit_log : [];
-    const id = activity?.id != null ? Number(activity.id) : null;
-    const groupId = activity?.activity_group_id != null ? String(activity.activity_group_id).trim() : '';
-    if (id == null && !groupId) return empty;
-
-    const related = logs.filter((e) => {
-      if (!e || e.target_type !== 'activity') return false;
-      if (id != null && Number(e.target_id) === id) return true;
-      const detail = e.detail && typeof e.detail === 'object' ? e.detail : {};
-      const prev = Array.isArray(detail.previous_activity_ids) ? detail.previous_activity_ids : [];
-      const next = Array.isArray(detail.new_activity_ids) ? detail.new_activity_ids : [];
-      const cancelled = Array.isArray(detail.cancelled_activity_ids) ? detail.cancelled_activity_ids : [];
-      if (id != null && [...prev, ...next, ...cancelled].some((x) => Number(x) === id)) return true;
-      if (groupId && String(detail.activity_group_id || '').trim() === groupId) return true;
-      return false;
-    });
-    if (!related.length) return empty;
-
-    const sorted = [...related].sort((a, b) => new Date(a.at) - new Date(b.at));
-    const creates = sorted.filter((e) => e.action === 'create');
-    const updates = sorted.filter((e) => e.action === 'update');
-    const firstCreate = creates[0] || null;
-    const lastUpdate = updates.length ? updates[updates.length - 1] : null;
-
-    return {
-      created_by_name: firstCreate?.user_name || firstCreate?.user_email || null,
-      created_by_user_id: firstCreate?.user_id ?? null,
-      created_at: firstCreate?.at || null,
-      updated_by_name: lastUpdate?.user_name || lastUpdate?.user_email || null,
-      updated_by_user_id: lastUpdate?.user_id ?? null,
-      updated_at: lastUpdate?.at || null,
-    };
-  } catch {
-    return empty;
-  }
-}
-
-/** Prefer earliest creator + latest editor across a multi-assignee group before recreate. */
+/** Prefer earliest creator across a multi-assignee group before recreate. */
 function inheritAuditFromGroup(groupRows, existing) {
   const rows = (groupRows || []).filter(Boolean);
   const seed = existing || rows[0] || {};
-  let created_at = seed.created_at || null;
-  let created_by_user_id = seed.created_by_user_id ?? null;
-  let created_by_name = seed.created_by_name || null;
+  let best = resolveActivityActors(seed);
+  let created_at = best.created_at || seed.created_at || null;
+
   for (const r of rows) {
+    const actors = resolveActivityActors(r);
     if (r.created_at && (!created_at || new Date(r.created_at) < new Date(created_at))) {
       created_at = r.created_at;
-      created_by_user_id = r.created_by_user_id ?? created_by_user_id;
-      created_by_name = r.created_by_name || created_by_name;
+      best = {
+        ...best,
+        created_at,
+        created_by_user_id: actors.created_by_user_id ?? best.created_by_user_id,
+        created_by_name: actors.created_by_name || best.created_by_name,
+      };
     }
-    if (!created_by_name && r.created_by_name) created_by_name = r.created_by_name;
-    if (created_by_user_id == null && r.created_by_user_id != null) created_by_user_id = r.created_by_user_id;
+    if (!best.created_by_name && actors.created_by_name) {
+      best.created_by_name = actors.created_by_name;
+      best.created_by_user_id = actors.created_by_user_id ?? best.created_by_user_id;
+    }
   }
+
   return {
     created_at: created_at || new Date().toISOString(),
-    created_by_user_id,
-    created_by_name: created_by_name || activityPersonName(created_by_user_id) || null,
+    created_by_user_id: best.created_by_user_id,
+    created_by_name: best.created_by_name || activityPersonName(best.created_by_user_id) || null,
   };
 }
 
@@ -660,7 +590,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   const extForRow = external_attendees || null;
   const actor = actorSnapshot(req.user);
   const nowIso = new Date().toISOString();
-  const auditFields = {
+  const actors = {
     created_at: nowIso,
     created_by_user_id: actor.id,
     created_by_name: actor.name,
@@ -670,7 +600,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   };
 
   if (uniqueResolved.length === 0) {
-    const id = store.addActivity({
+    const row = applyActorsToActivityRow({
       activity_group_id: activityGroupId,
       person_id: null,
       external_attendees,
@@ -681,13 +611,13 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       location: loc,
       start_at,
       end_at,
-      ...auditFields,
-    });
+    }, actors);
+    const id = store.addActivity(row);
     const a = store.activities.find((x) => x.id === id);
     if (a) created.push(a);
   } else {
     for (const uid of uniqueResolved) {
-      const id = store.addActivity({
+      const row = applyActorsToActivityRow({
         activity_group_id: activityGroupId,
         person_id: uid,
         external_attendees: extForRow,
@@ -698,8 +628,8 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
         location: loc,
         start_at,
         end_at,
-        ...auditFields,
-      });
+      }, actors);
+      const id = store.addActivity(row);
       const a = store.activities.find((x) => x.id === id);
       if (a) created.push(a);
     }
@@ -716,6 +646,9 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       person_names: created.map((a) => activityPersonName(a.person_id)).filter(Boolean),
       external_attendees: external_attendees || null,
       project_name: project?.name,
+      activity_group_id: activityGroupId,
+      created_by_name: actor.name,
+      created_by_user_id: actor.id,
     },
   });
   try {
@@ -831,7 +764,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   const inherited = inheritAuditFromGroup(previousRows, existing);
   const actor = actorSnapshot(req.user);
   const nowIso = new Date().toISOString();
-  const auditFields = {
+  const actors = {
     created_at: inherited.created_at,
     created_by_user_id: inherited.created_by_user_id ?? actor.id,
     created_by_name: inherited.created_by_name || actor.name,
@@ -843,39 +776,41 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   const createdRows = [];
   const project = store.projects.find(p => p.id === (nextProjectId || null));
   const extForRow = nextExternal || null;
+  // Client notes never include the embed marker (stripped on GET); rebuild embed on save.
+  const cleanDescription = stripActorEmbedFromDescription(nextDescription) || null;
 
   for (const uid of uniqueUids) {
-    const newId = store.addActivity({
+    const prepared = applyActorsToActivityRow({
       activity_group_id: activityGroupId,
       person_id: uid,
       external_attendees: extForRow,
       project_id: nextProjectId || null,
       type: nextType,
       title: nextTitle,
-      description: nextDescription || null,
+      description: cleanDescription,
       location: nextLocation,
       start_at: nextStart,
       end_at: nextEnd,
-      ...auditFields,
-    });
+    }, actors);
+    const newId = store.addActivity(prepared);
     const row = store.activities.find(x => x.id === newId);
     createdRows.push(row);
   }
 
   if (uniqueUids.length === 0) {
-    const newId = store.addActivity({
+    const prepared = applyActorsToActivityRow({
       activity_group_id: activityGroupId,
       person_id: null,
       external_attendees: nextExternal,
       project_id: nextProjectId || null,
       type: nextType,
       title: nextTitle,
-      description: nextDescription || null,
+      description: cleanDescription,
       location: nextLocation,
       start_at: nextStart,
       end_at: nextEnd,
-      ...auditFields,
-    });
+    }, actors);
+    const newId = store.addActivity(prepared);
     const row = store.activities.find((x) => x.id === newId);
     if (row) createdRows.push(row);
   }

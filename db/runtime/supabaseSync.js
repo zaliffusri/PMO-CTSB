@@ -6,6 +6,7 @@ import {
   normalizeBacklogRows,
 } from './helpers.js';
 import { embedSmtpIntoSettings, applySmtpEmbedToSettings, SMTP_EMBED_KEY } from '../../lib/smtpSettingsEmbed.js';
+import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 
 let warnedSupabase = false;
 let syncInFlight = false;
@@ -539,7 +540,19 @@ export async function loadFromSupabase() {
       people: peopleRes.data || [],
       projects: projectsRes.data || [],
       project_assignments: assignRes.data || [],
-      activities: activitiesRes.data || [],
+      activities: (activitiesRes.data || []).map((row) => {
+        const embedded = parseActorEmbedFromDescription(row.description);
+        if (!embedded) return row;
+        return {
+          ...row,
+          created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
+          created_by_name: row.created_by_name || embedded.created_by_name,
+          updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
+          updated_by_name: row.updated_by_name || embedded.updated_by_name,
+          updated_at: row.updated_at || embedded.updated_at,
+          created_at: row.created_at || embedded.created_at || row.created_at,
+        };
+      }),
       project_tasks: tasksRes.data || [],
       users: (usersRes.data || []).map(normalizeUserRow),
       sessions: sessionsRes.data || [],
