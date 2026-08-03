@@ -17,6 +17,7 @@ import {
   resolveActivityActors,
   stripActorEmbedFromDescription,
 } from '../lib/activityActorEmbed.js';
+import { nextCalendarSequence } from '../lib/calendarInvite.js';
 
 export const activitiesRouter = Router();
 
@@ -160,6 +161,48 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
   return { fromMs, toExclusive };
 }
 
+/** Resolve assignee + guest emails for a multi-person meeting invite (Outlook/Teams). */
+function resolveCalendarAttendees(assigneeUids, external_attendees) {
+  const out = [];
+  const seen = new Set();
+  for (const uid of [...new Set((assigneeUids || []).filter((x) => x != null))]) {
+    const assignee = store.findUserById(uid);
+    let email = String(assignee?.email || '').trim().toLowerCase();
+    if (!email && assignee?.name) {
+      const pe = store.people.find(
+        (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
+      );
+      email = String(pe?.email || '').trim().toLowerCase();
+    }
+    if (!email || !email.includes('@') || seen.has(email)) continue;
+    seen.add(email);
+    out.push({ email, name: assignee?.name || email.split('@')[0] });
+  }
+  for (const to of extractEmailsFromText(external_attendees)) {
+    const email = String(to || '').trim().toLowerCase();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    out.push({ email, name: email.split('@')[0] });
+  }
+  return out;
+}
+
+function resolveAssigneeEmail(uid) {
+  const assignee = store.findUserById(uid);
+  let recipientEmail = String(assignee?.email || '').trim();
+  if (!recipientEmail && assignee?.name) {
+    const pe = store.people.find(
+      (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
+    );
+    recipientEmail = String(pe?.email || '').trim();
+  }
+  return {
+    assignee,
+    email: recipientEmail || null,
+    name: assignee?.name || null,
+  };
+}
+
 async function notifyActivityAssignee(uid, {
   title,
   typeKey,
@@ -172,15 +215,9 @@ async function notifyActivityAssignee(uid, {
   variant = 'scheduled',
   calendarUid = null,
   sequence = 0,
+  attendees = [],
 }) {
-  const assignee = store.findUserById(uid);
-  let recipientEmail = String(assignee?.email || '').trim();
-  if (!recipientEmail && assignee?.name) {
-    const pe = store.people.find(
-      (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
-    );
-    recipientEmail = String(pe?.email || '').trim();
-  }
+  const { assignee, email: recipientEmail } = resolveAssigneeEmail(uid);
   if (!recipientEmail) {
     return { sent: false, reason: 'no_email', to: null, name: assignee?.name || null };
   }
@@ -213,6 +250,7 @@ async function notifyActivityAssignee(uid, {
       updatedBy: loggedBy,
       calendarUid,
       sequence,
+      attendees,
     });
     return {
       sent: Boolean(result?.sent),
@@ -266,6 +304,7 @@ async function notifyActivityGuests(external_attendees, payload) {
         updatedBy: payload.loggedBy,
         calendarUid: payload.calendarUid,
         sequence: payload.sequence || 0,
+        attendees: payload.attendees || [],
       });
       results.push({
         sent: Boolean(result?.sent),
@@ -298,6 +337,7 @@ async function dispatchActivityNotifications({
   sequence = 0,
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
+  const attendees = resolveCalendarAttendees(uniqueUids, external_attendees);
   const payload = {
     title,
     typeKey,
@@ -310,6 +350,7 @@ async function dispatchActivityNotifications({
     variant,
     calendarUid,
     sequence,
+    attendees,
   };
   const assigneeResults = [];
   for (const uid of uniqueUids) {
@@ -548,7 +589,7 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
     loggedBy,
     external_attendees: ext,
     calendarUid: existing.activity_group_id || `activity-${existing.id}`,
-    sequence: 1,
+    sequence: nextCalendarSequence('update'),
   });
 
   res.json({
@@ -700,7 +741,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       loggedBy,
       external_attendees,
       calendarUid: activityGroupId,
-      sequence: 0,
+      sequence: nextCalendarSequence('create'),
     });
   }
 
@@ -858,7 +899,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       external_attendees: extForRow,
       variant: 'updated',
       calendarUid: activityGroupId,
-      sequence: Math.max(1, Math.floor(Date.now() / 1000) % 100000),
+      sequence: nextCalendarSequence('update'),
     });
   }
 
@@ -953,7 +994,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
       external_attendees,
       variant: 'cancelled',
       calendarUid: existing.activity_group_id || `activity-${id}`,
-      sequence: Math.max(2, Math.floor(Date.now() / 1000) % 100000),
+      sequence: nextCalendarSequence('cancel'),
     });
   }
 

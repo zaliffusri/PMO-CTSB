@@ -1150,7 +1150,7 @@ export default function Calendar() {
         ? ` All ${assigneeCount} assignee records for this activity will be removed.`
         : '';
     const emailHint = smtpConfigured
-      ? ' Assignees and guests will receive a cancellation email.'
+      ? ' Assignees will get a cancellation that removes the event from Outlook / Teams / Google Calendar.'
       : ' (SMTP is not configured — no cancellation email will be sent.)';
     if (!confirm(`Cancel activity "${a.title}"?${multiHint}${emailHint}`)) return;
     const cancelKey = activityLogicalGroupKey(a);
@@ -2017,15 +2017,15 @@ export default function Calendar() {
                     style={{ marginTop: '0.2rem' }}
                   />
                   <span>
-                    <strong>{editingActivityId != null ? 'Email update to assignees' : 'Email assignees'}</strong>
+                    <strong>{editingActivityId != null ? 'Send calendar update to assignees' : 'Add to assignees’ calendars'}</strong>
                     <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                       {smtpConfigured
                         ? (editingActivityId != null
-                          ? 'Send an “Activity updated” email with the new dates/details (previous schedule email is not changed).'
-                          : 'Send an email notification to selected assignees (and guest emails) when this activity is saved.')
+                          ? 'Email a meeting update (Outlook / Teams / Google) so their calendars stay in sync.'
+                          : 'Email a meeting invite so the event is added to each assignee’s Outlook / Teams / Google calendar automatically.')
                         : (
                           <>
-                            Email may fail until SMTP is configured.{' '}
+                            Calendar invites need SMTP.{' '}
                             {user?.role === 'admin' ? (
                               <Link to="/settings/email">Open Settings → Email</Link>
                             ) : (
