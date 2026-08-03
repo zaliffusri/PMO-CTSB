@@ -776,6 +776,7 @@ export default function Calendar() {
   const [showReport, setShowReport] = useState(false);
   const [showScheduleEmail, setShowScheduleEmail] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
+  const [teamsSyncConfigured, setTeamsSyncConfigured] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
   const importPreviewHasSheetColumn = useMemo(
@@ -834,8 +835,14 @@ export default function Calendar() {
   useEffect(() => {
     const refreshSmtp = () => {
       api.activities.mailStatus()
-        .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
-        .catch(() => setSmtpConfigured(false));
+        .then((r) => {
+          setSmtpConfigured(Boolean(r?.smtp_configured));
+          setTeamsSyncConfigured(Boolean(r?.ms_graph_configured));
+        })
+        .catch(() => {
+          setSmtpConfigured(false);
+          setTeamsSyncConfigured(false);
+        });
     };
     refreshSmtp();
     const onVisible = () => {
@@ -1159,9 +1166,11 @@ export default function Calendar() {
       assigneeCount > 1
         ? ` All ${assigneeCount} assignee records for this activity will be removed.`
         : '';
-    const emailHint = smtpConfigured
-      ? ' Assignees will get a cancellation that marks the meeting as Canceled on Outlook / Teams (and removes it when Microsoft calendar sync is configured).'
-      : ' (SMTP is not configured — no cancellation email will be sent.)';
+    const emailHint = teamsSyncConfigured
+      ? ' This will also remove the meeting from assignees’ Teams / Outlook calendars.'
+      : smtpConfigured
+        ? ' Assignees get a cancellation email. To auto-remove from Teams, enable Settings → Teams calendar.'
+        : ' (SMTP is not configured — no cancellation email will be sent.)';
     if (!confirm(`Cancel activity "${a.title}"?${multiHint}${emailHint}`)) return;
     const cancelKey = activityLogicalGroupKey(a);
     await runMutation(async () => {
@@ -1170,10 +1179,22 @@ export default function Calendar() {
         // Remove from UI immediately so the chip disappears even before reload finishes.
         setActivities((prev) => prev.filter((row) => activityLogicalGroupKey(row) !== cancelKey));
         const emailNotify = result?.email_notify;
-        if (emailNotify?.smtp_configured === false) {
+        const graph = emailNotify?.ms_graph;
+        const teamsDeleted = Boolean(
+          graph?.configured
+          && Array.isArray(graph?.results)
+          && graph.results.some((r) => r?.ok && (r.action === 'deleted' || r.action === 'marked_canceled')),
+        );
+        if (teamsDeleted) {
+          alert('Activity cancelled and removed from Teams / Outlook calendars.');
+        } else if (emailNotify?.smtp_configured === false && !graph?.configured) {
           alert('Activity cancelled. Cancellation email was not sent because SMTP is not configured.');
         } else if (emailNotify && emailNotify.sent > 0) {
-          alert(`Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s).`);
+          alert(
+            teamsSyncConfigured
+              ? `Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s). Teams clear: no matching calendar event found (create new activities after Teams calendar sync is enabled).`
+              : `Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s). For auto-remove in Teams, open Settings → Teams calendar.`,
+          );
         } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
           alert('Activity cancelled, but cancellation email could not be delivered. Check assignee emails and SMTP settings.');
         } else {

@@ -343,6 +343,7 @@ async function dispatchActivityNotifications({
   variant = 'scheduled',
   calendarUid = null,
   sequence = 0,
+  skipMsGraph = false,
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
   const attendees = resolveCalendarAttendees(uniqueUids, external_attendees);
@@ -350,7 +351,7 @@ async function dispatchActivityNotifications({
   // Prefer Microsoft Graph for Teams calendars when configured (create/update/delete).
   let ms_graph = null;
   const skipIcsEmails = new Set();
-  if (calendarUid && attendees.length && isMsGraphConfigured()) {
+  if (!skipMsGraph && calendarUid && attendees.length && isMsGraphConfigured()) {
     try {
       ms_graph = await syncMsGraphActivityCalendars({
         attendeeEmails: attendees.map((a) => a.email),
@@ -470,7 +471,11 @@ function periodLabelFromRange(fromRaw, toRaw) {
 }
 
 activitiesRouter.get('/mail-status', (req, res) => {
-  res.json({ smtp_configured: isMailerConfigured(), ...publicSmtpStatus() });
+  res.json({
+    smtp_configured: isMailerConfigured(),
+    ...publicSmtpStatus(),
+    ms_graph_configured: isMsGraphConfigured(),
+  });
 });
 
 activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, (req, res) => {
@@ -1021,6 +1026,29 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   const { deleted, deleted_ids: removedIds } = await store.deleteActivityLogicalGroupByAnyMemberId(id);
   if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
 
+  const calendarUid = existing.activity_group_id || `activity-${id}`;
+
+  // Always try to remove from Teams/Outlook via Microsoft Graph when configured.
+  let msGraphCancel = null;
+  if (isMsGraphConfigured()) {
+    try {
+      const attendees = resolveCalendarAttendees(assigneeUids, external_attendees);
+      msGraphCancel = await syncMsGraphActivityCalendars({
+        attendeeEmails: attendees.map((a) => a.email),
+        variant: 'cancelled',
+        title: cancelPayload.title,
+        location: cancelPayload.location,
+        description: cancelPayload.description,
+        startAt: cancelPayload.start_at,
+        endAt: cancelPayload.end_at,
+        calendarUid,
+      });
+    } catch (e) {
+      console.warn('activities DELETE: MS Graph cancel failed', e?.message || e);
+      msGraphCancel = { configured: true, attempted: 0, ok: 0, error: e?.message || 'sync_failed' };
+    }
+  }
+
   let emailNotify = null;
   if (shouldNotify) {
     emailNotify = await dispatchActivityNotifications({
@@ -1035,9 +1063,30 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
       loggedBy: cancelledBy,
       external_attendees,
       variant: 'cancelled',
-      calendarUid: existing.activity_group_id || `activity-${id}`,
+      calendarUid,
       sequence: nextCalendarSequence('cancel'),
+      skipMsGraph: Boolean(msGraphCancel),
     });
+  } else {
+    emailNotify = {
+      smtp_configured: isMailerConfigured(),
+      ms_graph_configured: isMsGraphConfigured(),
+      ms_graph: msGraphCancel,
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      recipients: [],
+      notify_email_requested: false,
+    };
+  }
+  if (emailNotify && msGraphCancel) {
+    emailNotify = { ...emailNotify, ms_graph: msGraphCancel, ms_graph_configured: true };
+  } else if (emailNotify) {
+    emailNotify = {
+      ...emailNotify,
+      ms_graph: msGraphCancel,
+      ms_graph_configured: isMsGraphConfigured(),
+    };
   }
 
   const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';
