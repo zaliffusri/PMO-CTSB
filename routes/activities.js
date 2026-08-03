@@ -8,7 +8,7 @@ import { buildTeamScheduleEmail } from '../lib/emailTemplates.js';
 import {
   groupActivitiesForScheduleEmail,
   resolveScheduleRecipients,
-  formatEmailDateTime,
+  formatEmailScheduleWhen,
   extractEmailsFromText,
 } from '../lib/scheduleEmailUtils.js';
 import { canEditCalendarUser } from '../lib/permissions.js';
@@ -224,8 +224,7 @@ async function notifyActivityAssignee(uid, {
   if (!isMailerConfigured()) {
     return { sent: false, reason: 'smtp_not_configured', to: recipientEmail, name: assignee?.name || null };
   }
-  const startLabel = formatEmailDateTime(start_at);
-  const endLabel = formatEmailDateTime(end_at);
+  const whenLabel = formatEmailScheduleWhen(start_at, end_at);
   const sendFn =
     variant === 'cancelled'
       ? sendActivityCancelledEmail
@@ -239,8 +238,9 @@ async function notifyActivityAssignee(uid, {
       title,
       typeKey,
       location,
-      startAt: startLabel,
-      endAt: endLabel,
+      startAt: whenLabel,
+      endAt: '',
+      whenLabel,
       startAtIso: start_at,
       endAtIso: end_at,
       projectName,
@@ -275,8 +275,7 @@ async function notifyActivityGuests(external_attendees, payload) {
     }));
   }
   const guestEmails = extractEmailsFromText(external_attendees);
-  const startLabel = formatEmailDateTime(payload.start_at);
-  const endLabel = formatEmailDateTime(payload.end_at);
+  const whenLabel = formatEmailScheduleWhen(payload.start_at, payload.end_at);
   const variant = payload.variant || 'scheduled';
   const sendFn =
     variant === 'cancelled'
@@ -293,8 +292,9 @@ async function notifyActivityGuests(external_attendees, payload) {
         title: payload.title,
         typeKey: payload.typeKey,
         location: payload.location,
-        startAt: startLabel,
-        endAt: endLabel,
+        startAt: whenLabel,
+        endAt: '',
+        whenLabel,
         startAtIso: payload.start_at,
         endAtIso: payload.end_at,
         projectName: payload.projectName,

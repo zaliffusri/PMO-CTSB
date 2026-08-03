@@ -14,6 +14,7 @@ import {
   composeLocation,
   resolveLocationForForm,
 } from '../constants/activityLocations';
+import { interpretActivitySchedule } from '../../lib/activityDailyWindows.js';
 
 function getMonthRange(year, month) {
   const first = new Date(year, month - 1, 1);
@@ -185,6 +186,15 @@ function toDatetimeLocalValue(iso) {
 }
 
 function formatActivityTimeRange(a) {
+  const schedule = interpretActivitySchedule(a.start_at, a.end_at);
+  if (schedule.mode === 'daily' && schedule.dayCount > 1) {
+    const first = new Date(schedule.firstStartIso);
+    const last = new Date(schedule.lastStartIso);
+    const endClock = new Date(schedule.firstEndIso);
+    const dateOpts = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+    const timeOpts = { hour: '2-digit', minute: '2-digit' };
+    return `${first.toLocaleTimeString(undefined, timeOpts)} – ${endClock.toLocaleTimeString(undefined, timeOpts)} each day · ${first.toLocaleDateString(undefined, dateOpts)} – ${last.toLocaleDateString(undefined, dateOpts)}`;
+  }
   const start = new Date(a.start_at);
   const end = new Date(a.end_at);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
@@ -2009,6 +2019,10 @@ export default function Calendar() {
                 End *{' '}
                 <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
               </label>
+              <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Multi-day tip: Start = first day + daily start time, End = last day + daily end time.
+                Example: Mon 9:00 → Tue 11:00 means <strong>9:00–11:00 on both days</strong> (not one long overnight block).
+              </p>
               <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
