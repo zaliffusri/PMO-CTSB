@@ -6,6 +6,7 @@ import {
   normalizeBacklogRows,
 } from './helpers.js';
 import { embedSmtpIntoSettings, applySmtpEmbedToSettings, SMTP_EMBED_KEY } from '../../lib/smtpSettingsEmbed.js';
+import { embedMsGraphIntoSettings, applyMsGraphEmbedToSettings, MS_GRAPH_EMBED_KEY } from '../../lib/msGraphSettingsEmbed.js';
 import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 
 let warnedSupabase = false;
@@ -322,11 +323,12 @@ async function upsertSessions(rows) {
 }
 
 /**
- * Persist settings without relying on smtp_* columns (often missing in prod).
- * SMTP is embedded in mileage_from_office_km under SMTP_EMBED_KEY.
+ * Persist settings without relying on smtp_* / ms_graph_* columns (often missing in prod).
+ * Secrets are embedded in mileage_from_office_km under SMTP_EMBED_KEY / MS_GRAPH_EMBED_KEY.
  */
 async function upsertSettingsApp(settings) {
-  const s = embedSmtpIntoSettings({ ...(settings || {}) });
+  let s = embedSmtpIntoSettings({ ...(settings || {}) });
+  s = embedMsGraphIntoSettings(s);
   const mileage = {
     ...(s.mileage_from_office_km && typeof s.mileage_from_office_km === 'object'
       ? s.mileage_from_office_km
@@ -334,6 +336,10 @@ async function upsertSettingsApp(settings) {
   };
   if (!mileage[SMTP_EMBED_KEY]) {
     embedSmtpIntoSettings(s);
+    Object.assign(mileage, s.mileage_from_office_km || {});
+  }
+  if (!mileage[MS_GRAPH_EMBED_KEY]) {
+    embedMsGraphIntoSettings(s);
     Object.assign(mileage, s.mileage_from_office_km || {});
   }
 
@@ -528,11 +534,15 @@ export async function loadFromSupabase() {
 
     const settingsRow = settingsRes.data || {};
     const { id: _id, updated_at: _updatedAt, ...settingsRaw } = settingsRow;
-    const settings = applySmtpEmbedToSettings(
-      { ...settingsRaw },
+    const settings = applyMsGraphEmbedToSettings(
+      applySmtpEmbedToSettings(
+        { ...settingsRaw },
+        settingsRaw.mileage_from_office_km,
+      ),
       settingsRaw.mileage_from_office_km,
     );
     embedSmtpIntoSettings(settings);
+    embedMsGraphIntoSettings(settings);
     const remote = {
       clients: clientsRes.data || [],
       client_contacts: clientContactsMissing ? [] : clientContactsRes.data || [],
