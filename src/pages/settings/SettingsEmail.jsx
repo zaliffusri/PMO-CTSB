@@ -184,7 +184,7 @@ export default function SettingsEmail() {
         />
         <span style={labelMuted}>
           {isGmail
-            ? 'Gmail: Google Account → Security → 2-Step Verification → App passwords.'
+            ? 'Must be an App Password from the SAME Gmail as SMTP user above (Google Account → Security → App passwords). Example: if user is adminpmo99@gmail.com, create the App Password while logged into adminpmo99@gmail.com.'
             : isOffice365
               ? 'If your account has MFA, create an app password or ask IT for SMTP AUTH access.'
               : 'Use the password for your SMTP account.'}

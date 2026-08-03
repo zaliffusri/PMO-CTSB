@@ -133,11 +133,26 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
     const pass = String(body.smtp_pass ?? '');
     // Empty string = keep existing password (UI leaves blank when unchanged)
     if (pass.trim()) {
-      patch.smtp_pass = pass;
+      patch.smtp_pass = pass.replace(/\s/g, '');
     }
   }
   if (body.clear_smtp_pass === true) {
     patch.smtp_pass = '';
+  }
+
+  // Changing provider with the old password left in place causes Gmail 535 BadCredentials
+  // (e.g. Microsoft 365 password kept after switching back to Gmail).
+  const cur = store.getSettings();
+  const nextService = patch.smtp_service !== undefined
+    ? String(patch.smtp_service || '').toLowerCase()
+    : String(cur.smtp_service || '').toLowerCase();
+  const curService = String(cur.smtp_service || '').toLowerCase();
+  const providerChanged = patch.smtp_service !== undefined && nextService !== curService;
+  const passProvided = Boolean(patch.smtp_pass && String(patch.smtp_pass).trim());
+  if (providerChanged && !passProvided && !body.clear_smtp_pass) {
+    return res.status(400).json({
+      error: 'Re-enter the email password when changing provider (Gmail App Password or Microsoft 365 password). Leaving it blank keeps the old password and login will fail.',
+    });
   }
 
   if (body.ms_graph_tenant_id !== undefined) {
@@ -209,7 +224,13 @@ settingsRouter.post('/test-email', requireAdmin, async (req, res) => {
     }
     res.json({ ok: true, to, smtp_status: publicSmtpStatus(), config: { source: resolveSmtpConfig().source } });
   } catch (e) {
-    res.status(502).json({ error: e.message || 'SMTP send failed' });
+    const raw = String(e?.message || e || 'SMTP send failed');
+    const badCreds = /535|BadCredentials|Username and Password not accepted/i.test(raw);
+    res.status(502).json({
+      error: badCreds
+        ? `Gmail login rejected for ${resolveSmtpConfig().user || 'this account'}. Use an App Password created while logged into THAT same Gmail (Google Account → Security → App passwords), then save it again in Settings → Email. Normal Gmail password will not work.`
+        : raw,
+    });
   }
 });
 
