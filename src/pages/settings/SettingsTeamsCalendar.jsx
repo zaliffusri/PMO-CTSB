@@ -36,7 +36,7 @@ export default function SettingsTeamsCalendar() {
       }));
       setSecret('');
       setMsg(saved.ms_graph_configured
-        ? 'Teams calendar sync saved. New activities will sync to Outlook / Teams; cancel will remove or mark them Canceled.'
+        ? 'Teams calendar sync saved. New activities will sync to Outlook / Teams; cancel will mark them as Canceled (events stay on the calendar).'
         : 'Saved, but Graph is still incomplete — need Tenant ID, Client ID, and Client secret.');
       await reload();
     } catch (ex) {
@@ -65,7 +65,7 @@ export default function SettingsTeamsCalendar() {
       <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Teams / Outlook calendar sync</h2>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
         Prefer the simple path first: <strong>Settings → Email → Microsoft 365 / Outlook</strong> with your work email.
-        Use this Graph page only if email cancel still does not update Teams.
+        Use this so cancel in PMO marks the Teams / Outlook event as Canceled (does not delete it).
         Status:{' '}
         <strong style={{ color: configured ? 'var(--success, #0a7)' : 'var(--danger)' }}>
           {configured ? 'Enabled' : 'Not configured (optional)'}
