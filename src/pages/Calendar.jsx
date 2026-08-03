@@ -244,11 +244,25 @@ function activityDescriptionForCalendarDisplay(description) {
 
 /**
  * Convert `datetime-local` value (local wall time) to UTC ISO before saving.
- * This avoids DB/server timezone defaults shifting the intended user time.
+ * Parse parts explicitly so browsers never treat the string as UTC.
  */
 function toApiDateTimeValue(localValue) {
   if (!localValue) return localValue;
-  const d = new Date(localValue);
+  const m = String(localValue).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) {
+    const d = new Date(localValue);
+    if (!Number.isFinite(d.getTime())) return localValue;
+    return d.toISOString();
+  }
+  const d = new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    0,
+    0,
+  );
   if (!Number.isFinite(d.getTime())) return localValue;
   return d.toISOString();
 }
