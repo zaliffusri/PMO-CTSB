@@ -6,7 +6,6 @@ import {
   normalizeBacklogRows,
 } from './helpers.js';
 import { embedSmtpIntoSettings, applySmtpEmbedToSettings, SMTP_EMBED_KEY } from '../../lib/smtpSettingsEmbed.js';
-import { embedMsGraphIntoSettings, applyMsGraphEmbedToSettings, MS_GRAPH_EMBED_KEY } from '../../lib/msGraphSettingsEmbed.js';
 import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 
 let warnedSupabase = false;
@@ -323,12 +322,11 @@ async function upsertSessions(rows) {
 }
 
 /**
- * Persist settings without relying on smtp_* / ms_graph_* columns (often missing in prod).
- * Secrets are embedded in mileage_from_office_km under SMTP_EMBED_KEY / MS_GRAPH_EMBED_KEY.
+ * Persist settings without relying on smtp_* columns (often missing in prod).
+ * Secrets are embedded in mileage_from_office_km under SMTP_EMBED_KEY.
  */
 async function upsertSettingsApp(settings) {
-  let s = embedSmtpIntoSettings({ ...(settings || {}) });
-  s = embedMsGraphIntoSettings(s);
+  const s = embedSmtpIntoSettings({ ...(settings || {}) });
   const mileage = {
     ...(s.mileage_from_office_km && typeof s.mileage_from_office_km === 'object'
       ? s.mileage_from_office_km
@@ -338,10 +336,8 @@ async function upsertSettingsApp(settings) {
     embedSmtpIntoSettings(s);
     Object.assign(mileage, s.mileage_from_office_km || {});
   }
-  if (!mileage[MS_GRAPH_EMBED_KEY]) {
-    embedMsGraphIntoSettings(s);
-    Object.assign(mileage, s.mileage_from_office_km || {});
-  }
+  // Drop legacy Microsoft Graph embed if present.
+  delete mileage.__pmo_ms_graph__;
 
   const row = {
     id: 1,
@@ -534,15 +530,11 @@ export async function loadFromSupabase() {
 
     const settingsRow = settingsRes.data || {};
     const { id: _id, updated_at: _updatedAt, ...settingsRaw } = settingsRow;
-    const settings = applyMsGraphEmbedToSettings(
-      applySmtpEmbedToSettings(
-        { ...settingsRaw },
-        settingsRaw.mileage_from_office_km,
-      ),
+    const settings = applySmtpEmbedToSettings(
+      { ...settingsRaw },
       settingsRaw.mileage_from_office_km,
     );
     embedSmtpIntoSettings(settings);
-    embedMsGraphIntoSettings(settings);
     const remote = {
       clients: clientsRes.data || [],
       client_contacts: clientContactsMissing ? [] : clientContactsRes.data || [],

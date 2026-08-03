@@ -112,8 +112,7 @@ export default function SettingsEmail() {
     <form onSubmit={save} style={card}>
       <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Email notifications (SMTP)</h2>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        For <strong>Teams calendar invite + cancel</strong>, use <strong>Microsoft 365</strong> with your work email
-        (not Gmail). Status:{' '}
+        Used for activity invites and cancellation emails (Outlook / Teams / Google). Status:{' '}
         <strong style={{ color: configured ? 'var(--success, #0a7)' : 'var(--danger)' }}>
           {configured ? 'Enabled' : 'Not configured'}
         </strong>
@@ -165,7 +164,7 @@ export default function SettingsEmail() {
           style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
           autoComplete="off"
         />
-        <span style={labelMuted}>Must match your Microsoft 365 mailbox for Teams calendar cancel to work well.</span>
+        <span style={labelMuted}>Usually the same as your SMTP username.</span>
       </label>
 
       <label style={{ display: 'block', marginBottom: '0.75rem' }}>

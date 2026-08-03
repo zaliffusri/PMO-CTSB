@@ -5,25 +5,21 @@ import { defaultSettings } from '../lib/defaultSettings.js';
 import { validateImageDataUrl } from '../lib/validateImageDataUrl.js';
 import { isMailerConfigured, invalidateMailerCache, sendAssignmentEmail } from '../lib/mailer.js';
 import { publicSmtpStatus, resolveSmtpConfig } from '../lib/smtpConfig.js';
-import { publicMsGraphStatus, resolveMsGraphConfig } from '../lib/msGraphConfig.js';
-import { testMsGraphConnection, invalidateMsGraphCache, isMsGraphConfigured } from '../lib/msGraphCalendar.js';
 
 export const settingsRouter = Router();
 
 function settingsForClient(raw, { includeSecrets = false } = {}) {
   const s = { ...raw };
   const passSet = Boolean(String(s.smtp_pass || '').trim());
-  const graphSecretSet = Boolean(String(s.ms_graph_client_secret || '').trim());
   delete s.smtp_pass;
   delete s.ms_graph_client_secret;
+  delete s.ms_graph_tenant_id;
+  delete s.ms_graph_client_id;
   return {
     ...s,
     smtp_pass_set: passSet,
     smtp_configured: isMailerConfigured(),
     smtp_status: publicSmtpStatus(),
-    ms_graph_secret_set: graphSecretSet,
-    ms_graph_configured: isMsGraphConfigured(),
-    ms_graph_status: publicMsGraphStatus(),
     ...(includeSecrets ? {} : {}),
   };
 }
@@ -155,29 +151,12 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
     });
   }
 
-  if (body.ms_graph_tenant_id !== undefined) {
-    patch.ms_graph_tenant_id = String(body.ms_graph_tenant_id ?? '').trim().slice(0, 80);
-  }
-  if (body.ms_graph_client_id !== undefined) {
-    patch.ms_graph_client_id = String(body.ms_graph_client_id ?? '').trim().slice(0, 80);
-  }
-  if (body.ms_graph_client_secret !== undefined) {
-    const secret = String(body.ms_graph_client_secret ?? '');
-    if (secret.trim()) {
-      patch.ms_graph_client_secret = secret.trim();
-    }
-  }
-  if (body.clear_ms_graph_secret === true) {
-    patch.ms_graph_client_secret = '';
-  }
-
   if (Object.keys(patch).length === 0) {
     return res.status(400).json({ error: 'Nothing to update' });
   }
 
   store.updateSettings(patch);
   invalidateMailerCache();
-  invalidateMsGraphCache();
   store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'settings',
@@ -185,7 +164,7 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
     summary: 'Updated system settings',
     detail: {
       fields: Object.keys(patch).map((k) => (
-        k === 'smtp_pass' || k === 'ms_graph_client_secret' ? `${k}(updated)` : k
+        k === 'smtp_pass' ? `${k}(updated)` : k
       )),
     },
   });
@@ -232,27 +211,4 @@ settingsRouter.post('/test-email', requireAdmin, async (req, res) => {
         : raw,
     });
   }
-});
-
-/** Admin: verify Microsoft Graph app credentials (token fetch). */
-settingsRouter.post('/test-ms-graph', requireAdmin, async (req, res) => {
-  if (!isMsGraphConfigured()) {
-    return res.status(503).json({
-      error: 'Microsoft Graph is not configured. Save Tenant ID, Client ID, and Client secret first (Settings → Teams calendar).',
-      ms_graph_status: publicMsGraphStatus(),
-    });
-  }
-  const result = await testMsGraphConnection();
-  if (!result.ok) {
-    return res.status(502).json({
-      error: result.reason || 'Microsoft Graph connection failed',
-      ms_graph_status: publicMsGraphStatus(),
-      hint: 'Confirm admin consent for Calendars.ReadWrite (Application) on the Azure app.',
-    });
-  }
-  res.json({
-    ok: true,
-    ms_graph_status: publicMsGraphStatus(),
-    config: { source: resolveMsGraphConfig().source },
-  });
 });

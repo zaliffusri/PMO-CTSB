@@ -19,7 +19,6 @@ import SettingsLayout from '../pages/settings/SettingsLayout';
 import SettingsLocations from '../pages/settings/SettingsLocations';
 import SettingsBranding from '../pages/settings/SettingsBranding';
 import SettingsEmail from '../pages/settings/SettingsEmail';
-import SettingsTeamsCalendar from '../pages/settings/SettingsTeamsCalendar';
 
 export default function AppRoutes() {
   const { user } = useAuth();
@@ -51,7 +50,7 @@ export default function AppRoutes() {
         <Route path="locations" element={<SettingsLocations />} />
         <Route path="branding" element={<SettingsBranding />} />
         <Route path="email" element={<SettingsEmail />} />
-        <Route path="teams-calendar" element={<SettingsTeamsCalendar />} />
+        <Route path="teams-calendar" element={<Navigate to="/settings/email" replace />} />
       </Route>
       <Route path="/calendar" element={<Calendar />} />
       <Route path="/reports" element={<Reports />} />

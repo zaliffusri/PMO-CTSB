@@ -73,9 +73,6 @@ export default function SettingsLayout() {
         <NavLink to="/settings/email" className={({ isActive }) => `module-tab ${isActive ? 'active' : ''}`}>
           Email
         </NavLink>
-        <NavLink to="/settings/teams-calendar" className={({ isActive }) => `module-tab ${isActive ? 'active' : ''}`}>
-          Teams calendar
-        </NavLink>
       </nav>
 
       <div className={`settings-main${wideSettings ? ' settings-main--wide' : ''}`}>

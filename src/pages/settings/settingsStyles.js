@@ -20,9 +20,5 @@ export function mapApiToForm(s) {
     smtp_from: s.smtp_from || '',
     smtp_pass_set: Boolean(s.smtp_pass_set),
     smtp_configured: Boolean(s.smtp_configured),
-    ms_graph_tenant_id: s.ms_graph_tenant_id || '',
-    ms_graph_client_id: s.ms_graph_client_id || '',
-    ms_graph_secret_set: Boolean(s.ms_graph_secret_set),
-    ms_graph_configured: Boolean(s.ms_graph_configured),
   };
 }

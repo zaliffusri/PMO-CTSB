@@ -173,7 +173,6 @@ export const api = {
     getPublic: () => request('/settings/public'),
     update: (body) => request('/settings', { method: 'PUT', body: JSON.stringify(body) }),
     testEmail: (body) => request('/settings/test-email', { method: 'POST', body: JSON.stringify(body || {}) }),
-    testMsGraph: () => request('/settings/test-ms-graph', { method: 'POST', body: '{}' }),
   },
   projectTasks: {
     list: (params) => request('/project-tasks?' + (params ? new URLSearchParams(params).toString() : '')),

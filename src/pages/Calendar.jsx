@@ -776,7 +776,6 @@ export default function Calendar() {
   const [showReport, setShowReport] = useState(false);
   const [showScheduleEmail, setShowScheduleEmail] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
-  const [teamsSyncConfigured, setTeamsSyncConfigured] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
   const importPreviewHasSheetColumn = useMemo(
@@ -835,14 +834,8 @@ export default function Calendar() {
   useEffect(() => {
     const refreshSmtp = () => {
       api.activities.mailStatus()
-        .then((r) => {
-          setSmtpConfigured(Boolean(r?.smtp_configured));
-          setTeamsSyncConfigured(Boolean(r?.ms_graph_configured));
-        })
-        .catch(() => {
-          setSmtpConfigured(false);
-          setTeamsSyncConfigured(false);
-        });
+        .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
+        .catch(() => setSmtpConfigured(false));
     };
     refreshSmtp();
     const onVisible = () => {
@@ -1166,11 +1159,9 @@ export default function Calendar() {
       assigneeCount > 1
         ? ` All ${assigneeCount} assignee records for this activity will be removed.`
         : '';
-    const emailHint = teamsSyncConfigured
-      ? ' This will also mark the meeting as Canceled on assignees’ Teams / Outlook calendars (event stays visible).'
-      : smtpConfigured
-        ? ' Assignees get a cancellation email. To mark Canceled on Teams, enable Settings → Teams calendar.'
-        : ' (SMTP is not configured — no cancellation email will be sent.)';
+    const emailHint = smtpConfigured
+      ? ' Assignees will get a cancellation email that marks the meeting as Canceled on Outlook / Teams.'
+      : ' (SMTP is not configured — no cancellation email will be sent.)';
     if (!confirm(`Cancel activity "${a.title}"?${multiHint}${emailHint}`)) return;
     const cancelKey = activityLogicalGroupKey(a);
     await runMutation(async () => {
@@ -1179,22 +1170,10 @@ export default function Calendar() {
         // Remove from UI immediately so the chip disappears even before reload finishes.
         setActivities((prev) => prev.filter((row) => activityLogicalGroupKey(row) !== cancelKey));
         const emailNotify = result?.email_notify;
-        const graph = emailNotify?.ms_graph;
-        const teamsCanceled = Boolean(
-          graph?.configured
-          && Array.isArray(graph?.results)
-          && graph.results.some((r) => r?.ok && r.action === 'marked_canceled'),
-        );
-        if (teamsCanceled) {
-          alert('Activity cancelled. Teams / Outlook events are marked as Canceled (not removed).');
-        } else if (emailNotify?.smtp_configured === false && !graph?.configured) {
+        if (emailNotify?.smtp_configured === false) {
           alert('Activity cancelled. Cancellation email was not sent because SMTP is not configured.');
         } else if (emailNotify && emailNotify.sent > 0) {
-          alert(
-            teamsSyncConfigured
-              ? `Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s). No matching Teams event found to mark Canceled (create new activities after Teams calendar sync is enabled).`
-              : `Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s). To mark Canceled on Teams, open Settings → Teams calendar.`,
-          );
+          alert(`Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s).`);
         } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
           alert('Activity cancelled, but cancellation email could not be delivered. Check assignee emails and SMTP settings.');
         } else {

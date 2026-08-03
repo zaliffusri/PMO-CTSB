@@ -5,14 +5,11 @@ import {
   embedSmtpIntoSettings,
   stripSmtpEmbedFromMileage,
 } from '../../lib/smtpSettingsEmbed.js';
-import {
-  MS_GRAPH_EMBED_KEY,
-  applyMsGraphEmbedToSettings,
-  embedMsGraphIntoSettings,
-} from '../../lib/msGraphSettingsEmbed.js';
 import { AUDIT_LOG_MAX, nextId } from '../runtime/helpers.js';
 
-const SECRET_MILEAGE_KEYS = new Set([SMTP_EMBED_KEY, MS_GRAPH_EMBED_KEY]);
+/** Legacy Graph embed key — ignore as a location; stop reading/writing Graph secrets. */
+const LEGACY_MS_GRAPH_EMBED_KEY = '__pmo_ms_graph__';
+const SECRET_MILEAGE_KEYS = new Set([SMTP_EMBED_KEY, LEGACY_MS_GRAPH_EMBED_KEY]);
 
 export function createSettingsRepository(ctx, getStore) {
   const { getData, save } = ctx;
@@ -30,8 +27,7 @@ export function createSettingsRepository(ctx, getStore) {
         ? raw.mileage_from_office_km
         : {}),
     };
-    let withSecrets = applySmtpEmbedToSettings({ ...d, ...raw }, rawMileage);
-    withSecrets = applyMsGraphEmbedToSettings(withSecrets, rawMileage);
+    const withSecrets = applySmtpEmbedToSettings({ ...d, ...raw }, rawMileage);
     const mileage = { ...rawMileage };
     for (const k of Object.keys(mileage)) {
       if (SECRET_MILEAGE_KEYS.has(k)) continue;
@@ -62,9 +58,6 @@ export function createSettingsRepository(ctx, getStore) {
       smtp_user: withSecrets.smtp_user != null ? String(withSecrets.smtp_user) : d.smtp_user,
       smtp_pass: withSecrets.smtp_pass != null ? String(withSecrets.smtp_pass) : d.smtp_pass,
       smtp_from: withSecrets.smtp_from != null ? String(withSecrets.smtp_from) : d.smtp_from,
-      ms_graph_tenant_id: withSecrets.ms_graph_tenant_id != null ? String(withSecrets.ms_graph_tenant_id) : d.ms_graph_tenant_id,
-      ms_graph_client_id: withSecrets.ms_graph_client_id != null ? String(withSecrets.ms_graph_client_id) : d.ms_graph_client_id,
-      ms_graph_client_secret: withSecrets.ms_graph_client_secret != null ? String(withSecrets.ms_graph_client_secret) : d.ms_graph_client_secret,
     };
   }
 
@@ -79,7 +72,6 @@ export function createSettingsRepository(ctx, getStore) {
       const data = getData();
       const cur = getSettings();
       const prevSmtpEmbed = data.settings?.mileage_from_office_km?.[SMTP_EMBED_KEY];
-      const prevGraphEmbed = data.settings?.mileage_from_office_km?.[MS_GRAPH_EMBED_KEY];
       const next = { ...cur, ...patch };
       if (patch.activity_locations) {
         next.activity_locations = patch.activity_locations.map((x) => String(x).trim()).filter(Boolean);
@@ -96,14 +88,12 @@ export function createSettingsRepository(ctx, getStore) {
       if (prevSmtpEmbed && typeof prevSmtpEmbed === 'object' && !String(next.smtp_pass || '').trim()) {
         Object.assign(next, applySmtpEmbedToSettings(next, { [SMTP_EMBED_KEY]: prevSmtpEmbed }));
       }
-      if (
-        prevGraphEmbed && typeof prevGraphEmbed === 'object'
-        && !String(next.ms_graph_client_secret || '').trim()
-      ) {
-        Object.assign(next, applyMsGraphEmbedToSettings(next, { [MS_GRAPH_EMBED_KEY]: prevGraphEmbed }));
-      }
+      // Drop legacy Graph secrets from mileage on save.
+      delete next.mileage_from_office_km[LEGACY_MS_GRAPH_EMBED_KEY];
+      delete next.ms_graph_tenant_id;
+      delete next.ms_graph_client_id;
+      delete next.ms_graph_client_secret;
       embedSmtpIntoSettings(next);
-      embedMsGraphIntoSettings(next);
       data.settings = next;
       save();
     },
