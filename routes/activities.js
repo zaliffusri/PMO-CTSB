@@ -18,6 +18,7 @@ import {
   stripActorEmbedFromDescription,
 } from '../lib/activityActorEmbed.js';
 import { nextCalendarSequence } from '../lib/calendarInvite.js';
+import { syncMsGraphActivityCalendars, isMsGraphConfigured } from '../lib/msGraphCalendar.js';
 
 export const activitiesRouter = Router();
 
@@ -216,6 +217,7 @@ async function notifyActivityAssignee(uid, {
   calendarUid = null,
   sequence = 0,
   attendees = [],
+  skipIcsEmails = null,
 }) {
   const { assignee, email: recipientEmail } = resolveAssigneeEmail(uid);
   if (!recipientEmail) {
@@ -231,6 +233,8 @@ async function notifyActivityAssignee(uid, {
       : variant === 'updated'
         ? sendActivityUpdatedEmail
         : sendActivityLoggedEmail;
+  const emailKey = String(recipientEmail).trim().toLowerCase();
+  const skipIcs = skipIcsEmails instanceof Set && skipIcsEmails.has(emailKey);
   try {
     const result = await sendFn({
       to: recipientEmail,
@@ -251,6 +255,7 @@ async function notifyActivityAssignee(uid, {
       calendarUid,
       sequence,
       attendees,
+      skipIcs,
     });
     return {
       sent: Boolean(result?.sent),
@@ -285,6 +290,8 @@ async function notifyActivityGuests(external_attendees, payload) {
         : sendActivityLoggedEmail;
   const results = [];
   for (const to of guestEmails) {
+    const emailKey = String(to).trim().toLowerCase();
+    const skipIcs = payload.skipIcsEmails instanceof Set && payload.skipIcsEmails.has(emailKey);
     try {
       const result = await sendFn({
         to,
@@ -305,6 +312,7 @@ async function notifyActivityGuests(external_attendees, payload) {
         calendarUid: payload.calendarUid,
         sequence: payload.sequence || 0,
         attendees: payload.attendees || [],
+        skipIcs,
       });
       results.push({
         sent: Boolean(result?.sent),
@@ -338,6 +346,36 @@ async function dispatchActivityNotifications({
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
   const attendees = resolveCalendarAttendees(uniqueUids, external_attendees);
+
+  // Prefer Microsoft Graph for Teams calendars when configured (create/update/delete).
+  let ms_graph = null;
+  const skipIcsEmails = new Set();
+  if (calendarUid && attendees.length && isMsGraphConfigured()) {
+    try {
+      ms_graph = await syncMsGraphActivityCalendars({
+        attendeeEmails: attendees.map((a) => a.email),
+        variant,
+        title,
+        location,
+        description,
+        startAt: start_at,
+        endAt: end_at,
+        calendarUid,
+      });
+      for (const r of ms_graph?.results || []) {
+        if (r.ok && r.email) skipIcsEmails.add(String(r.email).toLowerCase());
+      }
+    } catch (e) {
+      console.warn('activities: MS Graph calendar sync failed', e?.message || e);
+      ms_graph = {
+        configured: true,
+        attempted: 0,
+        ok: 0,
+        error: e?.message || 'sync_failed',
+      };
+    }
+  }
+
   const payload = {
     title,
     typeKey,
@@ -351,6 +389,7 @@ async function dispatchActivityNotifications({
     calendarUid,
     sequence,
     attendees,
+    skipIcsEmails,
   };
   const assigneeResults = [];
   for (const uid of uniqueUids) {
@@ -358,8 +397,11 @@ async function dispatchActivityNotifications({
   }
   const guestResults = await notifyActivityGuests(external_attendees, payload);
   const results = [...assigneeResults, ...guestResults];
+
   return {
     smtp_configured: isMailerConfigured(),
+    ms_graph_configured: isMsGraphConfigured(),
+    ms_graph,
     variant,
     attempted: results.length,
     sent: results.filter((r) => r.sent).length,

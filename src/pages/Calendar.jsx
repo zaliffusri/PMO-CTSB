@@ -1160,7 +1160,7 @@ export default function Calendar() {
         ? ` All ${assigneeCount} assignee records for this activity will be removed.`
         : '';
     const emailHint = smtpConfigured
-      ? ' Assignees will get a cancellation that removes the event from Outlook / Teams / Google Calendar.'
+      ? ' Assignees will get a cancellation that marks the meeting as Canceled on Outlook / Teams (and removes it when Microsoft calendar sync is configured).'
       : ' (SMTP is not configured — no cancellation email will be sent.)';
     if (!confirm(`Cancel activity "${a.title}"?${multiHint}${emailHint}`)) return;
     const cancelKey = activityLogicalGroupKey(a);
