@@ -80,18 +80,34 @@ function enrichActivityForClient(a) {
   let createdByUserId = a.created_by_user_id ?? null;
   let updatedByUserId = a.updated_by_user_id ?? null;
 
-  // Backfill from audit trail when older rows lack creator/editor fields.
+  // Backfill only from id-linked audit rows (never by title — that mixes up unrelated events).
   if (!createdByName || !updatedByName) {
     const fromAudit = actorsFromAuditLog(a);
     if (!createdByName && fromAudit.created_by_name) {
       createdByName = fromAudit.created_by_name;
       createdByUserId = fromAudit.created_by_user_id ?? createdByUserId;
-      if (!createdAt && fromAudit.created_at) createdAt = fromAudit.created_at;
+      // Keep the activity row's created_at; do not replace with audit time.
     }
-    if (!updatedByName && fromAudit.updated_by_name) {
-      updatedByName = fromAudit.updated_by_name;
-      updatedByUserId = fromAudit.updated_by_user_id ?? updatedByUserId;
-      if (!updatedAt && fromAudit.updated_at) updatedAt = fromAudit.updated_at;
+    if (!updatedByName && fromAudit.updated_by_name && fromAudit.updated_at) {
+      const createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
+      const updatedMs = new Date(fromAudit.updated_at).getTime();
+      // Ignore audit "updates" that are not after this row was created.
+      if (Number.isFinite(updatedMs) && (!Number.isFinite(createdMs) || updatedMs > createdMs + 2000)) {
+        updatedByName = fromAudit.updated_by_name;
+        updatedByUserId = fromAudit.updated_by_user_id ?? updatedByUserId;
+        if (!updatedAt) updatedAt = fromAudit.updated_at;
+      }
+    }
+  }
+
+  // Brand-new creates set updated_* equal (or within a couple seconds) — hide as not edited.
+  if (createdAt && updatedAt) {
+    const createdMs = new Date(createdAt).getTime();
+    const updatedMs = new Date(updatedAt).getTime();
+    if (Number.isFinite(createdMs) && Number.isFinite(updatedMs) && updatedMs <= createdMs + 2000) {
+      updatedByName = null;
+      updatedByUserId = null;
+      updatedAt = null;
     }
   }
 
@@ -110,7 +126,10 @@ function enrichActivityForClient(a) {
   };
 }
 
-/** Best-effort creator / latest editor from audit_log (for activities saved before actor columns). */
+/**
+ * Best-effort creator / latest editor from audit_log for legacy rows.
+ * Matches only by activity id / group id links — never by title.
+ */
 function actorsFromAuditLog(activity) {
   const empty = {
     created_by_name: null,
@@ -123,8 +142,9 @@ function actorsFromAuditLog(activity) {
   try {
     const logs = Array.isArray(store.audit_log) ? store.audit_log : [];
     const id = activity?.id != null ? Number(activity.id) : null;
-    const groupId = activity?.activity_group_id != null ? String(activity.activity_group_id) : null;
-    const title = String(activity?.title || '').trim();
+    const groupId = activity?.activity_group_id != null ? String(activity.activity_group_id).trim() : '';
+    if (id == null && !groupId) return empty;
+
     const related = logs.filter((e) => {
       if (!e || e.target_type !== 'activity') return false;
       if (id != null && Number(e.target_id) === id) return true;
@@ -133,8 +153,7 @@ function actorsFromAuditLog(activity) {
       const next = Array.isArray(detail.new_activity_ids) ? detail.new_activity_ids : [];
       const cancelled = Array.isArray(detail.cancelled_activity_ids) ? detail.cancelled_activity_ids : [];
       if (id != null && [...prev, ...next, ...cancelled].some((x) => Number(x) === id)) return true;
-      if (groupId && String(detail.activity_group_id || '') === groupId) return true;
-      if (title && typeof e.summary === 'string' && e.summary.includes(`"${title}"`)) return true;
+      if (groupId && String(detail.activity_group_id || '').trim() === groupId) return true;
       return false;
     });
     if (!related.length) return empty;
@@ -142,7 +161,7 @@ function actorsFromAuditLog(activity) {
     const sorted = [...related].sort((a, b) => new Date(a.at) - new Date(b.at));
     const creates = sorted.filter((e) => e.action === 'create');
     const updates = sorted.filter((e) => e.action === 'update');
-    const firstCreate = creates[0] || sorted[0];
+    const firstCreate = creates[0] || null;
     const lastUpdate = updates.length ? updates[updates.length - 1] : null;
 
     return {
@@ -642,6 +661,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   const actor = actorSnapshot(req.user);
   const nowIso = new Date().toISOString();
   const auditFields = {
+    created_at: nowIso,
     created_by_user_id: actor.id,
     created_by_name: actor.name,
     updated_by_user_id: actor.id,

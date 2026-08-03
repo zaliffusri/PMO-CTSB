@@ -216,6 +216,15 @@ function formatAuditWhen(iso) {
   });
 }
 
+/** True only when the activity was edited after create (not the initial save). */
+function activityWasEditedAfterCreate(a) {
+  if (!a?.updated_by_name || !a?.updated_at || !a?.created_at) return false;
+  const createdMs = new Date(a.created_at).getTime();
+  const updatedMs = new Date(a.updated_at).getTime();
+  if (!Number.isFinite(createdMs) || !Number.isFinite(updatedMs)) return false;
+  return updatedMs > createdMs + 2000;
+}
+
 /** Calendar popovers / detail sheet: hide import audit text; real notes still show; full description stays in edit & API. */
 function activityDescriptionForCalendarDisplay(description) {
   const raw = String(description || '').trim();
@@ -617,10 +626,7 @@ function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onCancel, o
               ) : null}
             </dd>
           </div>
-          {a.updated_by_name
-            && a.updated_at
-            && a.created_at
-            && a.updated_at !== a.created_at ? (
+          {activityWasEditedAfterCreate(a) ? (
             <div>
               <dt>Last edited by</dt>
               <dd>
