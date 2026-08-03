@@ -160,7 +160,19 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
   return { fromMs, toExclusive };
 }
 
-async function notifyActivityAssignee(uid, { title, typeKey, location, start_at, end_at, projectName, description, loggedBy, variant = 'scheduled' }) {
+async function notifyActivityAssignee(uid, {
+  title,
+  typeKey,
+  location,
+  start_at,
+  end_at,
+  projectName,
+  description,
+  loggedBy,
+  variant = 'scheduled',
+  calendarUid = null,
+  sequence = 0,
+}) {
   const assignee = store.findUserById(uid);
   let recipientEmail = String(assignee?.email || '').trim();
   if (!recipientEmail && assignee?.name) {
@@ -192,11 +204,15 @@ async function notifyActivityAssignee(uid, { title, typeKey, location, start_at,
       location,
       startAt: startLabel,
       endAt: endLabel,
+      startAtIso: start_at,
+      endAtIso: end_at,
       projectName,
       description,
       loggedBy,
       cancelledBy: loggedBy,
       updatedBy: loggedBy,
+      calendarUid,
+      sequence,
     });
     return {
       sent: Boolean(result?.sent),
@@ -241,11 +257,15 @@ async function notifyActivityGuests(external_attendees, payload) {
         location: payload.location,
         startAt: startLabel,
         endAt: endLabel,
+        startAtIso: payload.start_at,
+        endAtIso: payload.end_at,
         projectName: payload.projectName,
         description: payload.description,
         loggedBy: payload.loggedBy,
         cancelledBy: payload.loggedBy,
         updatedBy: payload.loggedBy,
+        calendarUid: payload.calendarUid,
+        sequence: payload.sequence || 0,
       });
       results.push({
         sent: Boolean(result?.sent),
@@ -274,6 +294,8 @@ async function dispatchActivityNotifications({
   loggedBy,
   external_attendees,
   variant = 'scheduled',
+  calendarUid = null,
+  sequence = 0,
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
   const payload = {
@@ -286,6 +308,8 @@ async function dispatchActivityNotifications({
     description,
     loggedBy,
     variant,
+    calendarUid,
+    sequence,
   };
   const assigneeResults = [];
   for (const uid of uniqueUids) {
@@ -523,6 +547,8 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
     description: existing.description,
     loggedBy,
     external_attendees: ext,
+    calendarUid: existing.activity_group_id || `activity-${existing.id}`,
+    sequence: 1,
   });
 
   res.json({
@@ -673,6 +699,8 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       description: description || null,
       loggedBy,
       external_attendees,
+      calendarUid: activityGroupId,
+      sequence: 0,
     });
   }
 
@@ -829,6 +857,8 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       loggedBy,
       external_attendees: extForRow,
       variant: 'updated',
+      calendarUid: activityGroupId,
+      sequence: Math.max(1, Math.floor(Date.now() / 1000) % 100000),
     });
   }
 
@@ -922,6 +952,8 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
       loggedBy: cancelledBy,
       external_attendees,
       variant: 'cancelled',
+      calendarUid: existing.activity_group_id || `activity-${id}`,
+      sequence: Math.max(2, Math.floor(Date.now() / 1000) % 100000),
     });
   }
 
