@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import { card, inputStyle } from '../styles/commonStyles';
@@ -748,6 +748,7 @@ function CalendarDayActivitiesSheet({
 
 export default function Calendar() {
   const today = new Date();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [activities, setActivities] = useState([]);
@@ -773,6 +774,7 @@ export default function Calendar() {
   const [editingActivityId, setEditingActivityId] = useState(null);
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
+  const [pendingOpenActivityId, setPendingOpenActivityId] = useState(null);
   const [showReport, setShowReport] = useState(false);
   const [showScheduleEmail, setShowScheduleEmail] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
@@ -925,6 +927,59 @@ export default function Calendar() {
     if (detailActivityId == null) return;
     if (!activities.some((x) => x.id === detailActivityId)) setDetailActivityId(null);
   }, [activities, detailActivityId]);
+
+  // Deep-link from notifications: /calendar?activity=<id>
+  useEffect(() => {
+    const raw = searchParams.get('activity');
+    if (!raw) return undefined;
+    const aid = Number(raw);
+    if (!Number.isFinite(aid)) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        let row = activities.find((a) => Number(a.id) === aid);
+        if (!row) {
+          const all = await api.activities.list({});
+          if (cancelled) return;
+          row = (all || []).find((a) => Number(a.id) === aid);
+        }
+        if (!row || cancelled) return;
+        const d = new Date(row.start_at);
+        if (Number.isFinite(d.getTime())) {
+          setYear(d.getFullYear());
+          setMonth(d.getMonth() + 1);
+        }
+        setPendingOpenActivityId(aid);
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) {
+          const next = new URLSearchParams(searchParams);
+          if (next.has('activity')) {
+            next.delete('activity');
+            setSearchParams(next, { replace: true });
+          }
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only react to the query param itself
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('activity')]);
+
+  useEffect(() => {
+    if (pendingOpenActivityId == null || loading) return;
+    const raw = activities.find((a) => Number(a.id) === pendingOpenActivityId);
+    if (!raw) return;
+    const key = activityLogicalGroupKey(raw);
+    const grouped = groupedCalendarActivities.find((a) => activityLogicalGroupKey(a) === key);
+    if (grouped) {
+      setDetailActivityId(grouped.id);
+      setPendingOpenActivityId(null);
+    }
+  }, [pendingOpenActivityId, loading, activities, groupedCalendarActivities]);
 
   const activitiesByDay = useMemo(() => {
     const byDay = {};

@@ -18,6 +18,7 @@ import {
   stripActorEmbedFromDescription,
 } from '../lib/activityActorEmbed.js';
 import { nextCalendarSequence } from '../lib/calendarInvite.js';
+import { notifyInApp } from '../lib/notifyUser.js';
 
 export const activitiesRouter = Router();
 
@@ -335,9 +336,44 @@ async function dispatchActivityNotifications({
   variant = 'scheduled',
   calendarUid = null,
   sequence = 0,
+  activityId = null,
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
   const attendees = resolveCalendarAttendees(uniqueUids, external_attendees);
+  const whenLabel = formatEmailScheduleWhen(start_at, end_at);
+  const link = activityId
+    ? `/calendar?activity=${activityId}`
+    : '/calendar';
+
+  // In-app notifications (independent of SMTP). Assignees are app user ids.
+  let inApp = 0;
+  for (const uid of uniqueUids) {
+    const userId = Number(uid);
+    if (!Number.isFinite(userId)) continue;
+    const actor = String(loggedBy || '').trim();
+    let notifTitle;
+    let notifBody;
+    if (variant === 'cancelled') {
+      notifTitle = `Activity cancelled: ${title || 'Activity'}`;
+      notifBody = [whenLabel, location, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
+    } else if (variant === 'updated') {
+      notifTitle = `Activity updated: ${title || 'Activity'}`;
+      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
+    } else {
+      notifTitle = `Calendar assigned: ${title || 'Activity'}`;
+      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
+    }
+    const id = notifyInApp({
+      user_id: userId,
+      type: variant === 'cancelled' ? 'activity_cancelled' : variant === 'updated' ? 'activity_updated' : 'activity_assigned',
+      title: notifTitle,
+      body: notifBody || null,
+      link: variant === 'cancelled' ? '/calendar' : link,
+      entity_type: 'activity',
+      entity_id: activityId != null ? Number(activityId) : null,
+    });
+    if (id) inApp += 1;
+  }
 
   const payload = {
     title,
@@ -363,6 +399,7 @@ async function dispatchActivityNotifications({
   return {
     smtp_configured: isMailerConfigured(),
     variant,
+    in_app: inApp,
     attempted: results.length,
     sent: results.filter((r) => r.sent).length,
     failed: results.filter((r) => !r.sent).length,
@@ -592,6 +629,7 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
     external_attendees: ext,
     calendarUid: existing.activity_group_id || `activity-${existing.id}`,
     sequence: nextCalendarSequence('update'),
+    activityId: existing.id,
   });
 
   res.json({
@@ -744,6 +782,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       external_attendees,
       calendarUid: activityGroupId,
       sequence: nextCalendarSequence('create'),
+      activityId: created[0]?.id ?? null,
     });
   }
 
@@ -902,6 +941,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       variant: 'updated',
       calendarUid: activityGroupId,
       sequence: nextCalendarSequence('update'),
+      activityId: createdRows[0]?.id ?? id,
     });
   }
 
@@ -999,6 +1039,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
       variant: 'cancelled',
       calendarUid,
       sequence: nextCalendarSequence('cancel'),
+      activityId: id,
     });
   } else {
     emailNotify = {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
 import { isMailerConfigured, sendAssignmentEmail } from '../lib/mailer.js';
+import { notifyPersonInApp } from '../lib/notifyUser.js';
 
 export const assignmentsRouter = Router();
 
@@ -117,6 +118,17 @@ assignmentsRouter.post('/', async (req, res) => {
       allocationPercent: pa.allocation_percent,
       actorName: req.user?.name || req.user?.email || '',
       action: 'assigned',
+    });
+    notifyPersonInApp(pa.person_id, {
+      type: 'project_assigned',
+      title: `Added to project: ${project?.name || 'Project'}`,
+      body: [
+        pa.role_in_project ? `Role: ${pa.role_in_project}` : null,
+        req.user?.name ? `By ${req.user.name}` : null,
+      ].filter(Boolean).join(' · ') || null,
+      link: `/projects/${pa.project_id}?tab=people`,
+      entity_type: 'project',
+      entity_id: pa.project_id,
     });
     res.status(201).json({
       ...pa,

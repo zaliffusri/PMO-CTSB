@@ -1,6 +1,25 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+
+function resolveNotificationLink(n) {
+  if (n?.link) return n.link;
+  const type = String(n?.entity_type || n?.type || '');
+  const id = n?.entity_id;
+  if ((type === 'activity' || type === 'activity_assigned' || type === 'activity_updated') && id != null) {
+    return `/calendar?activity=${id}`;
+  }
+  if (type === 'activity_cancelled') return '/calendar';
+  if ((type === 'project_task' || type === 'task_assigned') && id != null) {
+    // Prefer project link from body is unavailable; fall back to my-work
+    return '/my-work';
+  }
+  if (type === 'issue' || type === 'issue_assigned') {
+    return id != null ? `/helpdesk?issue=${id}` : '/helpdesk';
+  }
+  if (type === 'backlog') return '/my-work';
+  return null;
+}
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
@@ -36,10 +55,11 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  const markRead = async (n) => {
+  const openNotification = async (n) => {
     if (!n.read_at) await api.notifications.markRead(n.id).catch(() => {});
     setOpen(false);
-    if (n.link) navigate(n.link);
+    const href = resolveNotificationLink(n);
+    if (href) navigate(href);
     else refresh();
   };
 
@@ -78,7 +98,11 @@ export default function NotificationBell() {
             <ul className="notif-bell__list">
               {items.map((n) => (
                 <li key={n.id}>
-                  <button type="button" className={`notif-bell__item ${n.read_at ? '' : 'unread'}`} onClick={() => markRead(n)}>
+                  <button
+                    type="button"
+                    className={`notif-bell__item ${n.read_at ? '' : 'unread'}`}
+                    onClick={() => openNotification(n)}
+                  >
                     <span className="notif-bell__item-title">{n.title}</span>
                     {n.body && <span className="notif-bell__item-body">{n.body}</span>}
                     <span className="notif-bell__item-time">{new Date(n.created_at).toLocaleString()}</span>
@@ -87,7 +111,6 @@ export default function NotificationBell() {
               ))}
             </ul>
           )}
-          <Link to="/helpdesk" className="notif-bell__footer" onClick={() => setOpen(false)}>Open helpdesk →</Link>
         </div>
       )}
     </div>

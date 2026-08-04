@@ -183,7 +183,7 @@ projectTasksRouter.post('/', async (req, res) => {
       type: 'task_assigned',
       title: `New task: ${name}`,
       body: proj?.name || '',
-      link: `/projects/${task.project_id}?tab=tasks`,
+      link: `/projects/${task.project_id}?tab=tasks&task=${id}`,
       entity_type: 'project_task',
       entity_id: id,
     });
@@ -324,7 +324,7 @@ projectTasksRouter.put('/:id', async (req, res) => {
       type: 'task_assigned',
       title: `Task assigned: ${meta.name}`,
       body: meta.project_name || '',
-      link: `/projects/${task.project_id}?tab=tasks`,
+      link: `/projects/${task.project_id}?tab=tasks&task=${id}`,
       entity_type: 'project_task',
       entity_id: id,
     });
