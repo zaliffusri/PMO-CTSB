@@ -266,6 +266,11 @@ function ProjectDetail() {
       `Delete project "${project.name}"?\n\nThis permanently removes the project and linked team, tasks, backlog, work packages, phases, and attachments. Calendar activities and helpdesk tickets stay, but are unlinked.`,
     );
     if (!ok) return;
+    const typed = window.prompt(`Type DELETE to confirm deleting "${project.name}".`);
+    if (String(typed || '').trim().toUpperCase() !== 'DELETE') {
+      if (typed != null) alert('Delete cancelled — confirmation text did not match.');
+      return;
+    }
     await run(async () => {
       try {
         await api.projects.delete(project.id);
