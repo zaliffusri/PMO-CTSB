@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import { useAuth } from '../AuthContext';
@@ -129,6 +129,7 @@ function ProjectCard({ project: p, highlight = false }) {
 
 export default function Projects() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const mayCreate = canCreateProject(user);
   const [projects, setProjects] = useState([]);
@@ -145,20 +146,31 @@ export default function Projects() {
   const [spotlightId, setSpotlightId] = useState(null);
   const { pending: saving, run } = useSubmitLock();
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     Promise.all([api.projects.list(), api.projectTasks.list()])
       .then(([pr, tk]) => {
-        setProjects(pr);
-        setTasks(tk);
+        const deletedId = location.state?.projectDeleted;
+        const nextProjects = deletedId
+          ? (pr || []).filter((p) => Number(p.id) !== Number(deletedId))
+          : pr;
+        const nextTasks = deletedId
+          ? (tk || []).filter((t) => Number(t.project_id) !== Number(deletedId))
+          : tk;
+        setProjects(nextProjects);
+        setTasks(nextTasks);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  };
+  }, [location.state?.projectDeleted]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!location.state?.projectDeleted) return;
+    // Clear one-shot navigation state so refresh does not keep filtering forever.
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state?.projectDeleted, location.pathname, navigate]);
   useEffect(() => { api.clients.list().then(setClients).catch(console.error); }, []);
-
   const enriched = useMemo(() => enrichProjectsWithHealth(projects, tasks), [projects, tasks]);
   const summary = useMemo(() => portfolioSummary(enriched), [enriched]);
 

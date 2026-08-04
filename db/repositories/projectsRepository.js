@@ -68,23 +68,41 @@ export function createProjectsRepository(ctx, getStore) {
       return true;
     },
 
-    deleteProject(id) {
+    deleteProject(id, { skipSave = false } = {}) {
       const data = getData();
       const pid = +id;
       const i = data.projects.findIndex((p) => Number(p.id) === pid);
       if (i === -1) return false;
+
+      const removedTaskIds = new Set(
+        (data.project_tasks || [])
+          .filter((t) => Number(t.project_id) === pid)
+          .map((t) => Number(t.id)),
+      );
+      const removedBacklogIds = new Set();
+      if (data.backlogs) {
+        for (const b of data.backlogs) {
+          if (Number(b.project_id) === pid) removedBacklogIds.add(Number(b.id));
+        }
+      }
+      const removedPhaseIds = new Set(
+        (data.project_phases || [])
+          .filter((p) => Number(p.project_id) === pid)
+          .map((p) => Number(p.id)),
+      );
+      const removedWpIds = new Set(
+        (data.work_packages || [])
+          .filter((w) => Number(w.project_id) === pid)
+          .map((w) => Number(w.id)),
+      );
+
       data.projects.splice(i, 1);
       if (data.project_clients) {
         data.project_clients = data.project_clients.filter((pc) => Number(pc.project_id) !== pid);
       }
       data.project_assignments = data.project_assignments.filter((a) => Number(a.project_id) !== pid);
       data.project_tasks = data.project_tasks.filter((t) => Number(t.project_id) !== pid);
-
-      const removedBacklogIds = new Set();
       if (data.backlogs) {
-        for (const b of data.backlogs) {
-          if (Number(b.project_id) === pid) removedBacklogIds.add(Number(b.id));
-        }
         data.backlogs = data.backlogs.filter((b) => Number(b.project_id) !== pid);
       }
       if (data.backlog_comments && removedBacklogIds.size) {
@@ -92,17 +110,35 @@ export function createProjectsRepository(ctx, getStore) {
           (c) => !removedBacklogIds.has(Number(c.backlog_id)),
         );
       }
-      if (data.attachments && removedBacklogIds.size) {
-        data.attachments = data.attachments.filter((a) => {
-          if (String(a.entity_type || '') !== 'backlog') return true;
-          return !removedBacklogIds.has(Number(a.entity_id));
-        });
-      }
       if (data.project_phases) {
         data.project_phases = data.project_phases.filter((p) => Number(p.project_id) !== pid);
       }
       if (data.work_packages) {
         data.work_packages = data.work_packages.filter((w) => Number(w.project_id) !== pid);
+      }
+      if (data.attachments) {
+        data.attachments = data.attachments.filter((a) => {
+          const type = String(a.entity_type || '');
+          const eid = Number(a.entity_id);
+          if (type === 'project' && eid === pid) return false;
+          if ((type === 'task' || type === 'project_task') && removedTaskIds.has(eid)) return false;
+          if (type === 'backlog' && removedBacklogIds.has(eid)) return false;
+          if ((type === 'phase' || type === 'project_phase') && removedPhaseIds.has(eid)) return false;
+          if (type === 'work_package' && removedWpIds.has(eid)) return false;
+          return true;
+        });
+      }
+      if (data.notifications) {
+        data.notifications = data.notifications.filter((n) => {
+          const type = String(n.entity_type || '');
+          const eid = Number(n.entity_id);
+          const link = String(n.link || '');
+          if (type === 'project' && eid === pid) return false;
+          if ((type === 'project_task' || type === 'task') && removedTaskIds.has(eid)) return false;
+          if (type === 'backlog' && removedBacklogIds.has(eid)) return false;
+          if (link.startsWith(`/projects/${pid}`)) return false;
+          return true;
+        });
       }
       if (data.issues) {
         data.issues = data.issues.map((issue) => (
@@ -112,7 +148,7 @@ export function createProjectsRepository(ctx, getStore) {
       data.activities.forEach((a) => {
         if (Number(a.project_id) === pid) a.project_id = null;
       });
-      save();
+      if (!skipSave) save();
       return true;
     },
   };

@@ -365,11 +365,17 @@ export async function pushSnapshotToSupabase(snapshot) {
   await upsertAll('clients', (snapshot.clients || []).map(companyRowForDb));
   await upsertClientContacts(snapshot.client_contacts || []);
   await upsertAll('people', snapshot.people || []);
-  await upsertProjects(snapshot.projects || []);
-  await upsertProjectClients(snapshot.project_clients || []);
-  await upsertAll('project_assignments', snapshot.project_assignments || []);
+  await upsertProjectsSafe(snapshot.projects || []);
+  await upsertProjectClients(
+    (snapshot.project_clients || []).filter((pc) => !isDeletedProjectId(pc.project_id)),
+  );
+  // Drop child rows that belong to tombstoned / missing projects (stale warm instances).
+  await upsertAll(
+    'project_assignments',
+    filterProjectScoped(snapshot.project_assignments || []),
+  );
   await upsertActivitiesApp(snapshot.activities || []);
-  await upsertProjectTasks(snapshot.project_tasks || []);
+  await upsertProjectTasks(filterProjectScoped(snapshot.project_tasks || []));
   await upsertUsersApp(snapshot.users || []);
   await upsertSessions(snapshot.sessions || []);
   await upsertSettingsApp(snapshot.settings || {});
@@ -377,7 +383,7 @@ export async function pushSnapshotToSupabase(snapshot) {
   await upsertOptionalTable('issues_app', snapshot.issues || [], 'id', 'issues');
   await upsertOptionalTable('notifications_app', snapshot.notifications || [], 'id', 'notifications');
   try {
-    await upsertBacklogs(snapshot.backlogs || []);
+    await upsertBacklogs(filterProjectScoped(snapshot.backlogs || []));
   } catch (e) {
     const msg = String(e?.message || '');
     const tableMissing = /backlogs_app/i.test(msg) && /schema cache|Could not find|does not exist|PGRST204/i.test(msg);
@@ -390,13 +396,13 @@ export async function pushSnapshotToSupabase(snapshot) {
   }
   await upsertRequiredTable(
     'project_phases_app',
-    snapshot.project_phases || [],
+    filterProjectScoped(snapshot.project_phases || []),
     'id',
     'project_phases_app (run supabase/migrations/20260627160000_work_packages.sql and backlog_phases)',
   );
   await upsertRequiredTable(
     'project_work_packages_app',
-    snapshot.work_packages || [],
+    filterProjectScoped(snapshot.work_packages || []),
     'id',
     'project_work_packages_app (run supabase/migrations/20260627160000_work_packages.sql)',
   );
@@ -599,14 +605,17 @@ export async function persistDataToSupabase(data) {
 export async function persistProjectsToSupabase(data) {
   if (!supabase) return;
   const snap = JSON.parse(JSON.stringify(data));
-  await upsertProjects(snap.projects || []);
-  await upsertProjectClientLinks(snap.project_clients || []);
+  await upsertProjectsSafe(snap.projects || []);
+  await upsertProjectClientLinks(
+    (snap.project_clients || []).filter((pc) => !isDeletedProjectId(pc.project_id)),
+  );
 }
 
 /** Persist a single project (and its client links) — safest path for serverless create. */
 export async function persistProjectById(data, projectId) {
   if (!supabase) return;
   const pid = Number(projectId);
+  if (isDeletedProjectId(pid)) return;
   const project = (data.projects || []).find((p) => Number(p.id) === pid);
   if (!project) throw new Error(`Project ${pid} not found in memory`);
   await upsertProjects([project]);
@@ -639,71 +648,186 @@ async function deleteByProjectId(table, projectId, { optional = false } = {}) {
   throw error;
 }
 
+async function deleteOptional(build) {
+  try {
+    const { error } = await build();
+    if (!error) return;
+    const msg = String(error.message || '');
+    if (/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) return;
+    throw error;
+  } catch (e) {
+    const msg = String(e?.message || e || '');
+    if (/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) return;
+    throw e;
+  }
+}
+
+/** In-process tombstones so a stale warm instance cannot re-upsert a just-deleted project. */
+const deletedProjectTombstones = new Map(); // id -> expiresAt ms
+const TOMBSTONE_TTL_MS = 30 * 60 * 1000;
+
+export function rememberDeletedProjectId(projectId) {
+  const pid = Number(projectId);
+  if (!Number.isFinite(pid)) return;
+  deletedProjectTombstones.set(pid, Date.now() + TOMBSTONE_TTL_MS);
+}
+
+function pruneTombstones() {
+  const now = Date.now();
+  for (const [id, exp] of deletedProjectTombstones) {
+    if (exp <= now) deletedProjectTombstones.delete(id);
+  }
+}
+
+export function isDeletedProjectId(projectId) {
+  pruneTombstones();
+  const pid = Number(projectId);
+  if (!Number.isFinite(pid)) return false;
+  const exp = deletedProjectTombstones.get(pid);
+  if (exp == null) return false;
+  if (exp <= Date.now()) {
+    deletedProjectTombstones.delete(pid);
+    return false;
+  }
+  return true;
+}
+
 /**
- * Hard-delete a project and related rows in Supabase.
- * Upsert-only sync cannot remove deleted projects, so this is required for durable delete.
+ * Only upsert projects that still exist remotely, or brand-new local creates.
+ * Prevents warm serverless instances from resurrecting a project deleted on another instance.
+ */
+async function upsertProjectsSafe(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const filteredLocal = list.filter((p) => !isDeletedProjectId(p?.id));
+  if (!filteredLocal.length) return;
+
+  let remoteIds = null;
+  try {
+    const { data, error } = await supabase.from('projects').select('id');
+    if (!error) remoteIds = new Set((data || []).map((r) => Number(r.id)).filter(Number.isFinite));
+  } catch {
+    remoteIds = null;
+  }
+
+  if (!remoteIds) {
+    await upsertProjects(filteredLocal);
+    return;
+  }
+
+  const now = Date.now();
+  const toUpsert = filteredLocal.filter((p) => {
+    const id = Number(p.id);
+    if (!Number.isFinite(id)) return false;
+    if (remoteIds.has(id)) return true;
+    const created = new Date(p.created_at || 0).getTime();
+    return Number.isFinite(created) && (now - created) < 5 * 60 * 1000;
+  });
+  if (toUpsert.length) await upsertProjects(toUpsert);
+}
+
+function filterProjectScoped(rows) {
+  return (rows || []).filter((r) => !isDeletedProjectId(r?.project_id));
+}
+
+/**
+ * Hard-delete a project and related rows in Supabase (parallel cleanup).
  */
 export async function purgeProjectFromSupabase(projectId) {
   if (!supabase) return;
   const pid = Number(projectId);
   if (!Number.isFinite(pid)) throw new Error('Invalid project id');
 
-  // Child tables first (no reliance on DB cascades).
-  await deleteByProjectId('project_clients', pid, { optional: true });
-  await deleteByProjectId('project_assignments', pid);
-  await deleteByProjectId('project_tasks', pid);
+  rememberDeletedProjectId(pid);
 
-  // Backlog comments / attachments keyed by backlog id
-  const { data: backlogRows, error: backlogSelectErr } = await supabase
-    .from('backlogs_app')
-    .select('id')
-    .eq('project_id', pid);
-  if (backlogSelectErr) {
-    const msg = String(backlogSelectErr.message || '');
-    if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw backlogSelectErr;
-  } else {
-    const backlogIds = (backlogRows || []).map((r) => Number(r.id)).filter(Number.isFinite);
-    if (backlogIds.length) {
-      const { error: commentErr } = await supabase
-        .from('backlog_comments_app')
-        .delete()
-        .in('backlog_id', backlogIds);
-      if (commentErr) {
-        const msg = String(commentErr.message || '');
-        if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw commentErr;
+  const safeSelect = async (promise) => {
+    try {
+      const res = await promise;
+      if (res?.error) {
+        const msg = String(res.error.message || '');
+        if (/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) return [];
+        throw res.error;
       }
-      const { error: attErr } = await supabase
-        .from('attachments_app')
-        .delete()
-        .eq('entity_type', 'backlog')
-        .in('entity_id', backlogIds);
-      if (attErr) {
-        const msg = String(attErr.message || '');
-        if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw attErr;
-      }
+      return res?.data || [];
+    } catch (e) {
+      const msg = String(e?.message || e || '');
+      if (/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) return [];
+      throw e;
     }
-    await deleteByProjectId('backlogs_app', pid, { optional: true });
-  }
+  };
 
-  await deleteByProjectId('project_phases_app', pid, { optional: true });
-  await deleteByProjectId('project_work_packages_app', pid, { optional: true });
+  const [taskRows, backlogRows, phaseRows, wpRows] = await Promise.all([
+    safeSelect(supabase.from('project_tasks').select('id').eq('project_id', pid)),
+    safeSelect(supabase.from('backlogs_app').select('id').eq('project_id', pid)),
+    safeSelect(supabase.from('project_phases_app').select('id').eq('project_id', pid)),
+    safeSelect(supabase.from('project_work_packages_app').select('id').eq('project_id', pid)),
+  ]);
 
-  // Unlink (do not delete) helpdesk tickets and calendar activities.
-  const { error: issuesErr } = await supabase
-    .from('issues_app')
-    .update({ project_id: null })
-    .eq('project_id', pid);
-  if (issuesErr) {
-    const msg = String(issuesErr.message || '');
-    if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw issuesErr;
+  const taskIds = taskRows.map((r) => Number(r.id)).filter(Number.isFinite);
+  const backlogIds = backlogRows.map((r) => Number(r.id)).filter(Number.isFinite);
+  const phaseIds = phaseRows.map((r) => Number(r.id)).filter(Number.isFinite);
+  const wpIds = wpRows.map((r) => Number(r.id)).filter(Number.isFinite);
+
+  const jobs = [];
+  if (taskIds.length) {
+    jobs.push(
+      deleteOptional(() => supabase.from('attachments_app').delete().eq('entity_type', 'task').in('entity_id', taskIds)),
+      deleteOptional(() => supabase.from('attachments_app').delete().eq('entity_type', 'project_task').in('entity_id', taskIds)),
+      deleteOptional(() => supabase.from('notifications_app').delete().eq('entity_type', 'project_task').in('entity_id', taskIds)),
+    );
   }
-  const { error: actErr } = await supabase
-    .from('activities')
-    .update({ project_id: null })
-    .eq('project_id', pid);
-  if (actErr) {
-    const msg = String(actErr.message || '');
-    if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw actErr;
+  if (backlogIds.length) {
+    jobs.push(
+      deleteOptional(() => supabase.from('attachments_app').delete().eq('entity_type', 'backlog').in('entity_id', backlogIds)),
+      deleteOptional(() => supabase.from('backlog_comments_app').delete().in('backlog_id', backlogIds)),
+      deleteOptional(() => supabase.from('notifications_app').delete().eq('entity_type', 'backlog').in('entity_id', backlogIds)),
+    );
+  }
+  if (phaseIds.length) {
+    jobs.push(
+      deleteOptional(() => supabase.from('attachments_app').delete().eq('entity_type', 'phase').in('entity_id', phaseIds)),
+      deleteOptional(() => supabase.from('attachments_app').delete().eq('entity_type', 'project_phase').in('entity_id', phaseIds)),
+    );
+  }
+  if (wpIds.length) {
+    jobs.push(
+      deleteOptional(() => supabase.from('attachments_app').delete().eq('entity_type', 'work_package').in('entity_id', wpIds)),
+    );
+  }
+  jobs.push(
+    deleteOptional(() => supabase.from('attachments_app').delete().eq('entity_type', 'project').eq('entity_id', pid)),
+    deleteOptional(() => supabase.from('notifications_app').delete().eq('entity_type', 'project').eq('entity_id', pid)),
+    deleteOptional(() => supabase.from('notifications_app').delete().like('link', `/projects/${pid}%`)),
+  );
+  await Promise.all(jobs);
+
+  await Promise.all([
+    deleteByProjectId('project_clients', pid, { optional: true }),
+    deleteByProjectId('project_assignments', pid, { optional: true }),
+    deleteByProjectId('project_tasks', pid, { optional: true }),
+    deleteByProjectId('backlogs_app', pid, { optional: true }),
+    deleteByProjectId('project_phases_app', pid, { optional: true }),
+    deleteByProjectId('project_work_packages_app', pid, { optional: true }),
+  ]);
+
+  {
+    const { error: issuesErr } = await supabase
+      .from('issues_app')
+      .update({ project_id: null })
+      .eq('project_id', pid);
+    if (issuesErr) {
+      const msg = String(issuesErr.message || '');
+      if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw issuesErr;
+    }
+  }
+  {
+    const { error: actErr } = await supabase
+      .from('activities')
+      .update({ project_id: null })
+      .eq('project_id', pid);
+    if (actErr) {
+      const msg = String(actErr.message || '');
+      if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw actErr;
+    }
   }
 
   const { error: projectErr } = await supabase.from('projects').delete().eq('id', pid);

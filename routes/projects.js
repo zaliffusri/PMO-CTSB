@@ -29,7 +29,12 @@ function enrichProject(project, extra = {}) {
   return { ...base, ...extra };
 }
 
-projectsRouter.get('/', (req, res) => {
+projectsRouter.get('/', async (req, res) => {
+  try {
+    await store.reloadFromSupabase();
+  } catch (e) {
+    console.warn('projects GET: could not refresh from Supabase', e?.message || e);
+  }
   let list = store.projects.map((p) => {
     const member_count = store.project_assignments.filter((a) => a.project_id === p.id).length;
     return enrichProject(p, { member_count });
@@ -160,24 +165,35 @@ projectsRouter.put('/:id', async (req, res) => {
 
 projectsRouter.delete('/:id', requireAdmin, async (req, res) => {
   const id = +req.params.id;
-  const existing = store.projects.find((p) => Number(p.id) === id);
-  if (!existing) return res.status(404).json({ error: 'Project not found' });
   if (!canDeleteProject(req.user)) {
     return res.status(403).json({ error: 'Only admins can delete projects' });
   }
-  store.deleteProject(id);
+
+  try {
+    await store.reloadFromSupabase();
+  } catch (e) {
+    console.warn('project delete reload:', e?.message || e);
+  }
+
+  const existing = store.projects.find((p) => Number(p.id) === id);
+  if (!existing) return res.status(404).json({ error: 'Project not found' });
+
+  // Durable DB delete first so other serverless instances cannot re-upsert this project.
+  try {
+    await store.purgeProjectFromSupabase(id);
+  } catch (e) {
+    console.warn('project delete purge:', e.message);
+    return res.status(500).json({ error: 'Failed to delete project in database', detail: e.message });
+  }
+
+  store.deleteProject(id, { skipSave: true });
   store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'project',
     target_id: id,
     summary: `Deleted project "${existing.name}"`,
   });
-  try {
-    await store.purgeProjectFromSupabase(id);
-    await store.persistToSupabase();
-  } catch (e) {
-    console.warn('project delete persist:', e.message);
-    return res.status(500).json({ error: 'Failed to delete project in database', detail: e.message });
-  }
+
+  // Do not run full persistToSupabase here — it is slow and can race. DB purge is source of truth.
   res.status(204).send();
 });
