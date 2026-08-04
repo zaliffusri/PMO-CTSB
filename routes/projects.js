@@ -6,7 +6,8 @@ import {
   PROJECT_CLASSIFICATION_IDS,
   PROJECT_ENGAGEMENT_TYPE_SET,
 } from '../lib/projectConstants.js';
-import { canCreateProject } from '../lib/permissions.js';
+import { canCreateProject, canDeleteProject } from '../lib/permissions.js';
+import { requireAdmin } from '../middleware/requireAuth.js';
 
 export const projectsRouter = Router();
 const DELIVERY_SCOPE_SET = new Set(PROJECT_CLASSIFICATION_IDS);
@@ -157,10 +158,13 @@ projectsRouter.put('/:id', async (req, res) => {
   res.json(enrichProject(project));
 });
 
-projectsRouter.delete('/:id', async (req, res) => {
+projectsRouter.delete('/:id', requireAdmin, async (req, res) => {
   const id = +req.params.id;
   const existing = store.projects.find((p) => Number(p.id) === id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
+  if (!canDeleteProject(req.user)) {
+    return res.status(403).json({ error: 'Only admins can delete projects' });
+  }
   store.deleteProject(id);
   store.appendAuditLog(req.user, {
     action: 'delete',
@@ -169,9 +173,10 @@ projectsRouter.delete('/:id', async (req, res) => {
     summary: `Deleted project "${existing.name}"`,
   });
   try {
+    await store.purgeProjectFromSupabase(id);
     await store.persistToSupabase();
   } catch (e) {
-    console.warn('persist:', e.message);
+    console.warn('project delete persist:', e.message);
     return res.status(500).json({ error: 'Failed to delete project in database', detail: e.message });
   }
   res.status(204).send();

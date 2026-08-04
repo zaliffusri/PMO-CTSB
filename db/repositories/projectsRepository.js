@@ -70,19 +70,47 @@ export function createProjectsRepository(ctx, getStore) {
 
     deleteProject(id) {
       const data = getData();
-      const i = data.projects.findIndex((p) => p.id === id);
+      const pid = +id;
+      const i = data.projects.findIndex((p) => Number(p.id) === pid);
       if (i === -1) return false;
       data.projects.splice(i, 1);
       if (data.project_clients) {
-        data.project_clients = data.project_clients.filter((pc) => pc.project_id !== id);
+        data.project_clients = data.project_clients.filter((pc) => Number(pc.project_id) !== pid);
       }
-      data.project_assignments = data.project_assignments.filter((a) => a.project_id !== id);
-      data.project_tasks = data.project_tasks.filter((t) => t.project_id !== id);
-      if (data.backlogs) data.backlogs = data.backlogs.filter((b) => b.project_id !== id);
-      if (data.project_phases) data.project_phases = data.project_phases.filter((p) => p.project_id !== id);
-      if (data.work_packages) data.work_packages = data.work_packages.filter((w) => w.project_id !== id);
+      data.project_assignments = data.project_assignments.filter((a) => Number(a.project_id) !== pid);
+      data.project_tasks = data.project_tasks.filter((t) => Number(t.project_id) !== pid);
+
+      const removedBacklogIds = new Set();
+      if (data.backlogs) {
+        for (const b of data.backlogs) {
+          if (Number(b.project_id) === pid) removedBacklogIds.add(Number(b.id));
+        }
+        data.backlogs = data.backlogs.filter((b) => Number(b.project_id) !== pid);
+      }
+      if (data.backlog_comments && removedBacklogIds.size) {
+        data.backlog_comments = data.backlog_comments.filter(
+          (c) => !removedBacklogIds.has(Number(c.backlog_id)),
+        );
+      }
+      if (data.attachments && removedBacklogIds.size) {
+        data.attachments = data.attachments.filter((a) => {
+          if (String(a.entity_type || '') !== 'backlog') return true;
+          return !removedBacklogIds.has(Number(a.entity_id));
+        });
+      }
+      if (data.project_phases) {
+        data.project_phases = data.project_phases.filter((p) => Number(p.project_id) !== pid);
+      }
+      if (data.work_packages) {
+        data.work_packages = data.work_packages.filter((w) => Number(w.project_id) !== pid);
+      }
+      if (data.issues) {
+        data.issues = data.issues.map((issue) => (
+          Number(issue.project_id) === pid ? { ...issue, project_id: null } : issue
+        ));
+      }
       data.activities.forEach((a) => {
-        if (a.project_id === id) a.project_id = null;
+        if (Number(a.project_id) === pid) a.project_id = null;
       });
       save();
       return true;

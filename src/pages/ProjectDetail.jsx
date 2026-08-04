@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { inputStyle, tdStyle, thStyle } from '../styles/commonStyles';
 import { useSubmitLock } from '../hooks/useSubmitLock';
@@ -11,7 +11,7 @@ import ImageUploadField from '../components/ImageUploadField';
 import { IMAGE_PRESETS } from '../lib/imageResize';
 import { computeProjectHealth, healthLabel, formatProjectDate, deadlineSummary } from '../../lib/pmoMetrics.js';
 import { useAuth } from '../AuthContext';
-import { canCreateProject, canViewFinance } from '../../lib/permissions.js';
+import { canCreateProject, canDeleteProject, canViewFinance } from '../../lib/permissions.js';
 import ProjectBacklogPanel from '../components/ProjectBacklogPanel';
 import ProjectDeliveryPanel from '../components/ProjectDeliveryPanel';
 import ProjectOverviewCharts from '../components/ProjectOverviewCharts';
@@ -34,9 +34,11 @@ const WORKSPACE_TABS = [
 
 function ProjectDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const canManage = canCreateProject(user);
+  const canRemoveProject = canDeleteProject(user);
   const canFinance = canViewFinance(user);
   const [project, setProject] = useState(null);
   const [people, setPeople] = useState([]);
@@ -258,6 +260,27 @@ function ProjectDetail() {
     });
   };
 
+  const deleteProject = async () => {
+    if (!canRemoveProject || !project?.id) return;
+    const ok = confirm(
+      `Delete project "${project.name}"?\n\nThis permanently removes the project, team assignments, tasks, backlog, work packages, and delivery phases. Calendar activities and helpdesk tickets stay, but are unlinked from this project.`,
+    );
+    if (!ok) return;
+    const typed = window.prompt(`Type DELETE to confirm deleting "${project.name}".`);
+    if (String(typed || '').trim().toUpperCase() !== 'DELETE') {
+      if (typed != null) alert('Delete cancelled — confirmation text did not match.');
+      return;
+    }
+    await run(async () => {
+      try {
+        await api.projects.delete(project.id);
+        navigate('/projects', { replace: true });
+      } catch (err) {
+        alert(err.message || 'Failed to delete project');
+      }
+    });
+  };
+
   if (loadError) return <PageLoadError message={loadError} onRetry={load} />;
   if (loading || !project) return <div className="page-loading">Loading project…</div>;
 
@@ -321,6 +344,16 @@ function ProjectDetail() {
             <button type="button" className="btn btn-secondary" onClick={() => { changeTab('overview'); setEditOpen(!editOpen); }} disabled={busy}>
               {editOpen ? 'Cancel edit' : 'Edit'}
             </button>
+            {canRemoveProject && (
+              <button
+                type="button"
+                className="btn btn-secondary project-delete-btn"
+                onClick={deleteProject}
+                disabled={busy}
+              >
+                Delete project
+              </button>
+            )}
           </>
         }
       />

@@ -631,4 +631,83 @@ export async function persistUsersToSupabase(data) {
   await upsertAll('audit_log', snap.audit_log || []);
 }
 
+async function deleteByProjectId(table, projectId, { optional = false } = {}) {
+  const { error } = await supabase.from(table).delete().eq('project_id', projectId);
+  if (!error) return;
+  const msg = String(error.message || '');
+  if (optional && /schema cache|Could not find|does not exist|PGRST204/i.test(msg)) return;
+  throw error;
+}
+
+/**
+ * Hard-delete a project and related rows in Supabase.
+ * Upsert-only sync cannot remove deleted projects, so this is required for durable delete.
+ */
+export async function purgeProjectFromSupabase(projectId) {
+  if (!supabase) return;
+  const pid = Number(projectId);
+  if (!Number.isFinite(pid)) throw new Error('Invalid project id');
+
+  // Child tables first (no reliance on DB cascades).
+  await deleteByProjectId('project_clients', pid, { optional: true });
+  await deleteByProjectId('project_assignments', pid);
+  await deleteByProjectId('project_tasks', pid);
+
+  // Backlog comments / attachments keyed by backlog id
+  const { data: backlogRows, error: backlogSelectErr } = await supabase
+    .from('backlogs_app')
+    .select('id')
+    .eq('project_id', pid);
+  if (backlogSelectErr) {
+    const msg = String(backlogSelectErr.message || '');
+    if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw backlogSelectErr;
+  } else {
+    const backlogIds = (backlogRows || []).map((r) => Number(r.id)).filter(Number.isFinite);
+    if (backlogIds.length) {
+      const { error: commentErr } = await supabase
+        .from('backlog_comments_app')
+        .delete()
+        .in('backlog_id', backlogIds);
+      if (commentErr) {
+        const msg = String(commentErr.message || '');
+        if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw commentErr;
+      }
+      const { error: attErr } = await supabase
+        .from('attachments_app')
+        .delete()
+        .eq('entity_type', 'backlog')
+        .in('entity_id', backlogIds);
+      if (attErr) {
+        const msg = String(attErr.message || '');
+        if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw attErr;
+      }
+    }
+    await deleteByProjectId('backlogs_app', pid, { optional: true });
+  }
+
+  await deleteByProjectId('project_phases_app', pid, { optional: true });
+  await deleteByProjectId('project_work_packages_app', pid, { optional: true });
+
+  // Unlink (do not delete) helpdesk tickets and calendar activities.
+  const { error: issuesErr } = await supabase
+    .from('issues_app')
+    .update({ project_id: null })
+    .eq('project_id', pid);
+  if (issuesErr) {
+    const msg = String(issuesErr.message || '');
+    if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw issuesErr;
+  }
+  const { error: actErr } = await supabase
+    .from('activities')
+    .update({ project_id: null })
+    .eq('project_id', pid);
+  if (actErr) {
+    const msg = String(actErr.message || '');
+    if (!/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) throw actErr;
+  }
+
+  const { error: projectErr } = await supabase.from('projects').delete().eq('id', pid);
+  if (projectErr) throw projectErr;
+}
+
 export { supabase };
