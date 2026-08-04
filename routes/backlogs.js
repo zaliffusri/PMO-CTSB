@@ -259,7 +259,7 @@ backlogsRouter.post('/:id/comments', async (req, res) => {
 
   const comment = enrichComment(store.backlog_comments.find((c) => c.id === commentId));
 
-  notifyBacklogComment(store, item, comment, {
+  await notifyBacklogComment(store, item, comment, {
 
     actorUser: req.user,
 
@@ -375,7 +375,7 @@ backlogsRouter.post('/', async (req, res) => {
 
   const item = enrichBacklog(store.backlogs.find((b) => b.id === id));
 
-  notifyBacklogAssigned(store, item, { actorUser: req.user, isNew: true });
+  await notifyBacklogAssigned(store, item, { actorUser: req.user, isNew: true });
 
   store.appendAuditLog(req.user, {
 
@@ -531,7 +531,7 @@ backlogsRouter.put('/:id', async (req, res) => {
 
   if (patch.status && normalizeBacklogStatus(patch.status) !== previousStatus) {
 
-    notifyBacklogStatusChanged(store, updated, {
+    await notifyBacklogStatusChanged(store, updated, {
 
       actorUser: req.user,
 
@@ -557,7 +557,7 @@ backlogsRouter.put('/:id', async (req, res) => {
 
   if (patch.assignee_person_id !== undefined && patch.assignee_person_id !== previousAssignee && patch.assignee_person_id) {
 
-    notifyBacklogAssigned(store, updated, { actorUser: req.user, isNew: false });
+    await notifyBacklogAssigned(store, updated, { actorUser: req.user, isNew: false });
 
   }
 

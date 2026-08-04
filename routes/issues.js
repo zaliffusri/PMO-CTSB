@@ -99,7 +99,7 @@ function canResolveIssue(user, issue) {
 async function notifyAssignee(issue, assigneeId, assignedBy, id) {
   if (!assigneeId) return;
   const person = store.people.find((p) => p.id === assigneeId);
-  notifyPersonInApp(assigneeId, {
+  await notifyPersonInApp(assigneeId, {
     type: 'issue_assigned',
     title: `Issue assigned: ${issue.ticket_no}`,
     body: issue.title,
@@ -382,7 +382,7 @@ issuesRouter.put('/:id', async (req, res) => {
   }
 
   if (patch.status && patch.status !== existing.status && issue.assignee_person_id) {
-    notifyPersonInApp(issue.assignee_person_id, {
+    await notifyPersonInApp(issue.assignee_person_id, {
       type: 'issue_status',
       title: `${issue.ticket_no} → ${patch.status.replace(/_/g, ' ')}`,
       body: issue.title,
@@ -559,9 +559,9 @@ issuesRouter.post('/:id/promote-backlog', async (req, res) => {
   });
 
   if (created && freshBacklog?.assignee_person_id) {
-    notifyBacklogAssigned(store, freshBacklog, { actorUser: req.user, isNew: true });
+    await notifyBacklogAssigned(store, freshBacklog, { actorUser: req.user, isNew: true });
   } else if (!created && freshBacklog?.assignee_person_id) {
-    notifyBacklogAssigned(store, freshBacklog, { actorUser: req.user, isNew: false });
+    await notifyBacklogAssigned(store, freshBacklog, { actorUser: req.user, isNew: false });
   }
 
   const updatedIssue = store.issues.find((i) => i.id === id);

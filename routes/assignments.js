@@ -119,7 +119,7 @@ assignmentsRouter.post('/', async (req, res) => {
       actorName: req.user?.name || req.user?.email || '',
       action: 'assigned',
     });
-    notifyPersonInApp(pa.person_id, {
+    await notifyPersonInApp(pa.person_id, {
       type: 'project_assigned',
       title: `Added to project: ${project?.name || 'Project'}`,
       body: [

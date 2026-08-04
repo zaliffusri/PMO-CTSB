@@ -631,6 +631,156 @@ export async function persistAssignmentsToSupabase(data) {
   await upsertAll('audit_log', snap.audit_log || []);
 }
 
+/** Persist in-app notifications quickly (used after calendar/task assign). */
+export async function persistNotificationsToSupabase(data, onlyIds = null) {
+  if (!supabase) return;
+  let rows = (Array.isArray(data?.notifications) ? data.notifications : [])
+    .filter((n) => n && Number(n.user_id) > 0 && n.type !== '_id_floor');
+  if (onlyIds != null) {
+    const allow = new Set([...onlyIds].map(Number));
+    rows = rows.filter((n) => allow.has(Number(n.id)));
+  }
+  if (!rows.length) return;
+  const { error } = await supabase.from('notifications_app').upsert(rows, { onConflict: 'id' });
+  if (!error) return;
+  const msg = String(error.message || '');
+  if (/schema cache|Could not find|does not exist|PGRST204/i.test(msg)) {
+    throw new Error(
+      'notifications_app table missing in Supabase. Run supabase/migrations/20260627120000_issues_notifications.sql',
+    );
+  }
+  throw error;
+}
+
+function notificationsTableMissing(error) {
+  const msg = String(error?.message || '');
+  return /schema cache|Could not find|does not exist|PGRST204/i.test(msg);
+}
+
+function normalizeNotificationRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    type: row.type || 'info',
+    title: String(row.title || ''),
+    body: row.body != null ? String(row.body) : null,
+    link: row.link || null,
+    entity_type: row.entity_type || null,
+    entity_id: row.entity_id != null ? Number(row.entity_id) : null,
+    read_at: row.read_at || null,
+    created_at: row.created_at || new Date().toISOString(),
+  };
+}
+
+/**
+ * Insert one notification with DB-generated id (no serverless id collisions).
+ * Returns the normalized row or throws.
+ */
+export async function insertNotificationRemote(row) {
+  if (!supabase) return null;
+  const payload = {
+    user_id: Number(row.user_id),
+    type: row.type || 'info',
+    title: String(row.title || ''),
+    body: row.body != null ? String(row.body) : null,
+    link: row.link || null,
+    entity_type: row.entity_type || null,
+    entity_id: row.entity_id != null && row.entity_id !== '' ? Number(row.entity_id) : null,
+    read_at: null,
+    created_at: row.created_at || new Date().toISOString(),
+  };
+  if (!Number.isFinite(payload.user_id) || payload.user_id <= 0) {
+    throw new Error('Invalid notification user_id');
+  }
+  const { data, error } = await supabase
+    .from('notifications_app')
+    .insert(payload)
+    .select('*')
+    .single();
+  if (error) {
+    if (notificationsTableMissing(error)) {
+      throw new Error(
+        'notifications_app table missing in Supabase. Run supabase/migrations/20260627120000_issues_notifications.sql',
+      );
+    }
+    throw error;
+  }
+  return normalizeNotificationRow(data);
+}
+
+/** Load notifications for one user directly (serverless-safe). */
+export async function fetchNotificationsForUser(userId, { unreadOnly = false, limit = 50 } = {}) {
+  if (!supabase) return null;
+  const uid = Number(userId);
+  if (!Number.isFinite(uid)) return [];
+  let q = supabase
+    .from('notifications_app')
+    .select('*')
+    .eq('user_id', uid)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (unreadOnly) q = q.is('read_at', null);
+  const { data, error } = await q;
+  if (error) {
+    if (notificationsTableMissing(error)) {
+      throw new Error(
+        'notifications_app table missing in Supabase. Run supabase/migrations/20260627120000_issues_notifications.sql',
+      );
+    }
+    throw error;
+  }
+  return (data || []).map(normalizeNotificationRow).filter(Boolean);
+}
+
+export async function countUnreadNotificationsForUser(userId) {
+  if (!supabase) return null;
+  const uid = Number(userId);
+  if (!Number.isFinite(uid)) return 0;
+  const { count, error } = await supabase
+    .from('notifications_app')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', uid)
+    .is('read_at', null);
+  if (error) {
+    if (notificationsTableMissing(error)) {
+      throw new Error(
+        'notifications_app table missing in Supabase. Run supabase/migrations/20260627120000_issues_notifications.sql',
+      );
+    }
+    throw error;
+  }
+  return count || 0;
+}
+
+export async function markNotificationReadRemote(id, userId) {
+  if (!supabase) return false;
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('notifications_app')
+    .update({ read_at: now })
+    .eq('id', Number(id))
+    .eq('user_id', Number(userId))
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data?.id);
+}
+
+export async function markAllNotificationsReadRemote(userId) {
+  if (!supabase) return 0;
+  const now = new Date().toISOString();
+  const uid = Number(userId);
+  const { data, error } = await supabase
+    .from('notifications_app')
+    .update({ read_at: now })
+    .eq('user_id', uid)
+    .is('read_at', null)
+    .select('id');
+  if (error) throw error;
+  return Array.isArray(data) ? data.length : 0;
+}
+
 /** Persist user (+ linked team person) updates without touching sessions. */
 export async function persistUsersToSupabase(data) {
   if (!supabase) return;
@@ -832,6 +982,10 @@ export async function purgeProjectFromSupabase(projectId) {
 
   const { error: projectErr } = await supabase.from('projects').delete().eq('id', pid);
   if (projectErr) throw projectErr;
+}
+
+export function hasSupabaseClient() {
+  return Boolean(supabase);
 }
 
 export { supabase };

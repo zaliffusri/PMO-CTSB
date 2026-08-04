@@ -1057,21 +1057,33 @@ export default function Calendar() {
         const emailNotify = result?.email_notify;
         const isEdit = editingActivityId != null;
         if (form.notify_email) {
+          const inApp = Number(emailNotify?.in_app) || 0;
           // Trust the API response only — client smtpConfigured can be stale after Settings save.
-          if (emailNotify && emailNotify.smtp_configured === false) {
+          if (emailNotify && emailNotify.smtp_configured === false && inApp === 0) {
             alert('Activity saved. Email was not sent because SMTP is not configured on the server.');
           } else if (emailNotify && emailNotify.sent > 0) {
             alert(
               isEdit
-                ? `Activity updated. Update email sent to ${emailNotify.sent} recipient(s).`
-                : `Activity saved. Email notification sent to ${emailNotify.sent} recipient(s).`,
+                ? `Activity updated. Notified ${inApp || emailNotify.sent} assignee(s) in-app; email sent to ${emailNotify.sent}.`
+                : `Activity saved. Notified ${inApp || emailNotify.sent} assignee(s) in-app; email sent to ${emailNotify.sent}.`,
             );
+          } else if (inApp > 0) {
+            alert(
+              isEdit
+                ? `Activity updated. In-app notification sent to ${inApp} assignee(s).`
+                : `Activity saved. In-app notification sent to ${inApp} assignee(s).`,
+            );
+          } else if (emailNotify?.in_app_error) {
+            alert(`Activity saved, but in-app notification could not be stored: ${emailNotify.in_app_error}`);
           } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
             alert('Activity saved, but email notification could not be delivered. Check assignee emails and SMTP settings.');
           } else if (emailNotify && emailNotify.attempted === 0) {
             alert('Activity saved. No email recipients found (assignees need a user email, or add guest emails).');
           } else if (!emailNotify) {
-            alert('Activity saved. Email notification status was not returned by the server.');
+            alert('Activity saved. Notification status was not returned by the server.');
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('pmo:notifications-changed'));
           }
           api.activities.mailStatus()
             .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
@@ -2086,15 +2098,15 @@ export default function Calendar() {
                     style={{ marginTop: '0.2rem' }}
                   />
                   <span>
-                    <strong>{editingActivityId != null ? 'Send calendar update to assignees' : 'Add to assignees’ calendars'}</strong>
+                    <strong>{editingActivityId != null ? 'Notify assignees of this update' : 'Notify assignees'}</strong>
                     <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                       {smtpConfigured
                         ? (editingActivityId != null
-                          ? 'Email a meeting update (Outlook / Teams / Google) so their calendars stay in sync.'
-                          : 'Email a meeting invite so the event is added to each assignee’s Outlook / Teams / Google calendar automatically.')
+                          ? 'Sends an in-app notification and a calendar update email (Outlook / Teams / Google). Untick to save quietly.'
+                          : 'Sends an in-app notification and a calendar invite email so the event is added to each assignee’s Outlook / Teams / Google calendar. Untick to save quietly.')
                         : (
                           <>
-                            Calendar invites need SMTP.{' '}
+                            Sends an in-app notification. Calendar invite emails need SMTP.{' '}
                             {user?.role === 'admin' ? (
                               <Link to="/settings/email">Open Settings → Email</Link>
                             ) : (

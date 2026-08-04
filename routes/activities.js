@@ -18,7 +18,7 @@ import {
   stripActorEmbedFromDescription,
 } from '../lib/activityActorEmbed.js';
 import { nextCalendarSequence } from '../lib/calendarInvite.js';
-import { notifyInApp } from '../lib/notifyUser.js';
+import { notifyInApp, resolveAppUserId } from '../lib/notifyUser.js';
 
 export const activitiesRouter = Router();
 
@@ -321,7 +321,67 @@ async function notifyActivityGuests(external_attendees, payload) {
   return results;
 }
 
-/** Await emails before responding — required on Vercel serverless or sends get killed. */
+/** In-app bell notifications for calendar assignees (when notify is enabled). */
+async function dispatchActivityInAppNotifications({
+  assigneeUids,
+  title,
+  location,
+  start_at,
+  end_at,
+  projectName,
+  loggedBy,
+  variant = 'scheduled',
+  activityId = null,
+}) {
+  const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
+  const whenLabel = formatEmailScheduleWhen(start_at, end_at);
+  const link = activityId ? `/calendar?activity=${activityId}` : '/calendar';
+  let inApp = 0;
+  const notifiedUserIds = new Set();
+  const errors = [];
+
+  for (const uid of uniqueUids) {
+    const userId = resolveAppUserId(uid);
+    if (!userId || notifiedUserIds.has(userId)) continue;
+    notifiedUserIds.add(userId);
+
+    const actor = String(loggedBy || '').trim();
+    let notifTitle;
+    let notifBody;
+    if (variant === 'cancelled') {
+      notifTitle = `Activity cancelled: ${title || 'Activity'}`;
+      notifBody = [whenLabel, location, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
+    } else if (variant === 'updated') {
+      notifTitle = `Activity updated: ${title || 'Activity'}`;
+      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
+    } else {
+      notifTitle = `Calendar assigned: ${title || 'Activity'}`;
+      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
+    }
+
+    try {
+      const id = await notifyInApp({
+        user_id: userId,
+        type: variant === 'cancelled' ? 'activity_cancelled' : variant === 'updated' ? 'activity_updated' : 'activity_assigned',
+        title: notifTitle,
+        body: notifBody || null,
+        link: variant === 'cancelled' ? '/calendar' : link,
+        entity_type: 'activity',
+        entity_id: activityId != null ? Number(activityId) : null,
+      });
+      if (id) inApp += 1;
+      else errors.push(`user ${userId}: insert returned null`);
+    } catch (e) {
+      errors.push(`user ${userId}: ${e?.message || e}`);
+    }
+  }
+  return { inApp, error: errors.length ? errors.join('; ') : null };
+}
+
+/**
+ * Calendar notifications (in-app + email/ICS). Both follow the notify checkbox
+ * unless skipInApp / sendEmail override. Await emails on Vercel or sends get killed.
+ */
 async function dispatchActivityNotifications({
   assigneeUids,
   title,
@@ -337,42 +397,41 @@ async function dispatchActivityNotifications({
   calendarUid = null,
   sequence = 0,
   activityId = null,
+  skipInApp = false,
+  sendEmail = true,
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
   const attendees = resolveCalendarAttendees(uniqueUids, external_attendees);
-  const whenLabel = formatEmailScheduleWhen(start_at, end_at);
-  const link = activityId
-    ? `/calendar?activity=${activityId}`
-    : '/calendar';
 
-  // In-app notifications (independent of SMTP). Assignees are app user ids.
   let inApp = 0;
-  for (const uid of uniqueUids) {
-    const userId = Number(uid);
-    if (!Number.isFinite(userId)) continue;
-    const actor = String(loggedBy || '').trim();
-    let notifTitle;
-    let notifBody;
-    if (variant === 'cancelled') {
-      notifTitle = `Activity cancelled: ${title || 'Activity'}`;
-      notifBody = [whenLabel, location, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
-    } else if (variant === 'updated') {
-      notifTitle = `Activity updated: ${title || 'Activity'}`;
-      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
-    } else {
-      notifTitle = `Calendar assigned: ${title || 'Activity'}`;
-      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
-    }
-    const id = notifyInApp({
-      user_id: userId,
-      type: variant === 'cancelled' ? 'activity_cancelled' : variant === 'updated' ? 'activity_updated' : 'activity_assigned',
-      title: notifTitle,
-      body: notifBody || null,
-      link: variant === 'cancelled' ? '/calendar' : link,
-      entity_type: 'activity',
-      entity_id: activityId != null ? Number(activityId) : null,
+  let inAppError = null;
+  if (!skipInApp) {
+    const result = await dispatchActivityInAppNotifications({
+      assigneeUids: uniqueUids,
+      title,
+      location,
+      start_at,
+      end_at,
+      projectName,
+      loggedBy,
+      variant,
+      activityId,
     });
-    if (id) inApp += 1;
+    inApp = result.inApp;
+    inAppError = result.error;
+  }
+
+  if (!sendEmail) {
+    return {
+      smtp_configured: isMailerConfigured(),
+      variant,
+      in_app: inApp,
+      in_app_error: inAppError,
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      recipients: [],
+    };
   }
 
   const payload = {
@@ -400,6 +459,7 @@ async function dispatchActivityNotifications({
     smtp_configured: isMailerConfigured(),
     variant,
     in_app: inApp,
+    in_app_error: inAppError,
     attempted: results.length,
     sent: results.filter((r) => r.sent).length,
     failed: results.filter((r) => !r.sent).length,
@@ -616,6 +676,7 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
   const loggedBy = req.user?.name || req.user?.email || '';
   const typeKey = normalizeActivityType(existing.type);
   const ext = String(existing.external_attendees || '').trim();
+  // Manual resend is email-only (assignees already got in-app on create/update).
   const emailNotify = await dispatchActivityNotifications({
     assigneeUids: groupRows.map((row) => row.person_id),
     title: existing.title,
@@ -630,6 +691,8 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
     calendarUid: existing.activity_group_id || `activity-${existing.id}`,
     sequence: nextCalendarSequence('update'),
     activityId: existing.id,
+    skipInApp: true,
+    sendEmail: true,
   });
 
   res.json({
@@ -766,8 +829,22 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
-  const shouldNotify = notifyEmailRaw !== false;
-  let emailNotify = null;
+  const shouldNotify = !(
+    notifyEmailRaw === false
+    || notifyEmailRaw === 'false'
+    || notifyEmailRaw === 0
+    || notifyEmailRaw === '0'
+  );
+  // In-app + email only when the notify checkbox is on.
+  let emailNotify = {
+    smtp_configured: isMailerConfigured(),
+    variant: 'scheduled',
+    in_app: 0,
+    attempted: 0,
+    sent: 0,
+    failed: 0,
+    recipients: [],
+  };
   if (shouldNotify) {
     emailNotify = await dispatchActivityNotifications({
       assigneeUids: created.map((a) => a.person_id),
@@ -783,6 +860,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       calendarUid: activityGroupId,
       sequence: nextCalendarSequence('create'),
       activityId: created[0]?.id ?? null,
+      sendEmail: true,
     });
   }
 
@@ -865,7 +943,12 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
-  const shouldNotify = notifyEmailRaw !== false;
+  const shouldNotify = !(
+    notifyEmailRaw === false
+    || notifyEmailRaw === 'false'
+    || notifyEmailRaw === 0
+    || notifyEmailRaw === '0'
+  );
   const activityGroupId = existing.activity_group_id || crypto.randomUUID();
   const previousGroupIds = idsInSameLogicalGroup(store.activities, id);
   const previousRows = previousGroupIds
@@ -925,7 +1008,16 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     if (row) createdRows.push(row);
   }
 
-  let emailNotify = null;
+  // In-app + email only when the notify checkbox is on.
+  let emailNotify = {
+    smtp_configured: isMailerConfigured(),
+    variant: 'updated',
+    in_app: 0,
+    attempted: 0,
+    sent: 0,
+    failed: 0,
+    recipients: [],
+  };
   if (shouldNotify) {
     emailNotify = await dispatchActivityNotifications({
       assigneeUids: uniqueUids,
@@ -942,6 +1034,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       calendarUid: activityGroupId,
       sequence: nextCalendarSequence('update'),
       activityId: createdRows[0]?.id ?? id,
+      sendEmail: true,
     });
   }
 
@@ -1023,7 +1116,15 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
 
   const calendarUid = existing.activity_group_id || `activity-${id}`;
 
-  let emailNotify = null;
+  let emailNotify = {
+    smtp_configured: isMailerConfigured(),
+    variant: 'cancelled',
+    in_app: 0,
+    attempted: 0,
+    sent: 0,
+    failed: 0,
+    recipients: [],
+  };
   if (shouldNotify) {
     emailNotify = await dispatchActivityNotifications({
       assigneeUids,
@@ -1040,16 +1141,8 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
       calendarUid,
       sequence: nextCalendarSequence('cancel'),
       activityId: id,
+      sendEmail: true,
     });
-  } else {
-    emailNotify = {
-      smtp_configured: isMailerConfigured(),
-      attempted: 0,
-      sent: 0,
-      failed: 0,
-      recipients: [],
-      notify_email_requested: false,
-    };
   }
 
   const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';

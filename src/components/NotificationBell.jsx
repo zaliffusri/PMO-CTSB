@@ -32,18 +32,44 @@ export default function NotificationBell() {
 
   const refresh = () => {
     setLoadError(false);
-    Promise.all([api.notifications.list(), api.notifications.unreadCount()])
+    const load = () =>
+      Promise.all([
+        api.notifications.list(),
+        api.notifications.unreadCount().catch(() => ({ unread: 0 })),
+      ]);
+
+    load()
+      .catch(() => new Promise((resolve, reject) => {
+        setTimeout(() => load().then(resolve, reject), 400);
+      }))
       .then(([list, count]) => {
-        setItems(list);
-        setUnread(count.unread || 0);
+        setItems(Array.isArray(list) ? list : []);
+        setUnread(Number(count?.unread) || 0);
+        setLoadError(false);
       })
-      .catch(() => setLoadError(true));
+      .catch(() => {
+        setLoadError(true);
+        // Keep previous items on transient errors so the list does not flicker empty.
+      });
   };
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 60000);
-    return () => clearInterval(t);
+    const t = setInterval(refresh, 15000);
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    const onChanged = () => refresh();
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('pmo:notifications-changed', onChanged);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('pmo:notifications-changed', onChanged);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   useEffect(() => {

@@ -179,7 +179,7 @@ projectTasksRouter.post('/', async (req, res) => {
   });
   if (aid != null && task_kind !== 'group') {
     const person = store.people.find((p) => p.id === aid);
-    notifyPersonInApp(aid, {
+    await notifyPersonInApp(aid, {
       type: 'task_assigned',
       title: `New task: ${name}`,
       body: proj?.name || '',
@@ -320,7 +320,7 @@ projectTasksRouter.put('/:id', async (req, res) => {
     && assignee_id !== undefined
   ) {
     const person = store.people.find((p) => p.id === nextAssignee);
-    notifyPersonInApp(nextAssignee, {
+    await notifyPersonInApp(nextAssignee, {
       type: 'task_assigned',
       title: `Task assigned: ${meta.name}`,
       body: meta.project_name || '',

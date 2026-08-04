@@ -12,7 +12,7 @@ import { createNotificationsRepository } from './repositories/notificationsRepos
 import { createBacklogsRepository } from './repositories/backlogsRepository.js';
 import { createDeliveryRepository } from './repositories/deliveryRepository.js';
 import { createAttachmentsRepository } from './repositories/attachmentsRepository.js';
-import { persistDataToSupabase, persistProjectById, persistAssignmentsToSupabase, persistUsersToSupabase, purgeProjectFromSupabase } from './runtime/supabaseSync.js';
+import { persistDataToSupabase, persistProjectById, persistAssignmentsToSupabase, persistUsersToSupabase, purgeProjectFromSupabase, persistNotificationsToSupabase } from './runtime/supabaseSync.js';
 import { mergeRepositories } from './runtime/mergeRepositories.js';
 
 const ctx = await initDataState();
@@ -44,6 +44,9 @@ store = mergeRepositories(
     },
     async persistUsersToSupabase() {
       await persistUsersToSupabase(ctx.getData());
+    },
+    async persistNotificationsToSupabase(onlyIds = null) {
+      await persistNotificationsToSupabase(ctx.getData(), onlyIds);
     },
     async purgeProjectFromSupabase(projectId) {
       await purgeProjectFromSupabase(projectId);
