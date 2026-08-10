@@ -222,7 +222,10 @@ export const api = {
     initPhases: (id) => request(`/work-packages/${id}/init-phases`, { method: 'POST', body: '{}' }),
   },
   notifications: {
-    list: (params) => request('/notifications?' + new URLSearchParams(params || {}).toString()),
+    list: (params) => {
+      const q = new URLSearchParams(params || {}).toString();
+      return request(q ? `/notifications?${q}` : '/notifications');
+    },
     unreadCount: () => request('/notifications/count'),
     markRead: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
     markAllRead: () => request('/notifications/read-all', { method: 'POST' }),

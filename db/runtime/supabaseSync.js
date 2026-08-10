@@ -700,9 +700,13 @@ export async function insertNotificationRemote(row) {
     .single();
   if (error) {
     if (notificationsTableMissing(error)) {
-      throw new Error(
-        'notifications_app table missing in Supabase. Run supabase/migrations/20260627120000_issues_notifications.sql',
-      );
+      if (!warnedNotificationsTable) {
+        warnedNotificationsTable = true;
+        console.warn(
+          'store: notifications_app not in DB — in-app notify skipped. Run supabase/migrations/20260627120000_issues_notifications.sql',
+        );
+      }
+      return null;
     }
     throw error;
   }
@@ -714,19 +718,24 @@ export async function fetchNotificationsForUser(userId, { unreadOnly = false, li
   if (!supabase) return null;
   const uid = Number(userId);
   if (!Number.isFinite(uid)) return [];
+
   let q = supabase
     .from('notifications_app')
     .select('*')
     .eq('user_id', uid)
-    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(limit);
   if (unreadOnly) q = q.is('read_at', null);
   const { data, error } = await q;
   if (error) {
     if (notificationsTableMissing(error)) {
-      throw new Error(
-        'notifications_app table missing in Supabase. Run supabase/migrations/20260627120000_issues_notifications.sql',
-      );
+      if (!warnedNotificationsTable) {
+        warnedNotificationsTable = true;
+        console.warn(
+          'store: notifications_app not in DB — returning empty list. Run supabase/migrations/20260627120000_issues_notifications.sql',
+        );
+      }
+      return [];
     }
     throw error;
   }
@@ -737,20 +746,27 @@ export async function countUnreadNotificationsForUser(userId) {
   if (!supabase) return null;
   const uid = Number(userId);
   if (!Number.isFinite(uid)) return 0;
-  const { count, error } = await supabase
+
+  // Avoid head+count edge cases: fetch unread ids (small list) and count locally.
+  const { data, error } = await supabase
     .from('notifications_app')
-    .select('id', { count: 'exact', head: true })
+    .select('id')
     .eq('user_id', uid)
-    .is('read_at', null);
+    .is('read_at', null)
+    .limit(500);
   if (error) {
     if (notificationsTableMissing(error)) {
-      throw new Error(
-        'notifications_app table missing in Supabase. Run supabase/migrations/20260627120000_issues_notifications.sql',
-      );
+      if (!warnedNotificationsTable) {
+        warnedNotificationsTable = true;
+        console.warn(
+          'store: notifications_app not in DB — unread count 0. Run supabase/migrations/20260627120000_issues_notifications.sql',
+        );
+      }
+      return 0;
     }
     throw error;
   }
-  return count || 0;
+  return Array.isArray(data) ? data.length : 0;
 }
 
 export async function markNotificationReadRemote(id, userId) {
