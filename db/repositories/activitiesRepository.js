@@ -1,7 +1,12 @@
 import { idsInSameLogicalGroup } from '../../lib/activityLogicalGroup.js';
 import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 import { nextId } from '../runtime/helpers.js';
-import { supabase } from '../runtime/supabaseSync.js';
+import {
+  supabase,
+  rememberDeletedActivityId,
+  rememberDeletedActivityIds,
+  isDeletedActivityId,
+} from '../runtime/supabaseSync.js';
 
 export function createActivitiesRepository(ctx, getStore) {
   const { getData, save } = ctx;
@@ -34,6 +39,7 @@ export function createActivitiesRepository(ctx, getStore) {
       const data = getData();
       const i = data.activities.findIndex((a) => a.id === id);
       if (i === -1) return false;
+      rememberDeletedActivityId(id);
       if (supabase) {
         const { error } = await supabase.from('activities').delete().eq('id', id);
         if (error) throw error;
@@ -47,21 +53,24 @@ export function createActivitiesRepository(ctx, getStore) {
      * Delete every DB row for the same logical activity (multi-assignee creates one row per person).
      * Uses the same grouping key as the calendar UI.
      * Deletes from Supabase first so a concurrent upsert cannot resurrect the rows.
+     * @param {number} id
+     * @param {{ skipSave?: boolean }} [opts] skipSave avoids queueing a full sync (preferred on cancel).
      */
-    async deleteActivityLogicalGroupByAnyMemberId(id) {
+    async deleteActivityLogicalGroupByAnyMemberId(id, opts = {}) {
       const data = getData();
       const ids = idsInSameLogicalGroup(data.activities, id);
-      if (ids.length === 0) return { deleted: 0 };
+      if (ids.length === 0) return { deleted: 0, deleted_ids: [] };
       const idSet = new Set(ids);
+      rememberDeletedActivityIds(ids);
       if (supabase) {
         const { error } = await supabase.from('activities').delete().in('id', ids);
         if (error) throw error;
       }
       const before = data.activities.length;
       data.activities = data.activities.filter((a) => !idSet.has(a.id));
-      if (data.activities.length === before) return { deleted: 0 };
-      save();
-      // Belt-and-suspenders: remove again after local save in case a stale sync raced.
+      if (data.activities.length === before) return { deleted: 0, deleted_ids: [] };
+      if (!opts.skipSave) save();
+      // Belt-and-suspenders: remove again after local mutation in case a stale sync raced.
       if (supabase) {
         const { error } = await supabase.from('activities').delete().in('id', ids);
         if (error) throw error;
@@ -73,6 +82,7 @@ export function createActivitiesRepository(ctx, getStore) {
     async purgeActivityIdsFromSupabase(ids) {
       const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
       if (!list.length || !supabase) return { deleted: 0 };
+      rememberDeletedActivityIds(list);
       const { error } = await supabase.from('activities').delete().in('id', list);
       if (error) throw error;
       return { deleted: list.length };
@@ -88,19 +98,22 @@ export function createActivitiesRepository(ctx, getStore) {
       const { data: rows, error } = await supabase.from('activities').select('*').order('id', { ascending: true });
       if (error) throw error;
       // Rehydrate actor fields from description embed when DB columns are missing.
-      data.activities = (rows || []).map((row) => {
-        const embedded = parseActorEmbedFromDescription(row.description);
-        if (!embedded) return row;
-        return {
-          ...row,
-          created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
-          created_by_name: row.created_by_name || embedded.created_by_name,
-          updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
-          updated_by_name: row.updated_by_name || embedded.updated_by_name,
-          updated_at: row.updated_at || embedded.updated_at,
-          created_at: row.created_at || embedded.created_at || row.created_at,
-        };
-      });
+      // Skip in-process tombstones so a raced upsert cannot bring cancelled rows back into memory.
+      data.activities = (rows || [])
+        .filter((row) => !isDeletedActivityId(row?.id))
+        .map((row) => {
+          const embedded = parseActorEmbedFromDescription(row.description);
+          if (!embedded) return row;
+          return {
+            ...row,
+            created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
+            created_by_name: row.created_by_name || embedded.created_by_name,
+            updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
+            updated_by_name: row.updated_by_name || embedded.updated_by_name,
+            updated_at: row.updated_at || embedded.updated_at,
+            created_at: row.created_at || embedded.created_at || row.created_at,
+          };
+        });
     },
   };
 }

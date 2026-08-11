@@ -1110,9 +1110,19 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     description: existing.description || null,
   };
 
-  // Delete from DB/memory first so the calendar clears even if email is slow/fails.
-  const { deleted, deleted_ids: removedIds } = await store.deleteActivityLogicalGroupByAnyMemberId(id);
+  // Durable cancel: purge DB + memory first (skip sync queue), notify, audit.
+  // Do NOT full-persist afterward — a stale upsert snapshot can resurrect rows.
+  const { deleted, deleted_ids: removedIds } = await store.deleteActivityLogicalGroupByAnyMemberId(id, {
+    skipSave: true,
+  });
   if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
+
+  const idsToPurge = [...new Set([...(removedIds || []), ...deletedIds].map(Number).filter(Number.isFinite))];
+  try {
+    await store.purgeActivityIdsFromSupabase(idsToPurge);
+  } catch (e) {
+    console.warn('activities DELETE early purge:', e?.message || e);
+  }
 
   const calendarUid = existing.activity_group_id || `activity-${id}`;
 
@@ -1159,14 +1169,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
         : null,
     },
   });
-  try {
-    await store.persistToSupabase();
-  } catch (e) {
-    console.error('activities DELETE persistToSupabase failed', e);
-    return res.status(500).json({ error: e.message || 'Failed to save to database' });
-  }
-  // Final hard-delete so a concurrent upsert cannot leave the event on the calendar.
-  const idsToPurge = [...new Set([...(removedIds || []), ...deletedIds].map(Number).filter(Number.isFinite))];
+  // Final hard-delete in case a concurrent upsert raced during notify/audit.
   try {
     await store.purgeActivityIdsFromSupabase(idsToPurge);
   } catch (e) {

@@ -123,7 +123,7 @@ async function upsertUsersApp(rows) {
   throw error;
 }
 
-async function upsertActivitiesApp(rows) {
+async function upsertActivitiesAppRaw(rows) {
   if (!rows || rows.length === 0) return;
   await upsertStrippingMissingColumns(
     'activities',
@@ -138,6 +138,39 @@ async function upsertActivitiesApp(rows) {
       'updated_at',
     ],
   );
+}
+
+/**
+ * Upsert activities while skipping tombstoned / already-deleted ids.
+ * Prevents cancelled activities from being resurrected by a stale sync snapshot.
+ */
+async function upsertActivitiesApp(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter((r) => !isDeletedActivityId(r?.id));
+  if (!list.length) return;
+
+  let remoteIds = null;
+  try {
+    const { data, error } = await supabase.from('activities').select('id');
+    if (!error) remoteIds = new Set((data || []).map((r) => Number(r.id)).filter(Number.isFinite));
+  } catch {
+    remoteIds = null;
+  }
+
+  if (!remoteIds) {
+    await upsertActivitiesAppRaw(list);
+    return;
+  }
+
+  const now = Date.now();
+  const toUpsert = list.filter((a) => {
+    const id = Number(a.id);
+    if (!Number.isFinite(id)) return false;
+    if (remoteIds.has(id)) return true;
+    // Brand-new local creates may not be remote yet.
+    const created = new Date(a.created_at || 0).getTime();
+    return Number.isFinite(created) && (now - created) < 5 * 60 * 1000;
+  });
+  if (toUpsert.length) await upsertActivitiesAppRaw(toUpsert);
 }
 
 async function upsertProjectClients(rows) {
@@ -548,7 +581,9 @@ export async function loadFromSupabase() {
       people: peopleRes.data || [],
       projects: projectsRes.data || [],
       project_assignments: assignRes.data || [],
-      activities: (activitiesRes.data || []).map((row) => {
+      activities: (activitiesRes.data || [])
+        .filter((row) => !isDeletedActivityId(row?.id))
+        .map((row) => {
         const embedded = parseActorEmbedFromDescription(row.description);
         if (!embedded) return row;
         return {
@@ -830,6 +865,7 @@ async function deleteOptional(build) {
 
 /** In-process tombstones so a stale warm instance cannot re-upsert a just-deleted project. */
 const deletedProjectTombstones = new Map(); // id -> expiresAt ms
+const deletedActivityTombstones = new Map(); // id -> expiresAt ms
 const TOMBSTONE_TTL_MS = 30 * 60 * 1000;
 
 export function rememberDeletedProjectId(projectId) {
@@ -838,10 +874,23 @@ export function rememberDeletedProjectId(projectId) {
   deletedProjectTombstones.set(pid, Date.now() + TOMBSTONE_TTL_MS);
 }
 
+export function rememberDeletedActivityId(activityId) {
+  const aid = Number(activityId);
+  if (!Number.isFinite(aid)) return;
+  deletedActivityTombstones.set(aid, Date.now() + TOMBSTONE_TTL_MS);
+}
+
+export function rememberDeletedActivityIds(ids) {
+  for (const id of ids || []) rememberDeletedActivityId(id);
+}
+
 function pruneTombstones() {
   const now = Date.now();
   for (const [id, exp] of deletedProjectTombstones) {
     if (exp <= now) deletedProjectTombstones.delete(id);
+  }
+  for (const [id, exp] of deletedActivityTombstones) {
+    if (exp <= now) deletedActivityTombstones.delete(id);
   }
 }
 
@@ -853,6 +902,19 @@ export function isDeletedProjectId(projectId) {
   if (exp == null) return false;
   if (exp <= Date.now()) {
     deletedProjectTombstones.delete(pid);
+    return false;
+  }
+  return true;
+}
+
+export function isDeletedActivityId(activityId) {
+  pruneTombstones();
+  const aid = Number(activityId);
+  if (!Number.isFinite(aid)) return false;
+  const exp = deletedActivityTombstones.get(aid);
+  if (exp == null) return false;
+  if (exp <= Date.now()) {
+    deletedActivityTombstones.delete(aid);
     return false;
   }
   return true;
