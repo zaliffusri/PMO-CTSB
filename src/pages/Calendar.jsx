@@ -775,6 +775,8 @@ export default function Calendar() {
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
   const [pendingOpenActivityId, setPendingOpenActivityId] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelNotify, setCancelNotify] = useState(true);
   const [showReport, setShowReport] = useState(false);
   const [showScheduleEmail, setShowScheduleEmail] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
@@ -879,11 +881,12 @@ export default function Calendar() {
   }, [showForm, activitySites]);
 
   useEffect(() => {
-    const anyOpen = showForm || detailActivityId != null || dayListDay != null;
+    const anyOpen = showForm || detailActivityId != null || dayListDay != null || cancelTarget != null;
     if (!anyOpen) return;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
-      if (detailActivityId != null) setDetailActivityId(null);
+      if (cancelTarget != null) setCancelTarget(null);
+      else if (detailActivityId != null) setDetailActivityId(null);
       else if (dayListDay != null) setDayListDay(null);
     };
     document.addEventListener('keydown', onKey);
@@ -893,7 +896,7 @@ export default function Calendar() {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [showForm, detailActivityId, dayListDay]);
+  }, [showForm, detailActivityId, dayListDay, cancelTarget]);
 
   const groupedCalendarActivities = useMemo(() => groupActivitiesForCalendar(activities), [activities]);
 
@@ -1218,29 +1221,37 @@ export default function Calendar() {
     });
   };
 
-  const cancelActivity = async (a) => {
-    if (!canEditCalendar) return;
-    if (!a?.id) return;
-    const assigneeCount = Array.isArray(a.person_ids) && a.person_ids.length > 0 ? a.person_ids.length : 1;
-    const multiHint =
-      assigneeCount > 1
-        ? ` All ${assigneeCount} assignee records for this activity will be removed.`
-        : '';
-    const emailHint = smtpConfigured
-      ? ' Assignees will get a cancellation email that marks the meeting as Canceled on Outlook / Teams.'
-      : ' (SMTP is not configured — no cancellation email will be sent.)';
-    if (!confirm(`Cancel activity "${a.title}"?${multiHint}${emailHint}`)) return;
+  const requestCancelActivity = (a) => {
+    if (!canEditCalendar || !a?.id) return;
+    setCancelNotify(true);
+    setCancelTarget(a);
+  };
+
+  const confirmCancelActivity = async () => {
+    const a = cancelTarget;
+    if (!canEditCalendar || !a?.id) return;
+    const notify = Boolean(cancelNotify);
     const cancelKey = activityLogicalGroupKey(a);
+    setCancelTarget(null);
     await runMutation(async () => {
       try {
-        const result = await api.activities.cancel(a.id, { notify_email: true });
+        const result = await api.activities.cancel(a.id, { notify_email: notify });
         // Remove from UI immediately so the chip disappears even before reload finishes.
         setActivities((prev) => prev.filter((row) => activityLogicalGroupKey(row) !== cancelKey));
         const emailNotify = result?.email_notify;
-        if (emailNotify?.smtp_configured === false) {
-          alert('Activity cancelled. Cancellation email was not sent because SMTP is not configured.');
+        if (!notify) {
+          alert('Activity cancelled.');
+        } else if (emailNotify?.smtp_configured === false && !(Number(emailNotify?.in_app) > 0)) {
+          alert('Activity cancelled. Email was not sent because SMTP is not configured.');
         } else if (emailNotify && emailNotify.sent > 0) {
-          alert(`Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s).`);
+          const inApp = Number(emailNotify?.in_app) || 0;
+          alert(
+            inApp > 0
+              ? `Activity cancelled. Notified ${inApp} assignee(s) in-app; cancellation email sent to ${emailNotify.sent}.`
+              : `Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s).`,
+          );
+        } else if (Number(emailNotify?.in_app) > 0) {
+          alert(`Activity cancelled. In-app notification sent to ${emailNotify.in_app} assignee(s).`);
         } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
           alert('Activity cancelled, but cancellation email could not be delivered. Check assignee emails and SMTP settings.');
         } else {
@@ -2292,12 +2303,77 @@ export default function Calendar() {
           activity={detailActivity}
           onClose={() => setDetailActivityId(null)}
           onEdit={openEditActivity}
-          onCancel={cancelActivity}
+          onCancel={requestCancelActivity}
           onNotify={resendActivityEmail}
           actionPending={mutating}
           canEdit={canEditCalendar}
           smtpConfigured={smtpConfigured}
         />
+      )}
+      {cancelTarget && (
+        <div className="modal-backdrop" role="presentation" onClick={() => !mutating && setCancelTarget(null)}>
+          <div
+            className="modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-activity-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="cancel-activity-modal-title" className="modal-dialog-title">
+                Cancel activity
+              </h2>
+              <button
+                type="button"
+                className="modal-dialog-close"
+                onClick={() => setCancelTarget(null)}
+                aria-label="Close dialog"
+                disabled={mutating}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body" style={{ display: 'grid', gap: '0.85rem' }}>
+              <p style={{ margin: 0 }}>
+                Cancel <strong>{cancelTarget.title}</strong>? This removes it from the calendar
+                {Array.isArray(cancelTarget.person_ids) && cancelTarget.person_ids.length > 1
+                  ? ` (including all ${cancelTarget.person_ids.length} assignee records)`
+                  : ''}
+                .
+              </p>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={cancelNotify}
+                  onChange={(e) => setCancelNotify(e.target.checked)}
+                  disabled={mutating}
+                  style={{ marginTop: '0.2rem' }}
+                />
+                <span>
+                  <strong>Notify assignees</strong>
+                  <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                    {smtpConfigured
+                      ? 'Sends an in-app notification and a cancellation email (Outlook / Teams / Google). Untick to cancel quietly.'
+                      : 'Sends an in-app notification. Cancellation emails need SMTP configured in Settings → Email.'}
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div className="modal-dialog-footer" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setCancelTarget(null)} disabled={mutating}>
+                Keep activity
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={confirmCancelActivity}
+                disabled={mutating}
+              >
+                {mutating ? 'Cancelling…' : 'Cancel activity'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
