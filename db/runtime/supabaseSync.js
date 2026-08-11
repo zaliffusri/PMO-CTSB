@@ -22,11 +22,152 @@ let warnedBacklogsTable = false;
 let warnedPhasesTable = false;
 let warnedWorkPackagesTable = false;
 let warnedBacklogCommentsTable = false;
+let warnedActivitiesDeletedTable = false;
 
 let latestDataRef = null;
 
+/** In-process tombstones (same instance). Durable copy also stored in activities_deleted. */
+const deletedProjectTombstones = new Map(); // id -> expiresAt ms
+const deletedActivityTombstones = new Map(); // id -> expiresAt ms
+const TOMBSTONE_TTL_MS = 30 * 60 * 1000;
+let durableDeletedActivityIdsCache = null; // Set<number> | null
+let durableDeletedActivityIdsFetchedAt = 0;
+const DURABLE_DELETED_CACHE_MS = 15_000;
+
 export function bindSyncDataRef(getData) {
   latestDataRef = getData;
+}
+
+function pruneActivityTombstones() {
+  const now = Date.now();
+  for (const [id, exp] of deletedActivityTombstones) {
+    if (exp <= now) deletedActivityTombstones.delete(id);
+  }
+}
+
+export function rememberDeletedActivityId(activityId) {
+  const aid = Number(activityId);
+  if (!Number.isFinite(aid)) return;
+  deletedActivityTombstones.set(aid, Date.now() + TOMBSTONE_TTL_MS);
+  if (durableDeletedActivityIdsCache) durableDeletedActivityIdsCache.add(aid);
+}
+
+export function rememberDeletedActivityIds(ids) {
+  for (const id of ids || []) rememberDeletedActivityId(id);
+}
+
+export function isDeletedActivityId(activityId) {
+  pruneActivityTombstones();
+  const aid = Number(activityId);
+  if (!Number.isFinite(aid)) return false;
+  const exp = deletedActivityTombstones.get(aid);
+  if (exp != null) {
+    if (exp <= Date.now()) {
+      deletedActivityTombstones.delete(aid);
+    } else {
+      return true;
+    }
+  }
+  if (durableDeletedActivityIdsCache?.has(aid)) return true;
+  return false;
+}
+
+function activitiesDeletedTableMissing(error) {
+  const msg = String(error?.message || '');
+  return /activities_deleted|schema cache|Could not find|does not exist|PGRST204/i.test(msg);
+}
+
+/** Persist deleted activity ids so every serverless instance honors cancels. */
+export async function persistDeletedActivityIds(ids) {
+  if (!supabase) return;
+  const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
+  if (!list.length) return;
+  rememberDeletedActivityIds(list);
+  const rows = list.map((id) => ({ id, deleted_at: new Date().toISOString() }));
+  const { error } = await supabase.from('activities_deleted').upsert(rows, { onConflict: 'id' });
+  if (error) {
+    if (activitiesDeletedTableMissing(error)) {
+      if (!warnedActivitiesDeletedTable) {
+        warnedActivitiesDeletedTable = true;
+        console.warn(
+          'store: activities_deleted missing — run supabase/migrations/20260811120000_activities_deleted.sql',
+        );
+      }
+      return;
+    }
+    throw error;
+  }
+  if (!durableDeletedActivityIdsCache) durableDeletedActivityIdsCache = new Set();
+  for (const id of list) durableDeletedActivityIdsCache.add(id);
+}
+
+async function loadDurableDeletedActivityIds({ force = false } = {}) {
+  if (!supabase) return new Set();
+  const now = Date.now();
+  if (
+    !force
+    && durableDeletedActivityIdsCache
+    && (now - durableDeletedActivityIdsFetchedAt) < DURABLE_DELETED_CACHE_MS
+  ) {
+    return durableDeletedActivityIdsCache;
+  }
+  const { data, error } = await supabase.from('activities_deleted').select('id');
+  if (error) {
+    if (activitiesDeletedTableMissing(error)) {
+      if (!warnedActivitiesDeletedTable) {
+        warnedActivitiesDeletedTable = true;
+        console.warn(
+          'store: activities_deleted missing — run supabase/migrations/20260811120000_activities_deleted.sql',
+        );
+      }
+      durableDeletedActivityIdsCache = new Set(deletedActivityTombstones.keys());
+      durableDeletedActivityIdsFetchedAt = now;
+      return durableDeletedActivityIdsCache;
+    }
+    throw error;
+  }
+  const set = new Set((data || []).map((r) => Number(r.id)).filter(Number.isFinite));
+  for (const id of deletedActivityTombstones.keys()) set.add(Number(id));
+  durableDeletedActivityIdsCache = set;
+  durableDeletedActivityIdsFetchedAt = now;
+  return set;
+}
+
+/** Public helper: drop cancelled/deleted activity rows before exposing them to the API. */
+export async function filterOutDeletedActivityRows(rows) {
+  let durable = new Set();
+  try {
+    durable = await loadDurableDeletedActivityIds();
+  } catch {
+    durable = new Set();
+  }
+  return (rows || []).filter((row) => {
+    const id = Number(row?.id);
+    if (!Number.isFinite(id)) return false;
+    return !isDeletedActivityId(id) && !durable.has(id);
+  });
+}
+
+/** Remove any resurrected rows that are marked deleted. */
+async function purgeResurrectedDeletedActivities() {
+  if (!supabase) return;
+  let deletedIds;
+  try {
+    deletedIds = await loadDurableDeletedActivityIds({ force: true });
+  } catch {
+    return;
+  }
+  const list = [...deletedIds];
+  if (!list.length) return;
+  // Chunk deletes to avoid URL/body limits.
+  for (let i = 0; i < list.length; i += 200) {
+    const chunk = list.slice(i, i + 200);
+    const { error } = await supabase.from('activities').delete().in('id', chunk);
+    if (error) {
+      console.warn('store: purge resurrected activities failed', error.message || error);
+      return;
+    }
+  }
 }
 
 async function upsertAll(table, rows, onConflict = 'id') {
@@ -145,9 +286,25 @@ async function upsertActivitiesAppRaw(rows) {
  * Prevents cancelled activities from being resurrected by a stale sync snapshot.
  */
 async function upsertActivitiesApp(rows) {
-  const list = (Array.isArray(rows) ? rows : []).filter((r) => !isDeletedActivityId(r?.id));
-  if (!list.length) return;
+  let durableDeleted = new Set();
+  try {
+    durableDeleted = await loadDurableDeletedActivityIds();
+  } catch (e) {
+    console.warn('store: could not load activities_deleted', e?.message || e);
+  }
 
+  const list = (Array.isArray(rows) ? rows : []).filter((r) => {
+    const id = Number(r?.id);
+    if (!Number.isFinite(id)) return false;
+    if (isDeletedActivityId(id) || durableDeleted.has(id)) return false;
+    return true;
+  });
+  if (!list.length) {
+    await purgeResurrectedDeletedActivities();
+    return;
+  }
+
+  // Never fall back to blind upsert — that resurrects cancelled rows across instances.
   let remoteIds = null;
   try {
     const { data, error } = await supabase.from('activities').select('id');
@@ -157,20 +314,22 @@ async function upsertActivitiesApp(rows) {
   }
 
   if (!remoteIds) {
-    await upsertActivitiesAppRaw(list);
+    console.warn('store: skip activities upsert — could not read remote activity ids');
+    await purgeResurrectedDeletedActivities();
     return;
   }
 
   const now = Date.now();
   const toUpsert = list.filter((a) => {
     const id = Number(a.id);
-    if (!Number.isFinite(id)) return false;
+    if (!Number.isFinite(id) || durableDeleted.has(id)) return false;
     if (remoteIds.has(id)) return true;
     // Brand-new local creates may not be remote yet.
     const created = new Date(a.created_at || 0).getTime();
     return Number.isFinite(created) && (now - created) < 5 * 60 * 1000;
   });
   if (toUpsert.length) await upsertActivitiesAppRaw(toUpsert);
+  await purgeResurrectedDeletedActivities();
 }
 
 async function upsertProjectClients(rows) {
@@ -574,6 +733,12 @@ export async function loadFromSupabase() {
       settingsRaw.mileage_from_office_km,
     );
     embedSmtpIntoSettings(settings);
+    let durableDeleted = new Set();
+    try {
+      durableDeleted = await loadDurableDeletedActivityIds();
+    } catch {
+      durableDeleted = new Set();
+    }
     const remote = {
       clients: clientsRes.data || [],
       client_contacts: clientContactsMissing ? [] : clientContactsRes.data || [],
@@ -582,7 +747,10 @@ export async function loadFromSupabase() {
       projects: projectsRes.data || [],
       project_assignments: assignRes.data || [],
       activities: (activitiesRes.data || [])
-        .filter((row) => !isDeletedActivityId(row?.id))
+        .filter((row) => {
+          const id = Number(row?.id);
+          return Number.isFinite(id) && !isDeletedActivityId(id) && !durableDeleted.has(id);
+        })
         .map((row) => {
         const embedded = parseActorEmbedFromDescription(row.description);
         if (!embedded) return row;
@@ -864,57 +1032,27 @@ async function deleteOptional(build) {
 }
 
 /** In-process tombstones so a stale warm instance cannot re-upsert a just-deleted project. */
-const deletedProjectTombstones = new Map(); // id -> expiresAt ms
-const deletedActivityTombstones = new Map(); // id -> expiresAt ms
-const TOMBSTONE_TTL_MS = 30 * 60 * 1000;
-
 export function rememberDeletedProjectId(projectId) {
   const pid = Number(projectId);
   if (!Number.isFinite(pid)) return;
   deletedProjectTombstones.set(pid, Date.now() + TOMBSTONE_TTL_MS);
 }
 
-export function rememberDeletedActivityId(activityId) {
-  const aid = Number(activityId);
-  if (!Number.isFinite(aid)) return;
-  deletedActivityTombstones.set(aid, Date.now() + TOMBSTONE_TTL_MS);
-}
-
-export function rememberDeletedActivityIds(ids) {
-  for (const id of ids || []) rememberDeletedActivityId(id);
-}
-
-function pruneTombstones() {
+function pruneProjectTombstones() {
   const now = Date.now();
   for (const [id, exp] of deletedProjectTombstones) {
     if (exp <= now) deletedProjectTombstones.delete(id);
   }
-  for (const [id, exp] of deletedActivityTombstones) {
-    if (exp <= now) deletedActivityTombstones.delete(id);
-  }
 }
 
 export function isDeletedProjectId(projectId) {
-  pruneTombstones();
+  pruneProjectTombstones();
   const pid = Number(projectId);
   if (!Number.isFinite(pid)) return false;
   const exp = deletedProjectTombstones.get(pid);
   if (exp == null) return false;
   if (exp <= Date.now()) {
     deletedProjectTombstones.delete(pid);
-    return false;
-  }
-  return true;
-}
-
-export function isDeletedActivityId(activityId) {
-  pruneTombstones();
-  const aid = Number(activityId);
-  if (!Number.isFinite(aid)) return false;
-  const exp = deletedActivityTombstones.get(aid);
-  if (exp == null) return false;
-  if (exp <= Date.now()) {
-    deletedActivityTombstones.delete(aid);
     return false;
   }
   return true;

@@ -16,6 +16,35 @@ import {
 } from '../constants/activityLocations';
 import { interpretActivitySchedule } from '../../lib/activityDailyWindows.js';
 
+const CANCELLED_ACTIVITY_KEYS_STORAGE = 'pmo_cancelled_activity_keys_v1';
+
+function readCancelledActivityKeys() {
+  try {
+    const raw = sessionStorage.getItem(CANCELLED_ACTIVITY_KEYS_STORAGE);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberCancelledActivityKey(key) {
+  if (!key) return;
+  const next = readCancelledActivityKeys();
+  next.add(String(key));
+  try {
+    sessionStorage.setItem(CANCELLED_ACTIVITY_KEYS_STORAGE, JSON.stringify([...next]));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function withoutCancelledActivityKeys(list) {
+  const cancelled = readCancelledActivityKeys();
+  if (!cancelled.size) return list || [];
+  return (list || []).filter((row) => !cancelled.has(String(activityLogicalGroupKey(row))));
+}
+
 function getMonthRange(year, month) {
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
@@ -810,7 +839,9 @@ export default function Calendar() {
   const grid = useMemo(() => getCalendarGrid(year, month), [year, month]);
 
   const loadActivities = (f, t) =>
-    api.activities.list({ from: f, to: t }).then(setActivities).catch(() => setActivities([]));
+    api.activities.list({ from: f, to: t })
+      .then((rows) => setActivities(withoutCancelledActivityKeys(rows)))
+      .catch(() => setActivities([]));
 
   useEffect(() => {
     setLoading(true);
@@ -1236,6 +1267,8 @@ export default function Calendar() {
     await runMutation(async () => {
       try {
         const result = await api.activities.cancel(a.id, { notify_email: notify });
+        // Persist cancel locally so auto-reload cannot flash the activity back.
+        rememberCancelledActivityKey(cancelKey);
         // Remove from UI immediately so the chip disappears even before reload finishes.
         setActivities((prev) => prev.filter((row) => activityLogicalGroupKey(row) !== cancelKey));
         const emailNotify = result?.email_notify;

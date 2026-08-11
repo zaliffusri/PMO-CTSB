@@ -5,7 +5,8 @@ import {
   supabase,
   rememberDeletedActivityId,
   rememberDeletedActivityIds,
-  isDeletedActivityId,
+  persistDeletedActivityIds,
+  filterOutDeletedActivityRows,
 } from '../runtime/supabaseSync.js';
 
 export function createActivitiesRepository(ctx, getStore) {
@@ -40,6 +41,11 @@ export function createActivitiesRepository(ctx, getStore) {
       const i = data.activities.findIndex((a) => a.id === id);
       if (i === -1) return false;
       rememberDeletedActivityId(id);
+      try {
+        await persistDeletedActivityIds([id]);
+      } catch (e) {
+        console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
+      }
       if (supabase) {
         const { error } = await supabase.from('activities').delete().eq('id', id);
         if (error) throw error;
@@ -62,6 +68,11 @@ export function createActivitiesRepository(ctx, getStore) {
       if (ids.length === 0) return { deleted: 0, deleted_ids: [] };
       const idSet = new Set(ids);
       rememberDeletedActivityIds(ids);
+      try {
+        await persistDeletedActivityIds(ids);
+      } catch (e) {
+        console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
+      }
       if (supabase) {
         const { error } = await supabase.from('activities').delete().in('id', ids);
         if (error) throw error;
@@ -83,6 +94,11 @@ export function createActivitiesRepository(ctx, getStore) {
       const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
       if (!list.length || !supabase) return { deleted: 0 };
       rememberDeletedActivityIds(list);
+      try {
+        await persistDeletedActivityIds(list);
+      } catch (e) {
+        console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
+      }
       const { error } = await supabase.from('activities').delete().in('id', list);
       if (error) throw error;
       return { deleted: list.length };
@@ -97,23 +113,21 @@ export function createActivitiesRepository(ctx, getStore) {
       const data = getData();
       const { data: rows, error } = await supabase.from('activities').select('*').order('id', { ascending: true });
       if (error) throw error;
+      const kept = await filterOutDeletedActivityRows(rows || []);
       // Rehydrate actor fields from description embed when DB columns are missing.
-      // Skip in-process tombstones so a raced upsert cannot bring cancelled rows back into memory.
-      data.activities = (rows || [])
-        .filter((row) => !isDeletedActivityId(row?.id))
-        .map((row) => {
-          const embedded = parseActorEmbedFromDescription(row.description);
-          if (!embedded) return row;
-          return {
-            ...row,
-            created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
-            created_by_name: row.created_by_name || embedded.created_by_name,
-            updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
-            updated_by_name: row.updated_by_name || embedded.updated_by_name,
-            updated_at: row.updated_at || embedded.updated_at,
-            created_at: row.created_at || embedded.created_at || row.created_at,
-          };
-        });
+      data.activities = kept.map((row) => {
+        const embedded = parseActorEmbedFromDescription(row.description);
+        if (!embedded) return row;
+        return {
+          ...row,
+          created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
+          created_by_name: row.created_by_name || embedded.created_by_name,
+          updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
+          updated_by_name: row.updated_by_name || embedded.updated_by_name,
+          updated_at: row.updated_at || embedded.updated_at,
+          created_at: row.created_at || embedded.created_at || row.created_at,
+        };
+      });
     },
   };
 }
