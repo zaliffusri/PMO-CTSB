@@ -6,6 +6,7 @@ import { AuthProvider } from './AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
 import './index.css';
 import './styles/auth.css';
+import './styles/theme-modes.css';
 
 class ErrorBoundary extends React.Component {
   state = { error: null };

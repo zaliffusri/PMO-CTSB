@@ -1,0 +1,401 @@
+/* Theme selector UI + Shadcn UI mode component refinements */
+
+.theme-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.theme-menu__panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 80;
+  min-width: 14.5rem;
+  padding: 0.4rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+}
+
+.app-nav .theme-menu__panel,
+.nav-brand-row .theme-menu__panel {
+  right: auto;
+  left: 0;
+}
+
+.theme-menu__heading {
+  padding: 0.4rem 0.55rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.theme-menu__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-menu__item:hover,
+.theme-menu__item:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.theme-menu__item.is-active {
+  background: var(--accent-soft);
+}
+
+.theme-menu__item-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.theme-menu__item-desc {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.theme-mode-select {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.theme-mode-select__label,
+.theme-mode-legend {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.theme-mode-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.theme-mode-segment {
+  border: none;
+  border-radius: calc(var(--radius-sm) - 1px);
+  padding: 0.55rem 0.4rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.theme-mode-segment:hover {
+  color: var(--text);
+}
+
+.theme-mode-segment.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+  border: 1px solid var(--border);
+}
+
+.theme-mode-radios {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-inline-size: 0;
+}
+
+.theme-mode-radio-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
+.theme-mode-radio {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.theme-mode-radio:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.theme-mode-radio.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface);
+}
+
+.theme-mode-radio input {
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
+}
+
+.theme-mode-radio__body {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.theme-mode-radio__label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.theme-mode-radio__desc {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.settings-appearance-hint {
+  margin: 1rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.account-appearance-card {
+  margin-top: 1rem;
+  padding: var(--space-5);
+}
+
+.account-appearance-card__title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.account-appearance-card__desc {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 640px) {
+  .theme-mode-segmented {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-menu__panel {
+    right: auto;
+    left: 0;
+    min-width: 13rem;
+  }
+}
+
+/* ---------- Shadcn UI mode: component language ---------- */
+
+[data-theme='shadcn'] body {
+  font-size: 14px;
+  letter-spacing: -0.011em;
+}
+
+[data-theme='shadcn'] .btn {
+  font-weight: 500;
+  font-size: 0.875rem;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+[data-theme='shadcn'] .btn:active {
+  transform: none;
+}
+
+[data-theme='shadcn'] .btn:not(.btn-sm) {
+  padding: 0.5rem 1rem;
+  min-height: 2.25rem;
+}
+
+[data-theme='shadcn'] .btn-sm {
+  padding: 0.35rem 0.75rem;
+  min-height: 2rem;
+  font-size: 0.8125rem;
+}
+
+[data-theme='shadcn'] .btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+[data-theme='shadcn'] .btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+[data-theme='shadcn'] .btn-secondary {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  border-color: var(--border);
+}
+
+[data-theme='shadcn'] .btn-ghost:hover:not(:disabled) {
+  background: var(--muted);
+  color: var(--text);
+}
+
+[data-theme='shadcn'] .ui-card,
+[data-theme='shadcn'] .settings-panel.ui-card,
+[data-theme='shadcn'] .settings-loading.ui-card,
+[data-theme='shadcn'] .settings-error.ui-card {
+  border-radius: var(--radius);
+  box-shadow: none;
+  border-color: var(--border);
+}
+
+[data-theme='shadcn'] .ui-input,
+[data-theme='shadcn'] input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']),
+[data-theme='shadcn'] select,
+[data-theme='shadcn'] textarea {
+  border-radius: var(--radius-sm);
+  border-color: var(--input);
+  background: var(--surface);
+  font-size: 0.875rem;
+  min-height: 2.25rem;
+  box-shadow: none;
+}
+
+[data-theme='shadcn'] input:focus-visible,
+[data-theme='shadcn'] select:focus-visible,
+[data-theme='shadcn'] textarea:focus-visible,
+[data-theme='shadcn'] .ui-input:focus-visible {
+  border-color: var(--ring) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+[data-theme='shadcn'] .module-tabs {
+  background: var(--muted);
+  box-shadow: none;
+  border-radius: var(--radius);
+  padding: 0.25rem;
+}
+
+[data-theme='shadcn'] .module-tab {
+  border-radius: calc(var(--radius-sm) - 1px);
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+[data-theme='shadcn'] .module-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+  border: 1px solid var(--border);
+}
+
+[data-theme='shadcn'] .modal-dialog {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+[data-theme='shadcn'] .modal-dialog-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-theme='shadcn'] .app-nav,
+[data-theme='shadcn'] .app-topbar,
+[data-theme='shadcn'] .app-header {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+[data-theme='shadcn'] .nav-link {
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+[data-theme='shadcn'] .nav-link.active {
+  background: var(--muted);
+  color: var(--text);
+}
+
+[data-theme='shadcn'] .theme-toggle {
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+[data-theme='shadcn'] .app-logo-mark {
+  background: var(--primary);
+  border-radius: var(--radius-sm);
+}
+
+[data-theme='shadcn'] .page-header h1,
+[data-theme='shadcn'] .page-header__title {
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+[data-theme='shadcn'] table thead th,
+[data-theme='shadcn'] .data-table th {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted-foreground);
+  background: var(--muted);
+}
+
+[data-theme='shadcn'] .badge,
+[data-theme='shadcn'] .module-tab-badge,
+[data-theme='shadcn'] .status-badge {
+  border-radius: 999px;
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+[data-theme='shadcn'] .auth-card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+}
+
+[data-theme='shadcn'] .dashboard-stat-card,
+[data-theme='shadcn'] .kpi-card,
+[data-theme='shadcn'] .module-filter-card,
+[data-theme='shadcn'] .data-panel,
+[data-theme='shadcn'] .chart-card {
+  border-radius: var(--radius);
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+
+[data-theme='shadcn'] .ui-empty-state,
+[data-theme='shadcn'] .page-load-error,
+[data-theme='shadcn'] .settings-error {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+[data-theme='shadcn'] .form-field label,
+[data-theme='shadcn'] .form-field__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}

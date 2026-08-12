@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import PageHeader from '../components/PageHeader';
+import ThemeModeSelect from '../components/ThemeModeSelect';
 import { resizeImageToDataUrl, IMAGE_PRESETS } from '../lib/imageResize';
 
 const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
@@ -438,6 +439,16 @@ export default function Account() {
           {copied ? '✓ Copied' : 'Copy email'}
         </button>
       </div>
+
+      <section className="ui-card account-appearance-card" aria-labelledby="account-appearance-title">
+        <h3 id="account-appearance-title" className="account-appearance-card__title">
+          Appearance
+        </h3>
+        <p className="account-appearance-card__desc">
+          Choose Default, Dark, or Shadcn UI. Your preference is saved on this device and applies across the app.
+        </p>
+        <ThemeModeSelect variant="segmented" idPrefix="account-ui-mode" />
+      </section>
 
       <div className="account-sections-grid">
         <section className="ui-card account-section-card">

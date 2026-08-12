@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
-import { btnPrimary, btnSecondary, card, inputStyle, labelMuted } from './settingsStyles';
 
 const OFFICE365 = {
   smtp_service: 'office365',
@@ -109,149 +108,170 @@ export default function SettingsEmail() {
   };
 
   return (
-    <form onSubmit={save} style={card}>
-      <h2 style={{ marginTop: 0, fontSize: '1.1rem' }}>Email notifications (SMTP)</h2>
-      <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Used for activity invites and cancellation emails (Outlook / Teams / Google). Status:{' '}
-        <strong style={{ color: configured ? 'var(--success, #0a7)' : 'var(--danger)' }}>
+    <form onSubmit={save} className="settings-panel ui-card">
+      <div className="settings-panel__header">
+        <div className="settings-panel__header-text">
+          <h2 className="settings-panel__title">Email notifications</h2>
+          <p className="settings-panel__desc">
+            SMTP used for activity invites and cancellation emails (Outlook / Teams / Google).
+            {form.smtp_pass_set ? ' A password is already saved on the server.' : ''}
+          </p>
+        </div>
+        <span className={`settings-status ${configured ? 'settings-status--ok' : 'settings-status--off'}`}>
           {configured ? 'Enabled' : 'Not configured'}
-        </strong>
-        {form.smtp_pass_set ? ' · password saved' : ''}
-      </p>
-
-      {msg && <p style={{ color: 'var(--success, #0a7)' }}>{msg}</p>}
-      {err && <p style={{ color: 'var(--danger)' }}>{err}</p>}
-
-      <label style={{ display: 'block', marginBottom: '0.75rem' }}>
-        Provider
-        <select
-          value={isOffice365 ? 'office365' : service}
-          onChange={(e) => onProviderChange(e.target.value)}
-          style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
-        >
-          <option value="office365">Microsoft 365 / Outlook (recommended for Teams)</option>
-          <option value="gmail">Gmail (App Password)</option>
-          <option value="">Custom SMTP host</option>
-        </select>
-      </label>
-
-      {isOffice365 && (
-        <p style={{ ...labelMuted, marginTop: 0, marginBottom: '0.85rem' }}>
-          Use the same work email you use for Teams (e.g. name@company.com). Host is set to smtp.office365.com automatically.
-          If send fails, ask IT to enable <strong>SMTP AUTH</strong> for that mailbox.
-        </p>
-      )}
-
-      <label style={{ display: 'block', marginBottom: '0.75rem' }}>
-        SMTP user (login email)
-        <input
-          type="email"
-          value={form.smtp_user || ''}
-          onChange={(e) => setForm((f) => ({ ...f, smtp_user: e.target.value }))}
-          placeholder={isOffice365 ? 'you@yourcompany.com' : 'you@gmail.com'}
-          style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
-          autoComplete="off"
-        />
-      </label>
-
-      <label style={{ display: 'block', marginBottom: '0.75rem' }}>
-        From address (sender)
-        <input
-          type="email"
-          value={form.smtp_from || ''}
-          onChange={(e) => setForm((f) => ({ ...f, smtp_from: e.target.value }))}
-          placeholder="Same as SMTP user"
-          style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
-          autoComplete="off"
-        />
-        <span style={labelMuted}>Usually the same as your SMTP username.</span>
-      </label>
-
-      <label style={{ display: 'block', marginBottom: '0.75rem' }}>
-        {isOffice365 ? 'Microsoft 365 password' : 'App password / SMTP password'}
-        <input
-          type="password"
-          value={pass}
-          onChange={(e) => setPass(e.target.value)}
-          placeholder={
-            form.smtp_pass_set
-              ? 'Leave blank to keep current password'
-              : (isOffice365 ? 'Work account password (or app password if MFA)' : '16-character Gmail App Password')
-          }
-          style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
-          autoComplete="new-password"
-        />
-        <span style={labelMuted}>
-          {isGmail
-            ? 'Must be an App Password from the SAME Gmail as SMTP user above (Google Account → Security → App passwords). Example: if user is adminpmo99@gmail.com, create the App Password while logged into adminpmo99@gmail.com.'
-            : isOffice365
-              ? 'If your account has MFA, create an app password or ask IT for SMTP AUTH access.'
-              : 'Use the password for your SMTP account.'}
         </span>
-      </label>
+      </div>
 
-      {showCustomHost && (
-        <>
-          <label style={{ display: 'block', marginBottom: '0.75rem' }}>
-            SMTP host
-            <input
-              type="text"
-              value={form.smtp_host || ''}
-              onChange={(e) => setForm((f) => ({ ...f, smtp_host: e.target.value }))}
-              placeholder="smtp.example.com"
-              style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
-            />
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <label>
-              Port
-              <input
-                type="number"
-                value={form.smtp_port || 587}
-                onChange={(e) => setForm((f) => ({ ...f, smtp_port: e.target.value }))}
-                style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
-              />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem' }}>
-              <input
-                type="checkbox"
-                checked={Boolean(form.smtp_secure)}
-                onChange={(e) => setForm((f) => ({ ...f, smtp_secure: e.target.checked }))}
-              />
-              Use TLS/SSL (secure)
-            </label>
+      <div className="settings-panel__body">
+        {err && <p className="settings-alert settings-alert--error" role="alert">{err}</p>}
+        {msg && <p className="settings-alert settings-alert--ok" role="status">{msg}</p>}
+
+        <div className="settings-panel__section">
+          <h3 className="settings-panel__section-title">Connection</h3>
+          <p className="settings-panel__section-desc">Choose a provider and mailbox used to send calendar emails.</p>
+
+          <div className="form-field">
+            <label className="form-field__label" htmlFor="smtp-provider">Provider</label>
+            <select
+              id="smtp-provider"
+              className="form-field__input ui-input"
+              value={isOffice365 ? 'office365' : service}
+              onChange={(e) => onProviderChange(e.target.value)}
+            >
+              <option value="office365">Microsoft 365 / Outlook</option>
+              <option value="gmail">Gmail (App Password)</option>
+              <option value="">Custom SMTP host</option>
+            </select>
+            {isOffice365 && (
+              <span className="form-field__hint">
+                Use your work email. Host is set to smtp.office365.com. If send fails, ask IT to enable SMTP AUTH.
+              </span>
+            )}
           </div>
-        </>
-      )}
 
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1rem' }}>
-        <button type="submit" className="btn btn-primary" style={btnPrimary} disabled={saving}>
+          <div className="settings-grid-2">
+            <div className="form-field">
+              <label className="form-field__label" htmlFor="smtp-user">SMTP user</label>
+              <input
+                id="smtp-user"
+                type="email"
+                className="form-field__input ui-input"
+                value={form.smtp_user || ''}
+                onChange={(e) => setForm((f) => ({ ...f, smtp_user: e.target.value }))}
+                placeholder={isOffice365 ? 'you@yourcompany.com' : 'you@gmail.com'}
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="form-field">
+              <label className="form-field__label" htmlFor="smtp-from">From address</label>
+              <input
+                id="smtp-from"
+                type="email"
+                className="form-field__input ui-input"
+                value={form.smtp_from || ''}
+                onChange={(e) => setForm((f) => ({ ...f, smtp_from: e.target.value }))}
+                placeholder="Same as SMTP user"
+                autoComplete="off"
+              />
+              <span className="form-field__hint">Usually the same as your SMTP username.</span>
+            </div>
+          </div>
+
+          <div className="form-field">
+            <label className="form-field__label" htmlFor="smtp-pass">
+              {isOffice365 ? 'Microsoft 365 password' : 'App password / SMTP password'}
+            </label>
+            <input
+              id="smtp-pass"
+              type="password"
+              className="form-field__input ui-input"
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              placeholder={
+                form.smtp_pass_set
+                  ? 'Leave blank to keep current password'
+                  : (isOffice365 ? 'Work account password (or app password if MFA)' : '16-character Gmail App Password')
+              }
+              autoComplete="new-password"
+            />
+            <span className="form-field__hint">
+              {isGmail
+                ? 'Use an App Password from the same Gmail as SMTP user (Google Account → Security → App passwords).'
+                : isOffice365
+                  ? 'If MFA is on, create an app password or ask IT for SMTP AUTH access.'
+                  : 'Use the password for your SMTP account.'}
+            </span>
+          </div>
+
+          {showCustomHost && (
+            <>
+              <div className="form-field">
+                <label className="form-field__label" htmlFor="smtp-host">SMTP host</label>
+                <input
+                  id="smtp-host"
+                  type="text"
+                  className="form-field__input ui-input"
+                  value={form.smtp_host || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, smtp_host: e.target.value }))}
+                  placeholder="smtp.example.com"
+                />
+              </div>
+              <div className="settings-grid-2">
+                <div className="form-field">
+                  <label className="form-field__label" htmlFor="smtp-port">Port</label>
+                  <input
+                    id="smtp-port"
+                    type="number"
+                    className="form-field__input ui-input"
+                    value={form.smtp_port || 587}
+                    onChange={(e) => setForm((f) => ({ ...f, smtp_port: e.target.value }))}
+                  />
+                </div>
+                <label className="settings-check">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.smtp_secure)}
+                    onChange={(e) => setForm((f) => ({ ...f, smtp_secure: e.target.checked }))}
+                  />
+                  Use TLS/SSL (secure)
+                </label>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="settings-panel__section">
+          <h3 className="settings-panel__section-title">Send test email</h3>
+          <p className="settings-panel__section-desc">Verify delivery after saving your connection details.</p>
+
+          <div className="form-field">
+            <label className="form-field__label" htmlFor="smtp-test-to">Recipient</label>
+            <input
+              id="smtp-test-to"
+              type="email"
+              className="form-field__input ui-input"
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+              placeholder="Leave blank to use your login email"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-panel__footer settings-panel__footer--split">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={sendTest}
+          disabled={testing || !configured}
+        >
+          {testing ? 'Sending…' : 'Send test email'}
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={saving}>
           {saving ? 'Saving…' : 'Save email settings'}
         </button>
       </div>
-
-      <hr style={{ margin: '1.5rem 0', border: 0, borderTop: '1px solid var(--border)' }} />
-
-      <h3 style={{ fontSize: '1rem', marginTop: 0 }}>Send test email</h3>
-      <label style={{ display: 'block', marginBottom: '0.75rem' }}>
-        Recipient
-        <input
-          type="email"
-          value={testTo}
-          onChange={(e) => setTestTo(e.target.value)}
-          placeholder="Leave blank to use your login email"
-          style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.35rem' }}
-        />
-      </label>
-      <button
-        type="button"
-        className="btn btn-secondary"
-        style={btnSecondary}
-        onClick={sendTest}
-        disabled={testing || !configured}
-      >
-        {testing ? 'Sending…' : 'Send test email'}
-      </button>
     </form>
   );
 }

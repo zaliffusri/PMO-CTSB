@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
 import { useSubmitLock } from '../../hooks/useSubmitLock';
+import { mapApiToForm } from './settingsStyles';
 
 export default function SettingsLocations() {
   const { form, setForm } = useOutletContext();
@@ -31,7 +32,7 @@ export default function SettingsLocations() {
           }))
         : [{ name: '', km: '' }]
     );
-  }, [form.activity_locations_text]);
+  }, [form?.activity_locations_text, form?.mileage_from_office_km]);
 
   if (!form) return null;
 
@@ -75,7 +76,7 @@ export default function SettingsLocations() {
           mileage_from_office_km,
         });
         setForm(mapApiToForm(s));
-        setMsg('Saved.');
+        setMsg('Locations saved.');
         return { ok: true };
       } catch (e2) {
         return { ok: false, err: e2.message || 'Save failed' };
@@ -125,7 +126,9 @@ export default function SettingsLocations() {
     return `${n} km`;
   };
 
+  const locationCount = rows.filter((r) => r.name.trim()).length;
   const modalTitle = editModal?.isNew ? 'Add location' : 'Edit location';
+  const officeName = form.reference_office_name || 'reference office';
 
   return (
     <>
@@ -169,7 +172,7 @@ export default function SettingsLocations() {
                 </div>
                 <div className="form-field">
                   <label className="form-field__label" htmlFor="location-km">
-                    Distance from {form.reference_office_name || 'reference office'} (km)
+                    Distance from {officeName} (km)
                   </label>
                   <input
                     id="location-km"
@@ -207,41 +210,57 @@ export default function SettingsLocations() {
       )}
 
       <div className="settings-locations-form">
-        <div className="ui-card section-card settings-section-card">
-          <h2 className="settings-section-title">Activity locations</h2>
-          <p className="settings-section-desc">
-            Sites appear in Calendar when logging activities (with <strong>Others</strong> for custom text). Distances
-            are in kilometres from <strong>{form.reference_office_name || 'the reference office'}</strong>. Changes
-            apply when you save in the dialog.
-          </p>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            style={{ marginBottom: '0.75rem' }}
-            onClick={openAdd}
-            disabled={saving}
-          >
-            + Add location
-          </button>
-          <div className="locations-list">
-            {rows.map((row, index) => (
-              <div key={index} className="locations-list-row">
-                <div className="locations-list-name">{row.name.trim() || '—'}</div>
-                <div className="locations-list-km">{formatKm(row.km)}</div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm locations-list-edit"
-                  onClick={() => openEdit(index)}
-                  disabled={saving}
-                >
-                  Edit
-                </button>
+        <div className="settings-panel ui-card">
+          <div className="settings-panel__header">
+            <div className="settings-panel__header-text">
+              <h2 className="settings-panel__title">Activity locations</h2>
+              <p className="settings-panel__desc">
+                Sites appear in Calendar when logging activities (with Others for custom text). Distances are in
+                kilometres from <strong>{officeName}</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="settings-panel__body">
+            {msg && <p className="settings-alert settings-alert--ok" role="status">{msg}</p>}
+
+            <div className="settings-locations-toolbar">
+              <p className="settings-locations-meta">
+                {locationCount} location{locationCount === 1 ? '' : 's'}
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={openAdd}
+                disabled={saving}
+              >
+                + Add location
+              </button>
+            </div>
+
+            <div className="locations-list">
+              <div className="locations-list-head" aria-hidden="true">
+                <div className="locations-list-name">Site</div>
+                <div className="locations-list-km">Distance</div>
+                <div className="locations-list-actions">Action</div>
               </div>
-            ))}
+              {rows.map((row, index) => (
+                <div key={`${row.name}-${index}`} className="locations-list-row">
+                  <div className="locations-list-name">{row.name.trim() || '—'}</div>
+                  <div className="locations-list-km">{formatKm(row.km)}</div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm locations-list-edit"
+                    onClick={() => openEdit(index)}
+                    disabled={saving}
+                  >
+                    Edit
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-
-        {msg && <p className="settings-msg settings-msg--ok">{msg}</p>}
       </div>
     </>
   );

@@ -37,59 +37,69 @@ export default function SettingsBranding() {
   };
 
   return (
-    <form onSubmit={save} className="settings-branding ui-card">
-      <h2 className="settings-section-title">Workspace branding</h2>
-      <p className="settings-section-desc">
-        Upload your organization logo and a banner image. These appear on the sign-in screen, sidebar, and dashboard welcome area.
-      </p>
-
-      {err && <p className="settings-msg settings-msg--error">{err}</p>}
-      {msg && <p className="settings-msg settings-msg--ok">{msg}</p>}
-
-      <label className="settings-field form-field">
-        Display name
-        <input
-          type="text"
-          className="form-field__input ui-input"
-          value={form.org_display_name || ''}
-          onChange={(e) => setForm((f) => ({ ...f, org_display_name: e.target.value }))}
-          placeholder="PMO CTSB"
-        />
-      </label>
-
-      <label className="settings-field form-field">
-        Tagline
-        <input
-          type="text"
-          className="form-field__input ui-input"
-          value={form.org_tagline || ''}
-          onChange={(e) => setForm((f) => ({ ...f, org_tagline: e.target.value }))}
-          placeholder="Technology-driven project office"
-        />
-      </label>
-
-      <div className="settings-branding-images">
-        <ImageUploadField
-          label="Organization logo"
-          hint="PNG or JPG, shown in sidebar and sign-in. Recommended ~160×64px."
-          value={form.org_logo_url}
-          onChange={(org_logo_url) => setForm((f) => ({ ...f, org_logo_url }))}
-          onError={setErr}
-          preset={IMAGE_PRESETS.logo}
-          variant="logo"
-        />
-        <ImageUploadField
-          label="Workspace banner"
-          hint="Wide image for dashboard welcome. Recommended 1200×320px."
-          value={form.org_banner_url}
-          onChange={(org_banner_url) => setForm((f) => ({ ...f, org_banner_url }))}
-          onError={setErr}
-          preset={IMAGE_PRESETS.banner}
-          variant="banner"
-        />
+    <form onSubmit={save} className="settings-panel ui-card">
+      <div className="settings-panel__header">
+        <div className="settings-panel__header-text">
+          <h2 className="settings-panel__title">Workspace branding</h2>
+          <p className="settings-panel__desc">
+            Organization name, logo, and banner used on sign-in, sidebar, and the dashboard welcome area.
+          </p>
+        </div>
       </div>
 
-      <div className="form-actions">
+      <div className="settings-panel__body">
+        {err && <p className="settings-alert settings-alert--error" role="alert">{err}</p>}
+        {msg && <p className="settings-alert settings-alert--ok" role="status">{msg}</p>}
+
+        <div className="settings-grid-2">
+          <div className="form-field">
+            <label className="form-field__label" htmlFor="org-display-name">Display name</label>
+            <input
+              id="org-display-name"
+              type="text"
+              className="form-field__input ui-input"
+              value={form.org_display_name || ''}
+              onChange={(e) => setForm((f) => ({ ...f, org_display_name: e.target.value }))}
+              placeholder="PMO CTSB"
+            />
+          </div>
+
+          <div className="form-field">
+            <label className="form-field__label" htmlFor="org-tagline">Tagline</label>
+            <input
+              id="org-tagline"
+              type="text"
+              className="form-field__input ui-input"
+              value={form.org_tagline || ''}
+              onChange={(e) => setForm((f) => ({ ...f, org_tagline: e.target.value }))}
+              placeholder="Technology-driven project office"
+            />
+          </div>
+        </div>
+
+        <div className="settings-branding-images">
+          <ImageUploadField
+            label="Organization logo"
+            hint="PNG or JPG, shown in sidebar and sign-in. Recommended ~160×64px."
+            value={form.org_logo_url}
+            onChange={(org_logo_url) => setForm((f) => ({ ...f, org_logo_url }))}
+            onError={setErr}
+            preset={IMAGE_PRESETS.logo}
+            variant="logo"
+          />
+          <ImageUploadField
+            label="Workspace banner"
+            hint="Wide image for dashboard welcome. Recommended 1200×320px."
+            value={form.org_banner_url}
+            onChange={(org_banner_url) => setForm((f) => ({ ...f, org_banner_url }))}
+            onError={setErr}
+            preset={IMAGE_PRESETS.banner}
+            variant="banner"
+          />
+        </div>
+      </div>
+
+      <div className="settings-panel__footer">
         <button type="submit" className="btn btn-primary" disabled={saving}>
           {saving ? 'Saving…' : 'Save branding'}
         </button>

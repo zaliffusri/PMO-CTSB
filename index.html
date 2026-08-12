@@ -7,13 +7,16 @@
       (function () {
         try {
           var s = localStorage.getItem('pmo-theme');
-          if (s === 'light' || s === 'dark') document.documentElement.setAttribute('data-theme', s);
-          else document.documentElement.setAttribute('data-theme', 'dark');
+          if (s === 'light') s = 'default';
+          if (s !== 'default' && s !== 'dark' && s !== 'shadcn') s = 'dark';
+          document.documentElement.setAttribute('data-theme', s);
+          document.documentElement.setAttribute('data-ui-mode', s);
           var sb = localStorage.getItem('pmo-sidebar-mode');
           if (sb === 'expanded' || sb === 'collapsed' || sb === 'hidden')
             document.documentElement.setAttribute('data-sidebar', sb);
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.setAttribute('data-ui-mode', 'dark');
         }
       })();
     </script>
