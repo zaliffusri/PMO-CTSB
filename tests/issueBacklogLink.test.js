@@ -24,6 +24,8 @@ function makeStore() {
     projects: data.projects,
     clients: data.clients,
     people: data.people,
+    async listIssues() { return data.issues; },
+    async listBacklogs() { return data.backlogs; },
     findBacklogByIssueId(issueId) {
       return data.backlogs.find((b) => b.issue_id === +issueId) || null;
     },
@@ -88,7 +90,7 @@ describe('issueBacklogLink', () => {
     store.people.push({ id: assigneeId, name: 'Dev Staff' });
   });
 
-  it('links issue to backlog by PBLID/BUGID', () => {
+  it('links issue to backlog by PBLID/BUGID', async () => {
     store.addBacklog({ ref_no: 'CK-1352', project_id: 1, title: 'Bug fix' });
     const issueId = store.addIssue({
       ticket_no: 'eT-CK-0164',
@@ -96,13 +98,13 @@ describe('issueBacklogLink', () => {
       backlog_ref: 'CK-1352',
       category: 'defect',
     });
-    const linked = tryLinkIssueToBacklogByRef(store, issueId);
+    const linked = await tryLinkIssueToBacklogByRef(store, issueId);
     expect(linked.ref_no).toBe('CK-1352');
     expect(store.issues[0].backlog_ref).toBe('CK-1352');
     expect(store.backlogs[0].issue_id).toBe(issueId);
   });
 
-  it('links by external ticket ref (No Tiket)', () => {
+  it('links by external ticket ref (No Tiket)', async () => {
     store.addBacklog({
       ref_no: 'ABB-1199',
       project_id: 1,
@@ -115,11 +117,11 @@ describe('issueBacklogLink', () => {
       external_ticket_ref: '0680',
       category: 'defect',
     });
-    tryLinkIssueToBacklogByRef(store, issueId);
+    await tryLinkIssueToBacklogByRef(store, issueId);
     expect(store.backlogs[0].issue_id).toBe(issueId);
   });
 
-  it('promote reuses existing backlog instead of duplicate', () => {
+  it('promote reuses existing backlog instead of duplicate', async () => {
     store.addBacklog({ ref_no: 'PN-1331', project_id: 1, title: 'CR export' });
     const issueId = store.addIssue({
       ticket_no: 'eT-PN-0146',
@@ -129,7 +131,7 @@ describe('issueBacklogLink', () => {
       category: 'change_request',
       project_id: 1,
     });
-    const result = promoteIssueToBacklog(store, issueId, 1, { assigneePersonId: assigneeId });
+    const result = await promoteIssueToBacklog(store, issueId, 1, { assigneePersonId: assigneeId });
     expect(result.created).toBe(false);
     expect(result.linked).toBe(true);
     expect(store.backlogs).toHaveLength(1);
@@ -137,7 +139,7 @@ describe('issueBacklogLink', () => {
     expect(store.backlogs[0].assignee_person_id).toBe(assigneeId);
   });
 
-  it('promote creates new backlog with module ref when none exists', () => {
+  it('promote creates new backlog with module ref when none exists', async () => {
     const issueId = store.addIssue({
       ticket_no: 'eT-ABB-0002',
       title: 'New defect',
@@ -145,7 +147,7 @@ describe('issueBacklogLink', () => {
       category: 'defect',
       project_id: 1,
     });
-    const result = promoteIssueToBacklog(store, issueId, 1, { assigneePersonId: assigneeId });
+    const result = await promoteIssueToBacklog(store, issueId, 1, { assigneePersonId: assigneeId });
     expect(result.created).toBe(true);
     expect(result.backlog.ref_no).toMatch(/^ABB-\d+$/);
     expect(result.backlog.assignee_person_id).toBe(assigneeId);
@@ -153,7 +155,7 @@ describe('issueBacklogLink', () => {
     expect(store.issues[0].assignee_person_id).toBe(assigneeId);
   });
 
-  it('promote requires assignee', () => {
+  it('promote requires assignee', async () => {
     const issueId = store.addIssue({
       ticket_no: 'eT-ABB-0003',
       title: 'No assignee',
@@ -161,6 +163,6 @@ describe('issueBacklogLink', () => {
       category: 'defect',
       project_id: 1,
     });
-    expect(() => promoteIssueToBacklog(store, issueId, 1)).toThrow(/assignee_person_id is required/);
+    await expect(promoteIssueToBacklog(store, issueId, 1)).rejects.toThrow(/assignee_person_id is required/);
   });
 });

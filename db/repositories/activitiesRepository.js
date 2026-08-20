@@ -1,57 +1,98 @@
 import { idsInSameLogicalGroup } from '../../lib/activityLogicalGroup.js';
 import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 import { nextId } from '../runtime/helpers.js';
+import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere } from '../runtime/query.js';
 import {
-  supabase,
   rememberDeletedActivityId,
   rememberDeletedActivityIds,
   persistDeletedActivityIds,
   filterOutDeletedActivityRows,
 } from '../runtime/supabaseSync.js';
 
+function rehydrateActivityActors(rows) {
+  return (rows || []).map((row) => {
+    const embedded = parseActorEmbedFromDescription(row.description);
+    if (!embedded) return row;
+    return {
+      ...row,
+      created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
+      created_by_name: row.created_by_name || embedded.created_by_name,
+      updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
+      updated_by_name: row.updated_by_name || embedded.updated_by_name,
+      updated_at: row.updated_at || embedded.updated_at,
+      created_at: row.created_at || embedded.created_at || row.created_at,
+    };
+  });
+}
+
 export function createActivitiesRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
+  async function listActivities() {
+    if (!isDbMode()) {
+      return filterOutDeletedActivityRows([...getData().activities]);
+    }
+    const rows = await dbSelect('activities', { order: 'id' });
+    const kept = await filterOutDeletedActivityRows(rows);
+    return rehydrateActivityActors(kept);
+  }
+
   return {
+    /** @deprecated Prefer listActivities() — sync getter is local-only. */
     get activities() {
       return [...getData().activities];
     },
 
-    addActivity(row) {
-      const data = getData();
-      const id = nextId(data.activities);
+    listActivities,
+
+    async addActivity(row) {
       const created_at = row?.created_at || new Date().toISOString();
-      data.activities.push({ id, ...row, created_at });
-      save();
-      return id;
+      const payload = { ...row, created_at };
+      if (!isDbMode()) {
+        const data = getData();
+        const id = nextId(data.activities);
+        data.activities.push({ id, ...payload });
+        save();
+        return id;
+      }
+      const saved = await dbInsert('activities', payload);
+      return saved.id;
     },
 
-    updateActivity(id, row) {
-      const data = getData();
-      const i = data.activities.findIndex((a) => a.id === id);
-      if (i === -1) return false;
-      data.activities[i] = { ...data.activities[i], ...row };
-      save();
-      return true;
+    async updateActivity(id, row) {
+      if (!isDbMode()) {
+        const data = getData();
+        const i = data.activities.findIndex((a) => a.id === id);
+        if (i === -1) return false;
+        data.activities[i] = { ...data.activities[i], ...row };
+        save();
+        return true;
+      }
+      const saved = await dbUpdate('activities', id, row);
+      return Boolean(saved);
     },
 
     /** Removes locally and deletes the row in Supabase (upsert alone does not remove missing rows). */
     async deleteActivity(id) {
-      const data = getData();
-      const i = data.activities.findIndex((a) => a.id === id);
-      if (i === -1) return false;
       rememberDeletedActivityId(id);
       try {
         await persistDeletedActivityIds([id]);
       } catch (e) {
         console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
       }
-      if (supabase) {
-        const { error } = await supabase.from('activities').delete().eq('id', id);
-        if (error) throw error;
+      if (!isDbMode()) {
+        const data = getData();
+        const i = data.activities.findIndex((a) => a.id === id);
+        if (i === -1) return false;
+        data.activities.splice(i, 1);
+        save();
+        return true;
       }
-      data.activities.splice(i, 1);
-      save();
+      await dbDelete('activities', id);
+      const data = getData();
+      if (data.activities) {
+        data.activities = data.activities.filter((a) => Number(a.id) !== Number(id));
+      }
       return true;
     },
 
@@ -63,44 +104,50 @@ export function createActivitiesRepository(ctx, getStore) {
      * @param {{ skipSave?: boolean }} [opts] skipSave avoids queueing a full sync (preferred on cancel).
      */
     async deleteActivityLogicalGroupByAnyMemberId(id, opts = {}) {
-      const data = getData();
-      const ids = idsInSameLogicalGroup(data.activities, id);
+      const activities = isDbMode()
+        ? await dbSelect('activities', { order: 'id' })
+        : getData().activities;
+      const ids = idsInSameLogicalGroup(activities, id);
       if (ids.length === 0) return { deleted: 0, deleted_ids: [] };
-      const idSet = new Set(ids);
+      const idSet = new Set(ids.map(Number));
       rememberDeletedActivityIds(ids);
       try {
         await persistDeletedActivityIds(ids);
       } catch (e) {
         console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
       }
-      if (supabase) {
-        const { error } = await supabase.from('activities').delete().in('id', ids);
-        if (error) throw error;
+
+      if (isDbMode()) {
+        await dbDeleteWhere('activities', {}, { inFilters: { id: ids } });
+        const data = getData();
+        if (data.activities) {
+          data.activities = data.activities.filter((a) => !idSet.has(Number(a.id)));
+        }
+        // Belt-and-suspenders: remove again in case a stale sync raced.
+        await dbDeleteWhere('activities', {}, { inFilters: { id: ids } });
+        return { deleted: ids.length, deleted_ids: ids };
       }
+
+      const data = getData();
       const before = data.activities.length;
-      data.activities = data.activities.filter((a) => !idSet.has(a.id));
+      data.activities = data.activities.filter((a) => !idSet.has(Number(a.id)));
       if (data.activities.length === before) return { deleted: 0, deleted_ids: [] };
       if (!opts.skipSave) save();
-      // Belt-and-suspenders: remove again after local mutation in case a stale sync raced.
-      if (supabase) {
-        const { error } = await supabase.from('activities').delete().in('id', ids);
-        if (error) throw error;
-      }
       return { deleted: ids.length, deleted_ids: ids };
     },
 
     /** Hard-delete activity row ids from Supabase (used after cancel to prevent resurrection). */
     async purgeActivityIdsFromSupabase(ids) {
       const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
-      if (!list.length || !supabase) return { deleted: 0 };
+      if (!list.length) return { deleted: 0 };
       rememberDeletedActivityIds(list);
       try {
         await persistDeletedActivityIds(list);
       } catch (e) {
         console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
       }
-      const { error } = await supabase.from('activities').delete().in('id', list);
-      if (error) throw error;
+      if (!isDbMode()) return { deleted: 0 };
+      await dbDeleteWhere('activities', {}, { inFilters: { id: list } });
       return { deleted: list.length };
     },
 
@@ -109,25 +156,11 @@ export function createActivitiesRepository(ctx, getStore) {
      * (e.g. SQL/dashboard deletes) are visible without restarting the server.
      */
     async refreshActivitiesFromSupabase() {
-      if (!supabase) return;
+      if (!isDbMode()) return;
+      const rows = await dbSelect('activities', { order: 'id' });
+      const kept = await filterOutDeletedActivityRows(rows);
       const data = getData();
-      const { data: rows, error } = await supabase.from('activities').select('*').order('id', { ascending: true });
-      if (error) throw error;
-      const kept = await filterOutDeletedActivityRows(rows || []);
-      // Rehydrate actor fields from description embed when DB columns are missing.
-      data.activities = kept.map((row) => {
-        const embedded = parseActorEmbedFromDescription(row.description);
-        if (!embedded) return row;
-        return {
-          ...row,
-          created_by_user_id: row.created_by_user_id ?? embedded.created_by_user_id,
-          created_by_name: row.created_by_name || embedded.created_by_name,
-          updated_by_user_id: row.updated_by_user_id ?? embedded.updated_by_user_id,
-          updated_by_name: row.updated_by_name || embedded.updated_by_name,
-          updated_at: row.updated_at || embedded.updated_at,
-          created_at: row.created_at || embedded.created_at || row.created_at,
-        };
-      });
+      data.activities = rehydrateActivityActors(kept);
     },
   };
 }

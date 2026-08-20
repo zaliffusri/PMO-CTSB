@@ -29,31 +29,33 @@ describe('clientContactLegacy', () => {
     expect(expanded[0].title).toBe('Pegawai Teknologi Maklumat');
   });
 
-  it('repairs legacy rows in store', () => {
+  it('repairs legacy rows in store', async () => {
     const data = { clients: [{ id: 5, name: 'MBPG' }], client_contacts: [] };
     let nextId = 1;
     const store = {
-      clients: data.clients,
-      getClientContacts(clientId) {
+      async listClients() {
+        return data.clients;
+      },
+      async getClientContacts(clientId) {
         return data.client_contacts.filter((c) => c.client_id === clientId);
       },
-      addClientContact(row) {
+      async addClientContact(row) {
         const id = nextId++;
         data.client_contacts.push({ id, ...row });
         return id;
       },
-      deleteClientContact(id) {
+      async deleteClientContact(id) {
         const i = data.client_contacts.findIndex((c) => c.id === id);
         if (i >= 0) data.client_contacts.splice(i, 1);
       },
     };
-    store.addClientContact({
+    await store.addClientContact({
       client_id: 5,
       contact_name: SAMPLE,
       email: 'syariza@mbpg.gov.my',
       phone: '0197365305',
     });
-    const n = repairLegacyClientContacts(store, 5);
+    const n = await repairLegacyClientContacts(store, 5);
     expect(n).toBe(2);
     expect(data.client_contacts).toHaveLength(2);
     expect(data.client_contacts[0].contact_name).toBe('SYARIZA BINTI MOHAMMAD SHARIF');

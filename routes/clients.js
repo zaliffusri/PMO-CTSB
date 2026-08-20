@@ -9,25 +9,26 @@ import {
 
 export const clientsRouter = Router();
 
-function companyProjects(clientId) {
+async function companyProjects(clientId) {
+  const projectClients = await store.listProjectClients();
+  const projects = await store.listProjects();
   const projectIds = new Set(
-    (store.project_clients || [])
+    (projectClients || [])
       .filter((pc) => pc.client_id === clientId)
       .map((pc) => pc.project_id),
   );
-  return store.projects
+  return projects
     .filter((p) => projectIds.has(p.id))
     .map((p) => ({ id: p.id, name: p.name, status: p.status }))
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
-function buildCompanyResponse(client) {
+async function buildCompanyResponse(client) {
+  const rawContacts = await store.getClientContacts(client.id);
   const contacts = expandClientContacts(
-    store
-      .getClientContacts(client.id)
-      .sort((a, b) => (a.contact_name || '').localeCompare(b.contact_name || '')),
+    rawContacts.sort((a, b) => (a.contact_name || '').localeCompare(b.contact_name || '')),
   );
-  const projects = companyProjects(client.id);
+  const projects = await companyProjects(client.id);
   return {
     id: client.id,
     name: client.name,
@@ -40,7 +41,7 @@ function buildCompanyResponse(client) {
 }
 
 async function maybeRepairLegacyContacts() {
-  const { clientsTouched, contactsCreated } = repairAllLegacyClientContacts(store);
+  const { clientsTouched, contactsCreated } = await repairAllLegacyClientContacts(store);
   if (contactsCreated > 0) {
     try {
       await store.persistToSupabase();
@@ -53,22 +54,25 @@ async function maybeRepairLegacyContacts() {
 
 clientsRouter.get('/', async (req, res) => {
   await maybeRepairLegacyContacts();
-  const clients = store.clients
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-    .map((c) => buildCompanyResponse(c));
-  res.json(clients);
+  const clients = await store.listClients();
+  const sorted = clients.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const rows = [];
+  for (const c of sorted) {
+    rows.push(await buildCompanyResponse(c));
+  }
+  res.json(rows);
 });
 
 clientsRouter.get('/:id', async (req, res) => {
   await maybeRepairLegacyContacts();
   const id = +req.params.id;
-  const client = store.clients.find((c) => c.id === id);
+  const client = await store.getClientById(id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
-  res.json(buildCompanyResponse(client));
+  res.json(await buildCompanyResponse(client));
 });
 
 /** Add a PIC to an existing company or create company + PIC */
-clientsRouter.post('/', (req, res) => {
+clientsRouter.post('/', async (req, res) => {
   const {
     company_id,
     company_name,
@@ -81,10 +85,10 @@ clientsRouter.post('/', (req, res) => {
   const newCompanyName = (company_name || legacyName || '').trim();
 
   if (clientId) {
-    const existing = store.clients.find((c) => c.id === clientId);
+    const existing = await store.getClientById(clientId);
     if (!existing) return res.status(404).json({ error: 'Company not found' });
   } else if (newCompanyName) {
-    clientId = store.findOrCreateClient(newCompanyName);
+    clientId = await store.findOrCreateClient(newCompanyName);
     if (!clientId) return res.status(400).json({ error: 'Company name is required' });
   } else {
     return res.status(400).json({ error: 'Select an existing company or enter a new company name' });
@@ -95,7 +99,7 @@ clientsRouter.post('/', (req, res) => {
     if (isLegacyContactBlob(contact_name)) {
       return res.status(400).json({ error: 'Invalid contact name — use separate PIC fields, not embedded JSON.' });
     }
-    store.addClientContact({
+    await store.addClientContact({
       client_id: clientId,
       contact_name: contact_name || null,
       email: email || null,
@@ -103,44 +107,46 @@ clientsRouter.post('/', (req, res) => {
     });
   }
 
-  const client = store.clients.find((c) => c.id === clientId);
+  const client = await store.getClientById(clientId);
   const label = client?.name || String(clientId);
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'client',
     target_id: clientId,
     summary: hasPic ? `Added PIC for company "${label}"` : `Created company "${label}"`,
   });
-  res.status(201).json(buildCompanyResponse(client));
+  res.status(201).json(await buildCompanyResponse(client));
 });
 
-clientsRouter.put('/contacts/:contactId', (req, res) => {
+clientsRouter.put('/contacts/:contactId', async (req, res) => {
   const contactId = +req.params.contactId;
-  const existing = store.client_contacts.find((cc) => cc.id === contactId);
+  const contacts = await store.listClientContacts();
+  const existing = contacts.find((cc) => cc.id === contactId);
   if (!existing) return res.status(404).json({ error: 'Contact not found' });
   const { contact_name, email, phone } = req.body;
-  store.updateClientContact(contactId, {
+  await store.updateClientContact(contactId, {
     contact_name: contact_name !== undefined ? contact_name || null : existing.contact_name,
     email: email !== undefined ? email || null : existing.email,
     phone: phone !== undefined ? phone || null : existing.phone,
   });
-  const client = store.clients.find((c) => c.id === existing.client_id);
-  store.appendAuditLog(req.user, {
+  const client = await store.getClientById(existing.client_id);
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'client_contact',
     target_id: contactId,
     summary: `Updated PIC for company "${client?.name || existing.client_id}"`,
   });
-  res.json(buildCompanyResponse(client));
+  res.json(await buildCompanyResponse(client));
 });
 
-clientsRouter.delete('/contacts/:contactId', (req, res) => {
+clientsRouter.delete('/contacts/:contactId', async (req, res) => {
   const contactId = +req.params.contactId;
-  const existing = store.client_contacts.find((cc) => cc.id === contactId);
+  const contacts = await store.listClientContacts();
+  const existing = contacts.find((cc) => cc.id === contactId);
   if (!existing) return res.status(404).json({ error: 'Contact not found' });
-  const client = store.clients.find((c) => c.id === existing.client_id);
-  store.deleteClientContact(contactId);
-  store.appendAuditLog(req.user, {
+  const client = await store.getClientById(existing.client_id);
+  await store.deleteClientContact(contactId);
+  await store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'client_contact',
     target_id: contactId,
@@ -149,16 +155,17 @@ clientsRouter.delete('/contacts/:contactId', (req, res) => {
   res.status(204).send();
 });
 
-clientsRouter.put('/:id', (req, res) => {
+clientsRouter.put('/:id', async (req, res) => {
   const { name } = req.body;
   const id = +req.params.id;
-  const existing = store.clients.find((c) => c.id === id);
+  const existing = await store.getClientById(id);
   if (!existing) return res.status(404).json({ error: 'Client not found' });
   if (name !== undefined && !(name || '').trim()) {
     return res.status(400).json({ error: 'Company name is required' });
   }
   const trimmedName = name !== undefined ? (name || '').trim() : existing.name;
-  const duplicate = store.clients.find(
+  const clients = await store.listClients();
+  const duplicate = clients.find(
     (c) => c.id !== id && (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase(),
   );
   if (duplicate) return res.status(400).json({ error: 'A company with this name already exists' });
@@ -168,23 +175,23 @@ clientsRouter.put('/:id', (req, res) => {
       ? null
       : validateImageDataUrl(req.body.logo_url, { maxBytes: 120_000, field: 'logo_url' });
   }
-  store.updateClient(id, patch);
-  store.appendAuditLog(req.user, {
+  await store.updateClient(id, patch);
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'client',
     target_id: id,
     summary: `Updated company "${trimmedName}"`,
   });
-  const client = store.clients.find((c) => c.id === id);
-  res.json(buildCompanyResponse(client));
+  const client = await store.getClientById(id);
+  res.json(await buildCompanyResponse(client));
 });
 
-clientsRouter.delete('/:id', (req, res) => {
+clientsRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.clients.find((c) => c.id === id);
+  const existing = await store.getClientById(id);
   if (!existing) return res.status(404).json({ error: 'Client not found' });
-  store.deleteClient(id);
-  store.appendAuditLog(req.user, {
+  await store.deleteClient(id);
+  await store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'client',
     target_id: id,

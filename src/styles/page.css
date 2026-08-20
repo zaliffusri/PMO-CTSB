@@ -1,0 +1,138 @@
+/* Extracted from index.css — keep CSS variables via ThemeProvider */
+/* Page-level responsive */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+.page-header__copy { min-width: 0; flex: 1 1 16rem; }
+.page-eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.page-header h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.page-header-badge { display: inline-flex; vertical-align: middle; }
+.page-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.page-breadcrumb:hover { color: var(--accent); text-decoration: none; }
+.page-subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  max-width: 62ch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.page-meta { font-size: 0.88rem; color: var(--text-muted); }
+.page-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: -0.5rem 0 1rem;
+}
+.tag-chip {
+  display: inline-flex;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+@media (min-width: 769px) {
+  .page-header h1 {
+    font-size: 1.5rem;
+  }
+  .page-header--compact .page-eyebrow,
+  .page-header--compact h1 {
+    display: none;
+  }
+  .page-header--compact {
+    margin-bottom: 1rem;
+  }
+  .page-header--compact .page-subtitle {
+    margin-top: 0;
+    font-size: 0.92rem;
+  }
+  .page-header--compact.page-header:not(:has(.page-subtitle)) {
+    display: none;
+  }
+}
+
+.card-list-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.card-list-row__content {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.card-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.card-section-header__title {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.table-actions-col {
+  text-align: right;
+  white-space: nowrap;
+}
+

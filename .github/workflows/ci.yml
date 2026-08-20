@@ -15,5 +15,51 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
+      - name: Validate migration filenames
+        run: npm run db:check-migrations
       - run: npm run test
       - run: npm run build
+
+  # Apply pending files from supabase/migrations/ only (tracked in schema_migrations).
+  # Repository secret required: SUPABASE_DB_URL
+  # One-time for an already-migrated DB: set repo variable DB_MIGRATE_BASELINE=1 on a single run.
+  migrate:
+    if: >
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Skip when SUPABASE_DB_URL secret missing
+        id: gate
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "SUPABASE_DB_URL not set — skipping migrate job."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Dry-run pending migrations
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: npm run db:migrate:dry-run
+      - name: Apply pending migrations
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DB_MIGRATE_BASELINE: ${{ vars.DB_MIGRATE_BASELINE }}
+        run: npm run db:migrate
+      - name: Verify schema
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: npm run db:verify

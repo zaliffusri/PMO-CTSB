@@ -53,7 +53,15 @@ db/
 
 ### Data store
 
-`db/store.js` ialah composer nipis yang menggabungkan repository domain di `db/repositories/` (clients, projects, issues, people, …). Runtime bersama (muat data, simpan, sync Supabase) berada di `db/runtime/`. Pada production, data dimuat dari Supabase. Untuk dev tempatan: `ALLOW_LOCAL_STORE=1` + `db/data.json`.
+`db/store.js` is a thin composer over `db/repositories/*`.
+
+**Production (Supabase):** repositories issue **stateless per-request queries** via `db/runtime/query.js`. There is no cold-start full-table snapshot and no full-snapshot upsert queue. Multi-table flows (e.g. helpdesk → backlog) use `db/runtime/pgPool.js` transactions when `SUPABASE_DB_URL` is set.
+
+**Local (`ALLOW_LOCAL_STORE=1` without Supabase):** in-memory data in `db/runtime/dataState.js` + demo seed.
+
+See [STATELESS-STORE.md](./STATELESS-STORE.md).
+
+Legacy `persistToSupabase()` / `reloadStore()` calls in routes remain valid but are no-ops in DB mode.
 
 ---
 

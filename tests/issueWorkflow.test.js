@@ -39,7 +39,7 @@ describe('issueWorkflow backlog eligibility', () => {
 });
 
 describe('canUserPromoteIssueToBacklog', () => {
-  const people = [{ id: 1, email: 'dev@company.com', name: 'Dev User' }];
+  const people = [{ id: 1, email: 'dev@company.com', name: 'Dev User', user_id: 2 }];
   const issue = { status: 'open', support_level: 'L1', reporter_user_id: 99 };
 
   it('allows PMO and rostered team members', () => {

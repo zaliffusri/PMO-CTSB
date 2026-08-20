@@ -11,7 +11,7 @@ if (!to) {
   console.error('Set SMTP_USER in .env (or SMTP_TEST_TO for a different recipient).');
   process.exit(1);
 }
-if (!isMailerConfigured()) {
+if (!(await isMailerConfigured())) {
   console.error('Mailer not configured. Set SMTP_SERVICE=gmail, SMTP_USER, SMTP_PASS, SMTP_FROM in .env');
   process.exit(1);
 }

@@ -27,7 +27,7 @@ export { publicBrandingPayload };
 export function registerApiRoutes(app, { jsonLimitAttachments = '12mb' } = {}) {
   app.use('/api/auth', authRouter);
   app.get('/api/health', (req, res) => res.json({ ok: true }));
-  app.get('/api/settings/public', (req, res) => res.json(publicBrandingPayload()));
+  app.get('/api/settings/public', async (req, res) => res.json(await publicBrandingPayload()));
 
   app.use('/api', requireAuth);
 

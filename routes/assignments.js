@@ -13,10 +13,11 @@ function normalizePersonName(s) {
 }
 
 /** Team member row, or synthetic from app user when person_id matches a user id (legacy / sync). */
-function resolvePersonForAssignment(personId) {
-  const p = store.people.find((x) => x.id === personId);
+async function resolvePersonForAssignment(personId) {
+  const people = await store.listPeople();
+  const p = people.find((x) => x.id === personId);
   if (p) return p;
-  const u = store.findUserById(personId);
+  const u = await store.findUserById(personId);
   if (u) return { id: personId, name: u.name, email: u.email || null };
   return null;
 }
@@ -24,14 +25,15 @@ function resolvePersonForAssignment(personId) {
 /**
  * Resolve where to send assignment mail: team email, then user account by email, then by normalized name.
  */
-function resolveAssigneeEmail(person) {
+async function resolveAssigneeEmail(person) {
   if (!person) return '';
   const direct = String(person.email || '').trim();
   if (direct) return direct;
 
   const nm = normalizePersonName(person.name);
   if (nm) {
-    const u = store.users.find((x) => normalizePersonName(x.name) === nm);
+    const users = await store.listUsers();
+    const u = users.find((x) => normalizePersonName(x.name) === nm);
     if (u?.email) return String(u.email).trim();
   }
   return '';
@@ -39,11 +41,11 @@ function resolveAssigneeEmail(person) {
 
 /** @returns {'sent'|'no_recipient'|'smtp_not_configured'|'failed'} */
 async function notifyAssignmentEmail({ person, project, roleInProject, allocationPercent, actorName, action }) {
-  if (!isMailerConfigured()) {
+  if (!(await isMailerConfigured())) {
     console.warn('assignments: SMTP not configured; assignment email skipped');
     return 'smtp_not_configured';
   }
-  const recipient = resolveAssigneeEmail(person);
+  const recipient = await resolveAssigneeEmail(person);
   if (!recipient) {
     const label = person?.name || person?.email || 'assignee';
     console.warn(
@@ -69,17 +71,22 @@ async function notifyAssignmentEmail({ person, project, roleInProject, allocatio
   }
 }
 
-assignmentsRouter.get('/', (req, res) => {
+assignmentsRouter.get('/', async (req, res) => {
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const personId = req.query.person_id ? +req.query.person_id : null;
-  let rows = store.project_assignments.map(pa => {
-    const person = store.people.find(p => p.id === pa.person_id);
-    const project = store.projects.find(p => p.id === pa.project_id);
+  const [assignments, people, projects] = await Promise.all([
+    store.listAssignments(),
+    store.listPeople(),
+    store.listProjects(),
+  ]);
+  let rows = assignments.map(pa => {
+    const person = people.find(p => p.id === pa.person_id);
+    const project = projects.find(p => p.id === pa.project_id);
     return { ...pa, person_name: person?.name, project_name: project?.name };
   });
   if (projectId) rows = rows.filter(r => r.project_id === projectId);
   if (personId) rows = rows.filter(r => r.person_id === personId);
-  rows.sort((a, b) => a.project_id - b.project_id || (store.people.find(p => p.id === a.person_id)?.name || '').localeCompare(store.people.find(p => p.id === b.person_id)?.name || ''));
+  rows.sort((a, b) => a.project_id - b.project_id || (people.find(p => p.id === a.person_id)?.name || '').localeCompare(people.find(p => p.id === b.person_id)?.name || ''));
   res.json(rows);
 });
 
@@ -89,16 +96,18 @@ assignmentsRouter.post('/', async (req, res) => {
     return res.status(400).json({ error: 'project_id and person_id are required' });
   }
   try {
-    const id = store.addAssignment({
+    const id = await store.addAssignment({
       project_id: +project_id,
       person_id: +person_id,
       role_in_project: role_in_project || null,
       allocation_percent: allocation_percent ?? 100,
     });
-    const pa = store.project_assignments.find(a => a.id === id);
-    const person = resolvePersonForAssignment(pa.person_id);
-    const project = store.projects.find(p => p.id === pa.project_id);
-    store.appendAuditLog(req.user, {
+    const assignments = await store.listAssignments();
+    const pa = assignments.find(a => a.id === id);
+    const person = await resolvePersonForAssignment(pa.person_id);
+    const projects = await store.listProjects();
+    const project = projects.find(p => p.id === pa.project_id);
+    await store.appendAuditLog(req.user, {
       action: 'create',
       target_type: 'assignment',
       target_id: id,
@@ -146,9 +155,10 @@ assignmentsRouter.post('/', async (req, res) => {
 
 assignmentsRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.project_assignments.find(a => a.id === id);
+  const assignments = await store.listAssignments();
+  const existing = assignments.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Assignment not found' });
-  store.deleteAssignment(id);
+  await store.deleteAssignment(id);
   try {
     await store.persistAssignmentsToSupabase();
   } catch (e) {
@@ -162,16 +172,19 @@ assignmentsRouter.delete('/:id', async (req, res) => {
 assignmentsRouter.put('/:id', async (req, res) => {
   const { role_in_project, allocation_percent } = req.body;
   const id = +req.params.id;
-  const existing = store.project_assignments.find(a => a.id === id);
+  const assignments = await store.listAssignments();
+  const existing = assignments.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Assignment not found' });
-  store.updateAssignment(id, {
+  await store.updateAssignment(id, {
     role_in_project: role_in_project ?? existing.role_in_project,
     allocation_percent: allocation_percent ?? existing.allocation_percent,
   });
-  const pa = store.project_assignments.find(a => a.id === id);
-  const person = resolvePersonForAssignment(pa.person_id);
-  const project = store.projects.find(p => p.id === pa.project_id);
-  store.appendAuditLog(req.user, {
+  const updatedAssignments = await store.listAssignments();
+  const pa = updatedAssignments.find(a => a.id === id);
+  const person = await resolvePersonForAssignment(pa.person_id);
+  const projects = await store.listProjects();
+  const project = projects.find(p => p.id === pa.project_id);
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'assignment',
     target_id: id,

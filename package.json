@@ -13,6 +13,9 @@
     "email:test": "node scripts/email-test.mjs",
     "db:migrate": "node scripts/applyDbMigrations.mjs",
     "db:migrate:features": "node scripts/applyDbMigrations.mjs --skip-push --from=20260627120000",
+    "db:migrate:dry-run": "node scripts/applyDbMigrations.mjs --dry-run",
+    "db:check-migrations": "node scripts/checkMigrations.mjs",
+    "db:link-people": "node scripts/linkPeopleUserIds.mjs",
     "db:verify": "node scripts/verifyDbSchema.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -22,6 +25,7 @@
     "docs:workflow-pdf": "node scripts/generateWorkflowPdf.mjs"
   },
   "dependencies": {
+    "@sentry/node": "^9.46.0",
     "@supabase/supabase-js": "^2.50.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.1",
@@ -31,7 +35,8 @@
     "pg": "^8.13.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.28.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.3",

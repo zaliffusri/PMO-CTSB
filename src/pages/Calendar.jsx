@@ -1,787 +1,50 @@
 import { useState, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
-import { card, inputStyle } from '../styles/commonStyles';
-import PageHeader from '../components/PageHeader';
+import { inputStyle } from '../styles/commonStyles';
 import ScheduleEmailModal from '../components/ScheduleEmailModal';
+import {
+  CalendarActivityDetailSheet,
+  CalendarActivityForm,
+  CalendarCancelModal,
+  CalendarDayActivitiesSheet,
+  CalendarHeader,
+  CalendarMonthGrid,
+} from '../components/calendar';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import { useCalendarActivities } from '../hooks/useCalendarActivities';
 import { activityLogicalGroupKey } from '../../lib/activityLogicalGroup.js';
 import { canEditCalendarUser } from '../../lib/permissions.js';
 import {
-  ACTIVITY_LOCATION_OTHERS,
   DEFAULT_ACTIVITY_SITE_LOCATIONS,
   composeLocation,
   resolveLocationForForm,
 } from '../constants/activityLocations';
-import { interpretActivitySchedule } from '../../lib/activityDailyWindows.js';
-
-const CANCELLED_ACTIVITY_KEYS_STORAGE = 'pmo_cancelled_activity_keys_v1';
-
-function readCancelledActivityKeys() {
-  try {
-    const raw = sessionStorage.getItem(CANCELLED_ACTIVITY_KEYS_STORAGE);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function rememberCancelledActivityKey(key) {
-  if (!key) return;
-  const next = readCancelledActivityKeys();
-  next.add(String(key));
-  try {
-    sessionStorage.setItem(CANCELLED_ACTIVITY_KEYS_STORAGE, JSON.stringify([...next]));
-  } catch {
-    /* ignore quota */
-  }
-}
-
-function withoutCancelledActivityKeys(list) {
-  const cancelled = readCancelledActivityKeys();
-  if (!cancelled.size) return list || [];
-  return (list || []).filter((row) => !cancelled.has(String(activityLogicalGroupKey(row))));
-}
-
-function getMonthRange(year, month) {
-  const first = new Date(year, month - 1, 1);
-  const last = new Date(year, month, 0);
-  const monthEndExclusive = new Date(year, month, 1);
-  return {
-    /** Full ISO instants for API overlap (avoid UTC day shift from toISOString().slice(0, 10)). */
-    rangeStartIso: first.toISOString(),
-    rangeEndExclusiveIso: monthEndExclusive.toISOString(),
-    firstDayOfWeek: first.getDay(),
-    daysInMonth: last.getDate(),
-  };
-}
-
-function getCalendarGrid(year, month) {
-  const { firstDayOfWeek, daysInMonth } = getMonthRange(year, month);
-  const weeks = [];
-  let week = [];
-  for (let i = 0; i < firstDayOfWeek; i++) week.push(null);
-  for (let d = 1; d <= daysInMonth; d++) {
-    week.push(d);
-    if (week.length === 7) { weeks.push(week); week = []; }
-  }
-  if (week.length) {
-    while (week.length < 7) week.push(null);
-    weeks.push(week);
-  }
-  return weeks;
-}
-
-function isActivityOnDate(activity, year, month, day) {
-  const start = new Date(activity.start_at).getTime();
-  const end = new Date(activity.end_at).getTime();
-  const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
-  const dayEnd = new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime();
-  return start < dayEnd && end > dayStart;
-}
-
-/**
- * One "Log activity" with several people creates one DB row per person. For the calendar,
- * merge those rows into a single chip with all assignee names grouped together.
- *
- * Group key is shared with the API (delete whole logical activity) — see lib/activityLogicalGroup.js.
- */
-function groupActivitiesForCalendar(activities) {
-  const map = new Map();
-  for (const a of activities) {
-    const key = activityLogicalGroupKey(a);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(a);
-  }
-  const result = [];
-  for (const [, group] of map) {
-    group.sort((x, y) => (x.id ?? 0) - (y.id ?? 0));
-    const primary = group[0];
-    const names = [...new Set(group.map((g) => g.person_name).filter(Boolean))];
-    let person_name = names.length ? names.join(', ') : (primary.person_name ?? '');
-    const ext = String(primary.external_attendees || '').trim();
-    if (ext) {
-      person_name = person_name ? `${person_name}; ${ext}` : ext;
-    }
-    const person_ids = [...new Set(group.map((g) => g.person_id).filter((x) => x != null))];
-    // Prefer earliest create + latest update across assignee rows.
-    let created_at = primary.created_at;
-    let created_by_name = primary.created_by_name;
-    let created_by_user_id = primary.created_by_user_id;
-    let updated_at = primary.updated_at;
-    let updated_by_name = primary.updated_by_name;
-    let updated_by_user_id = primary.updated_by_user_id;
-    for (const g of group) {
-      if (g.created_at && (!created_at || new Date(g.created_at) < new Date(created_at))) {
-        created_at = g.created_at;
-        created_by_name = g.created_by_name || created_by_name;
-        created_by_user_id = g.created_by_user_id ?? created_by_user_id;
-      }
-      if (g.updated_at && (!updated_at || new Date(g.updated_at) > new Date(updated_at))) {
-        updated_at = g.updated_at;
-        updated_by_name = g.updated_by_name || updated_by_name;
-        updated_by_user_id = g.updated_by_user_id ?? updated_by_user_id;
-      }
-      if (!created_by_name && g.created_by_name) created_by_name = g.created_by_name;
-      if (!updated_by_name && g.updated_by_name) updated_by_name = g.updated_by_name;
-    }
-    result.push({
-      ...primary,
-      person_name,
-      person_ids,
-      created_at,
-      created_by_name,
-      created_by_user_id,
-      updated_at,
-      updated_by_name,
-      updated_by_user_id,
-    });
-  }
-  result.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
-  return result;
-}
-
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
-/** Maps API type to CSS suffix (legacy `task` → outstation). */
-function activityCssClass(type) {
-  if (type === 'task') return 'outstation';
-  if (
-    type === 'meeting' ||
-    type === 'outstation' ||
-    type === 'other' ||
-    type === 'uat' ||
-    type === 'urs' ||
-    type === 'fat' ||
-    type === 'demo' ||
-    type === 'training' ||
-    type === 'go-live' ||
-    type === 'tender'
-  ) return type;
-  return 'other';
-}
-
-const ACTIVITY_TYPE_OPTIONS = [
-  { value: 'meeting', label: 'Meeting' },
-  { value: 'outstation', label: 'Outstation' },
-  { value: 'other', label: 'Other' },
-  { value: 'uat', label: 'UAT' },
-  { value: 'urs', label: 'URS' },
-  { value: 'fat', label: 'FAT' },
-  { value: 'demo', label: 'DEMO' },
-  { value: 'training', label: 'TRAINING' },
-  { value: 'go-live', label: 'GO-LIVE' },
-  { value: 'tender', label: 'TENDER' },
-];
-const ACTIVITY_TYPE_LABELS = Object.fromEntries(ACTIVITY_TYPE_OPTIONS.map((x) => [x.value, x.label]));
-ACTIVITY_TYPE_LABELS.task = 'Outstation';
-function activityTypeLabel(type) {
-  return ACTIVITY_TYPE_LABELS[type] || String(type || 'Other').toUpperCase();
-}
-
-const DAY_NAMES_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-/** Max activity chips shown per calendar day before "See more". */
-const CALENDAR_DAY_MAX_VISIBLE = 3;
-
-const LEGEND_TYPES = [
-  { css: 'meeting', label: 'Meeting' },
-  { css: 'outstation', label: 'Outstation' },
-  { css: 'other', label: 'Other' },
-  { css: 'uat', label: 'UAT' },
-  { css: 'urs', label: 'URS' },
-  { css: 'fat', label: 'FAT' },
-  { css: 'demo', label: 'DEMO' },
-  { css: 'training', label: 'Training' },
-  { css: 'go-live', label: 'Go-live' },
-  { css: 'tender', label: 'Tender' },
-];
-
-function formatActivityShortTime(a) {
-  const start = new Date(a.start_at);
-  if (!Number.isFinite(start.getTime())) return '';
-  return start.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
-/** Local wall time for `<input type="datetime-local" />`. Never use `.slice(0,16)` on ISO strings (Z/offset shifts the wrong way). */
-function toDatetimeLocalValue(iso) {
-  if (iso == null || iso === '') return '';
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function formatActivityTimeRange(a) {
-  const schedule = interpretActivitySchedule(a.start_at, a.end_at);
-  if (schedule.mode === 'daily' && schedule.dayCount > 1) {
-    const first = new Date(schedule.firstStartIso);
-    const last = new Date(schedule.lastStartIso);
-    const endClock = new Date(schedule.firstEndIso);
-    const dateOpts = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
-    const timeOpts = { hour: '2-digit', minute: '2-digit' };
-    return `${first.toLocaleTimeString(undefined, timeOpts)} – ${endClock.toLocaleTimeString(undefined, timeOpts)} each day · ${first.toLocaleDateString(undefined, dateOpts)} – ${last.toLocaleDateString(undefined, dateOpts)}`;
-  }
-  const start = new Date(a.start_at);
-  const end = new Date(a.end_at);
-  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
-    return `${a.start_at ?? ''} – ${a.end_at ?? ''}`;
-  }
-  const sameDay =
-    start.getFullYear() === end.getFullYear() &&
-    start.getMonth() === end.getMonth() &&
-    start.getDate() === end.getDate();
-  const dateOpts = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
-  const timeOpts = { hour: '2-digit', minute: '2-digit' };
-  if (sameDay) {
-    return `${start.toLocaleDateString(undefined, dateOpts)} · ${start.toLocaleTimeString(undefined, timeOpts)} – ${end.toLocaleTimeString(undefined, timeOpts)}`;
-  }
-  const fullOpts = { ...dateOpts, ...timeOpts };
-  return `${start.toLocaleString(undefined, fullOpts)} – ${end.toLocaleString(undefined, fullOpts)}`;
-}
-
-function formatAuditWhen(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-/** True only when the activity was edited after create (not the initial save). */
-function activityWasEditedAfterCreate(a) {
-  if (!a?.updated_by_name || !a?.updated_at || !a?.created_at) return false;
-  const createdMs = new Date(a.created_at).getTime();
-  const updatedMs = new Date(a.updated_at).getTime();
-  if (!Number.isFinite(createdMs) || !Number.isFinite(updatedMs)) return false;
-  return updatedMs > createdMs + 2000;
-}
-
-/** Calendar popovers / detail sheet: hide import audit text; real notes still show; full description stays in edit & API. */
-function activityDescriptionForCalendarDisplay(description) {
-  const raw = String(description || '').trim();
-  if (!raw) return '';
-  const isImportAuditSegment = (seg) =>
-    /^Imported \(accounts\):/i.test(seg) ||
-    /^Imported for:/i.test(seg) ||
-    /^Guests:/i.test(seg) ||
-    /^__pmo_act_audit__:/i.test(seg);
-  const kept = raw
-    .split(/\s*\|\s*/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((seg) => !isImportAuditSegment(seg));
-  return kept.join(' | ');
-}
-
-/**
- * Convert `datetime-local` value (local wall time) to UTC ISO before saving.
- * Parse parts explicitly so browsers never treat the string as UTC.
- */
-function toApiDateTimeValue(localValue) {
-  if (!localValue) return localValue;
-  const m = String(localValue).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (!m) {
-    const d = new Date(localValue);
-    if (!Number.isFinite(d.getTime())) return localValue;
-    return d.toISOString();
-  }
-  const d = new Date(
-    Number(m[1]),
-    Number(m[2]) - 1,
-    Number(m[3]),
-    Number(m[4]),
-    Number(m[5]),
-    0,
-    0,
-  );
-  if (!Number.isFinite(d.getTime())) return localValue;
-  return d.toISOString();
-}
-
-function shouldUseMobileActivityDetail() {
-  if (typeof window === 'undefined') return false;
-  return window.matchMedia('(max-width: 767px)').matches || window.matchMedia('(hover: none)').matches;
-}
-
-function escapeHtml(v) {
-  return String(v ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function parseCsvRows(text) {
-  const rows = [];
-  let i = 0;
-  let field = '';
-  let row = [];
-  let inQuotes = false;
-  const pushField = () => { row.push(field); field = ''; };
-  const pushRow = () => { rows.push(row); row = []; };
-  while (i < text.length) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
-        inQuotes = false; i += 1; continue;
-      }
-      field += ch; i += 1; continue;
-    }
-    if (ch === '"') { inQuotes = true; i += 1; continue; }
-    if (ch === ',') { pushField(); i += 1; continue; }
-    if (ch === '\n') { pushField(); pushRow(); i += 1; continue; }
-    if (ch === '\r') { i += 1; continue; }
-    field += ch; i += 1;
-  }
-  if (field.length > 0 || row.length > 0) { pushField(); pushRow(); }
-  return rows;
-}
-
-function normalizeHeader(s) {
-  return String(s || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\\/|]+/g, ' ')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ');
-}
-
-let xlsxModulePromise = null;
-async function getXlsxModule() {
-  if (!xlsxModulePromise) {
-    xlsxModulePromise = import('https://esm.sh/xlsx@0.18.5');
-  }
-  return xlsxModulePromise;
-}
-
-function tableRowsToObjects(rows) {
-  const nonEmptyRows = rows
-    .map((r) => (Array.isArray(r) ? r.map((v) => String(v ?? '').trim()) : []))
-    .filter((r) => r.some((v) => v !== ''));
-  if (nonEmptyRows.length <= 1) return [];
-  const headers = nonEmptyRows[0].map(normalizeHeader);
-  return nonEmptyRows.slice(1).map((r) => {
-    const item = {};
-    headers.forEach((h, idx) => { item[h || `col_${idx}`] = String(r[idx] ?? '').trim(); });
-    return item;
-  });
-}
-
-function firstNonEmpty(row, keys) {
-  for (const k of keys) {
-    const v = row[k];
-    if (v != null && String(v).trim() !== '') return String(v).trim();
-  }
-  return '';
-}
-
-function parseReportDateValue(dateLike) {
-  const raw = String(dateLike || '').trim();
-  if (!raw) return null;
-  // Support dd.mm.yyyy / dd-mm-yyyy / dd/mm/yyyy from imported spreadsheets.
-  const m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
-  if (m) {
-    const dd = Number(m[1]);
-    const mm = Number(m[2]);
-    const yyyy = Number(m[3]);
-    if (yyyy >= 1900 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
-      const d = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
-      if (Number.isFinite(d.getTime())) return d;
-    }
-  }
-  const d = new Date(raw);
-  if (!Number.isFinite(d.getTime())) return null;
-  return d;
-}
-
-/** Key for rows that describe the same meeting (import uses fixed 9:00–17:00 local per date). */
-function importMeetingDedupeKey(row) {
-  const t = row?.task;
-  if (!t) return '';
-  const title = String(t.title || '').trim().toLowerCase();
-  const loc = String(t.location || '').trim().toLowerCase();
-  const start = String(t.start_at || '');
-  const end = String(t.end_at || '');
-  const proj = t.project_id != null && t.project_id !== '' ? String(t.project_id) : '';
-  const client = String(row.client || '').trim().toLowerCase();
-  const extPart = String(t.external_attendees || '').trim();
-  const extKey = extPart ? `|${extPart.toLowerCase()}` : '';
-  return `${start}|${end}|${title}|${loc}|${proj}|${client}${extKey}`;
-}
-
-/**
- * Combine valid import rows that share the same meeting into one row (one activity group on confirm).
- * Order follows first occurrence in the file.
- */
-function mergeValidImportPreviewRows(validRows) {
-  const map = new Map();
-  for (const row of validRows) {
-    const k = importMeetingDedupeKey(row);
-    if (!k) continue;
-    if (!map.has(k)) {
-      map.set(k, {
-        ...row,
-        task: {
-          ...row.task,
-          person_ids: [...(row.task.person_ids || [])],
-        },
-      });
-      continue;
-    }
-    const acc = map.get(k);
-    const idSet = new Set([...(acc.task.person_ids || []), ...(row.task.person_ids || [])]);
-    const nameParts = [
-      ...String(acc.resolved_staff || '').split(',').map((s) => s.trim()).filter(Boolean),
-      ...String(row.resolved_staff || '').split(',').map((s) => s.trim()).filter(Boolean),
-    ];
-    const namesUnique = [...new Set(nameParts)];
-    const resolved = namesUnique.join(', ');
-    const extParts = [
-      ...String(acc.task.external_attendees || '').split(',').map((s) => s.trim()).filter(Boolean),
-      ...String(row.task.external_attendees || '').split(',').map((s) => s.trim()).filter(Boolean),
-    ];
-    const extMerged = [...new Set(extParts)].join(', ');
-    const descParts = [];
-    if (resolved) descParts.push(`Imported (accounts): ${resolved}`);
-    if (extMerged) descParts.push(`Guests: ${extMerged}`);
-    acc.task = {
-      ...acc.task,
-      person_ids: [...idSet],
-      external_attendees: extMerged || undefined,
-      description: descParts.length ? descParts.join(' | ') : undefined,
-    };
-    acc.resolved_staff = resolved;
-    const prevStaff = String(acc.staff_name || '').trim();
-    const nextStaff = String(row.staff_name || '').trim();
-    acc.staff_name = [prevStaff, nextStaff].filter(Boolean).join('; ');
-  }
-  return [...map.values()];
-}
-
-function parseImportedReportText(text) {
-  const src = String(text || '');
-  if (!src.trim()) return [];
-  if (src.includes('<table')) {
-    const doc = new DOMParser().parseFromString(src, 'text/html');
-    const trs = [...doc.querySelectorAll('table tr')];
-    if (trs.length === 0) return [];
-    const headers = [...trs[0].querySelectorAll('th,td')].map((x) => normalizeHeader(x.textContent));
-    const out = [];
-    trs.slice(1).forEach((tr) => {
-      const cells = [...tr.querySelectorAll('td')];
-      if (!cells.length) return;
-      const item = {};
-      cells.forEach((c, idx) => { item[headers[idx] || `col_${idx}`] = String(c.textContent || '').trim(); });
-      out.push(item);
-    });
-    return out;
-  }
-  const rows = parseCsvRows(src);
-  if (rows.length <= 1) return [];
-  const headers = rows[0].map(normalizeHeader);
-  return rows.slice(1).filter((r) => r.some((x) => String(x || '').trim() !== '')).map((r) => {
-    const item = {};
-    r.forEach((v, idx) => { item[headers[idx] || `col_${idx}`] = String(v || '').trim(); });
-    return item;
-  });
-}
-
-/**
- * Every worksheet with a header row + data rows.
- * `__sheet` is set only when the workbook has multiple tabs (for preview / error messages).
- */
-function xlsxWorkbookToImportRows(wb, XLSX) {
-  const names = Array.isArray(wb?.SheetNames) ? wb.SheetNames : [];
-  const tagSheet = names.length > 1;
-  const combined = [];
-  for (const sheetName of names) {
-    try {
-      const ws = wb.Sheets[sheetName];
-      if (!ws) continue;
-      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-      const objs = tableRowsToObjects(matrix);
-      for (const o of objs) {
-        combined.push(tagSheet ? { ...o, __sheet: sheetName } : { ...o });
-      }
-    } catch (e) {
-      console.warn(`import: skipped sheet "${sheetName}"`, e?.message || e);
-    }
-  }
-  return combined;
-}
-
-async function parseImportedReportFile(file) {
-  const lower = String(file?.name || '').toLowerCase();
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-    const XLSX = await getXlsxModule();
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    return xlsxWorkbookToImportRows(wb, XLSX);
-  }
-  const text = await file.text();
-  return parseImportedReportText(text);
-}
-
-/** Return each day-of-month covered by activity interval within the visible month. */
-function activityCoveredDaysInMonth(activity, year, month) {
-  const start = new Date(activity.start_at).getTime();
-  const end = new Date(activity.end_at).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
-  const { daysInMonth } = getMonthRange(year, month);
-  const result = [];
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
-    const dayEnd = new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime();
-    if (start < dayEnd && end > dayStart) result.push(day);
-  }
-  return result;
-}
-
-/** Location from Settings → Locations (plus Others). */
-function ActivityLocationFields({ siteLocations, preset, other, onPreset, onOther, style }) {
-  return (
-    <>
-      <label style={style}>
-        Location *
-        <select value={preset} onChange={(e) => onPreset(e.target.value)} required style={inputStyle}>
-          <option value="">Select location…</option>
-          {siteLocations.map((loc) => (
-            <option key={loc} value={loc}>
-              {loc}
-            </option>
-          ))}
-          <option value={ACTIVITY_LOCATION_OTHERS}>{ACTIVITY_LOCATION_OTHERS}</option>
-        </select>
-      </label>
-      {preset === ACTIVITY_LOCATION_OTHERS && (
-        <label style={{ gridColumn: '1 / -1' }}>
-          Specify location *
-          <input
-            type="text"
-            value={other}
-            onChange={(e) => onOther(e.target.value)}
-            placeholder="Custom location name"
-            required
-            style={inputStyle}
-          />
-        </label>
-      )}
-    </>
-  );
-}
-
-function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
-  const rangeLabel = formatActivityTimeRange(a);
-  const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
-  const shortTime = formatActivityShortTime(a);
-  const typeClass = activityCssClass(a.type);
-  const label = `${activityTypeLabel(a.type)}: ${a.title}. ${a.location ? `${a.location}. ` : ''}${a.person_name ?? ''}. ${rangeLabel}`;
-
-  const handleClick = (e) => {
-    e.stopPropagation();
-    onToggleDetail(a.id);
-  };
-
-  return (
-    <div className="calendar-activity-wrap">
-      <button
-        type="button"
-        className={`calendar-activity calendar-activity-${typeClass} calendar-activity-trigger`}
-        onClick={handleClick}
-        aria-label={label}
-        aria-expanded={detailOpen}
-        aria-haspopup="dialog"
-      >
-        <span className="calendar-activity-chip__head">
-          {shortTime && <span className="calendar-activity-chip__time">{shortTime}</span>}
-          <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
-            {activityTypeLabel(a.type)}
-          </span>
-        </span>
-        <span className="calendar-activity-chip__title">{a.title}</span>
-        {(a.project_name || a.person_name) && (
-          <span className="calendar-activity-chip__meta">
-            {[a.project_name, a.person_name].filter(Boolean).join(' · ')}
-          </span>
-        )}
-      </button>
-      <div className="calendar-activity-popover" role="tooltip">
-        <div className="calendar-activity-popover-title">{a.title}</div>
-        <div className="calendar-activity-popover-meta">
-          <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
-            {activityTypeLabel(a.type)}
-          </span>
-          {' · '}{a.person_name}
-        </div>
-        {a.project_name && <div className="calendar-activity-popover-meta">{a.project_name}</div>}
-        {a.location && <div className="calendar-activity-popover-meta">{a.location}</div>}
-        <div className="calendar-activity-popover-meta">{rangeLabel}</div>
-        {descForCalendar && <div className="calendar-activity-popover-desc">{descForCalendar}</div>}
-      </div>
-    </div>
-  );
-}
-
-function CalendarActivityDetailSheet({ activity: a, onClose, onEdit, onCancel, onNotify, actionPending, canEdit, smtpConfigured }) {
-  if (!a) return null;
-  const rangeLabel = formatActivityTimeRange(a);
-  const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
-  const typeClass = activityCssClass(a.type);
-  return (
-    <div className="calendar-detail-backdrop" onClick={onClose} role="presentation">
-      <div
-        className="calendar-detail-sheet"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="calendar-detail-heading"
-      >
-        <div className="calendar-detail-sheet-handle" aria-hidden />
-        <div className="calendar-detail-sheet__hero">
-          <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
-            {activityTypeLabel(a.type)}
-          </span>
-          <h3 id="calendar-detail-heading" className="calendar-detail-sheet-title">{a.title}</h3>
-          <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
-        </div>
-        <dl className="calendar-detail-facts">
-          <div>
-            <dt>Team</dt>
-            <dd>{a.person_name || '—'}</dd>
-          </div>
-          {a.project_name && (
-            <div>
-              <dt>Project</dt>
-              <dd>{a.project_name}</dd>
-            </div>
-          )}
-          {a.location && (
-            <div>
-              <dt>Location</dt>
-              <dd>{a.location}</dd>
-            </div>
-          )}
-          <div>
-            <dt>Created by</dt>
-            <dd>
-              <strong>{a.created_by_name || '—'}</strong>
-              {a.created_at ? (
-                <span className="calendar-detail-facts__meta"> · {formatAuditWhen(a.created_at)}</span>
-              ) : null}
-            </dd>
-          </div>
-          {activityWasEditedAfterCreate(a) ? (
-            <div>
-              <dt>Last edited by</dt>
-              <dd>
-                <strong>{a.updated_by_name}</strong>
-                <span className="calendar-detail-facts__meta"> · {formatAuditWhen(a.updated_at)}</span>
-              </dd>
-            </div>
-          ) : null}
-        </dl>
-        {descForCalendar && (
-          <div className="calendar-detail-notes">
-            <h4 className="calendar-detail-notes__title">Notes</h4>
-            <p className="calendar-detail-sheet-desc">{descForCalendar}</p>
-          </div>
-        )}
-        {canEdit && (
-          <div className="calendar-detail-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => onEdit?.(a)}
-              disabled={actionPending}
-            >
-              Edit activity
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => onNotify?.(a)}
-              disabled={actionPending || !smtpConfigured}
-              title={!smtpConfigured ? 'SMTP is not configured on the server' : undefined}
-            >
-              {actionPending ? 'Please wait…' : 'Resend email'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost calendar-detail-actions__danger"
-              onClick={() => onCancel?.(a)}
-              disabled={actionPending}
-            >
-              {actionPending ? 'Please wait…' : 'Cancel activity'}
-            </button>
-          </div>
-        )}
-        <button type="button" className="calendar-detail-close" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CalendarDayActivitiesSheet({
-  year,
-  month,
-  day,
-  activities: items,
-  onClose,
-  detailActivityId,
-  onToggleDetail,
-}) {
-  const title = `${MONTH_NAMES[month - 1]} ${day}, ${year}`;
-  return (
-    <div className="calendar-detail-backdrop" onClick={onClose} role="presentation">
-      <div
-        className="calendar-detail-sheet calendar-day-list-sheet"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="calendar-day-list-heading"
-      >
-        <div className="calendar-detail-sheet-handle" aria-hidden />
-        <h3 id="calendar-day-list-heading" className="calendar-detail-sheet-title">{title}</h3>
-        <p className="calendar-detail-sheet-line calendar-detail-sheet-muted" style={{ marginBottom: '0.75rem' }}>
-          {items.length} {items.length === 1 ? 'activity' : 'activities'}
-        </p>
-        <div className="calendar-day-list-inner">
-          {items.map((a) => (
-            <CalendarActivityChip
-              key={a.id}
-              activity={a}
-              detailOpen={detailActivityId === a.id}
-              onToggleDetail={onToggleDetail}
-            />
-          ))}
-        </div>
-        <button type="button" className="calendar-detail-close" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
+import {
+  ACTIVITY_TYPE_OPTIONS,
+  MONTH_NAMES,
+  activityCoveredDaysInMonth,
+  activityCssClass,
+  escapeHtml,
+  firstNonEmpty,
+  getCalendarGrid,
+  getMonthRange,
+  groupActivitiesForCalendar,
+  isActivityOnDate,
+  mergeValidImportPreviewRows,
+  parseImportedReportFile,
+  parseReportDateValue,
+  rememberCancelledActivityKey,
+  toApiDateTimeValue,
+  toDatetimeLocalValue,
+} from '../utils/calendarUtils.js';
 
 export default function Calendar() {
   const today = new Date();
   const [searchParams, setSearchParams] = useSearchParams();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [activities, setActivities] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -827,6 +90,7 @@ export default function Calendar() {
   const { pending: mutating, run: runMutation } = useSubmitLock();
 
   const { rangeStartIso, rangeEndExclusiveIso } = useMemo(() => getMonthRange(year, month), [year, month]);
+  const { activities, setActivities, loading, loadActivities } = useCalendarActivities(rangeStartIso, rangeEndExclusiveIso);
   const scheduleEmailRange = useMemo(() => {
     const pad = (n) => String(n).padStart(2, '0');
     const lastDay = new Date(year, month, 0).getDate();
@@ -837,16 +101,6 @@ export default function Calendar() {
     };
   }, [year, month]);
   const grid = useMemo(() => getCalendarGrid(year, month), [year, month]);
-
-  const loadActivities = (f, t) =>
-    api.activities.list({ from: f, to: t })
-      .then((rows) => setActivities(withoutCancelledActivityKeys(rows)))
-      .catch(() => setActivities([]));
-
-  useEffect(() => {
-    setLoading(true);
-    loadActivities(rangeStartIso, rangeEndExclusiveIso).finally(() => setLoading(false));
-  }, [rangeStartIso, rangeEndExclusiveIso]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1710,73 +964,18 @@ export default function Calendar() {
 
   return (
     <div className="page-module calendar-page">
-      <PageHeader
-        title="Calendar & activities"
-        subtitle="Plan meetings, site visits, UAT, and team schedules. Filter by type, click a day to log work, or open an event for details."
+      <CalendarHeader
+        canEditCalendar={canEditCalendar}
+        importing={importing}
+        mutating={mutating}
+        onCreate={openCreateForm}
+        onImportFile={importReportExcel}
+        onOpenReport={() => setShowReport(true)}
+        onOpenScheduleEmail={() => setShowScheduleEmail(true)}
+        monthStats={monthStats}
+        month={month}
+        year={year}
       />
-
-      <div className="card section-card calendar-toolbar-card">
-        <div className="calendar-toolbar">
-          <div className="calendar-toolbar__group calendar-toolbar__group--primary">
-            {canEditCalendar && (
-              <>
-                <button type="button" className="btn btn-primary" onClick={openCreateForm}>
-                  + Log activity
-                </button>
-                <label
-                  className={`btn btn-secondary calendar-import-label ${importing || mutating ? 'is-disabled' : ''}`}
-                >
-                  {importing ? 'Importing…' : 'Import Excel'}
-                  <input
-                    type="file"
-                    accept=".xls,.xlsx,.csv"
-                    style={{ display: 'none' }}
-                    disabled={importing || mutating}
-                    onChange={async (e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = '';
-                      await importReportExcel(f);
-                    }}
-                  />
-                </label>
-              </>
-            )}
-          </div>
-          <div className="calendar-toolbar__group calendar-toolbar__group--secondary">
-            <button type="button" className="btn btn-secondary" onClick={() => setShowReport(true)}>
-              Generate report
-            </button>
-            {canEditCalendar && (
-              <button type="button" className="btn btn-secondary" onClick={() => setShowScheduleEmail(true)}>
-                Email team schedule
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <section className="calendar-kpi-row" aria-label="Month summary">
-        <div className="calendar-kpi">
-          <span className="calendar-kpi__value">{monthStats.total}</span>
-          <span className="calendar-kpi__label">Activities</span>
-        </div>
-        <div className="calendar-kpi calendar-kpi--accent">
-          <span className="calendar-kpi__value">{monthStats.daysWithEvents}</span>
-          <span className="calendar-kpi__label">Active days</span>
-        </div>
-        <div className="calendar-kpi">
-          <span className="calendar-kpi__value">
-            {monthStats.topType ? activityTypeLabel(monthStats.topType.type) : '—'}
-          </span>
-          <span className="calendar-kpi__label">
-            {monthStats.topType ? `Top type (${monthStats.topType.count})` : 'Top type'}
-          </span>
-        </div>
-        <div className="calendar-kpi calendar-kpi--muted">
-          <span className="calendar-kpi__value">{MONTH_NAMES[month - 1]}</span>
-          <span className="calendar-kpi__label">{year}</span>
-        </div>
-      </section>
       {showScheduleEmail && (
         <ScheduleEmailModal
           open={showScheduleEmail}
@@ -2020,306 +1219,47 @@ export default function Calendar() {
           </div>
         </div>
       )}
-      {showForm && (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-dialog modal-dialog--activity-log"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="activity-log-modal-title"
-          >
-            <div className="modal-dialog-header">
-              <h2 id="activity-log-modal-title" className="modal-dialog-title">
-                {editingActivityId != null ? 'Edit activity' : 'Log activity'}
-              </h2>
-              <button type="button" className="modal-dialog-close" onClick={() => { setShowForm(false); setEditingActivityId(null); }} aria-label="Close dialog">
-                ×
-              </button>
-            </div>
-            <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
-              <label style={{ gridColumn: '1 / -1' }}>
-                People with accounts (multi-select, optional if guests are listed below)
-                <input
-                  type="text"
-                  value={personSearch}
-                  onChange={(e) => setPersonSearch(e.target.value)}
-                  placeholder="Search person name..."
-                  style={inputStyle}
-                />
-                <div style={{ marginTop: '0.5rem', maxHeight: 180, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem', background: 'var(--bg)' }}>
-                  {filteredUsers.length === 0 ? (
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No person found.</div>
-                  ) : (
-                    filteredUsers.map((u) => (
-                      <label key={u.id} style={{ display: 'block', marginBottom: '0.35rem', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={form.person_ids.includes(String(u.id))}
-                          onChange={() => togglePerson(u.id)}
-                          style={{ marginRight: 8 }}
-                        />
-                        {u.name}
-                      </label>
-                    ))
-                  )}
-                </div>
-                <div style={{ marginTop: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  Selected: {form.person_ids.length}
-                </div>
-              </label>
-              <label style={{ gridColumn: '1 / -1' }}>
-                Guests / others (no system account)
-                <textarea
-                  value={form.external_attendees}
-                  onChange={(e) => setForm((f) => ({ ...f, external_attendees: e.target.value }))}
-                  rows={2}
-                  placeholder="Comma-separated names or emails (stored for the record; no login required)"
-                  style={inputStyle}
-                />
-              </label>
-              <label>
-                Project{' '}
-                <select value={form.project_id} onChange={(e) => setForm((f) => ({ ...f, project_id: e.target.value }))} style={inputStyle}>
-                  <option value="">None</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Type{' '}
-                <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} style={inputStyle}>
-                  {ACTIVITY_TYPE_OPTIONS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={{ gridColumn: '1 / -1' }}>
-                Title *{' '}
-                <input type="text" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} required style={inputStyle} />
-              </label>
-              <label style={{ gridColumn: '1 / -1' }}>
-                Description{' '}
-                <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} style={inputStyle} />
-              </label>
-              <ActivityLocationFields
-                siteLocations={activitySites}
-                preset={form.locationPreset}
-                other={form.locationOther}
-                onPreset={(v) => setForm((f) => ({ ...f, locationPreset: v, locationOther: v === ACTIVITY_LOCATION_OTHERS ? f.locationOther : '' }))}
-                onOther={(v) => setForm((f) => ({ ...f, locationOther: v }))}
-              />
-              <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Sites match{' '}
-                {user?.role === 'admin' ? (
-                  <Link to="/settings/locations">Settings → Locations</Link>
-                ) : (
-                  <span>Settings → Locations (admin)</span>
-                )}
-                . Choose <strong>Others</strong> for a one-off place.
-              </p>
-              <label>
-                Start *{' '}
-                <input type="datetime-local" value={form.start_at} onChange={(e) => setForm((f) => ({ ...f, start_at: e.target.value }))} required style={inputStyle} />
-              </label>
-              <label>
-                End *{' '}
-                <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
-              </label>
-              <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Multi-day tip: Start = first day + daily start time, End = last day + daily end time.
-                Example: Mon 9:00 → Tue 11:00 means <strong>9:00–11:00 on both days</strong> (not one long overnight block).
-              </p>
-              <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.notify_email}
-                    onChange={(e) => setForm((f) => ({ ...f, notify_email: e.target.checked }))}
-                    style={{ marginTop: '0.2rem' }}
-                  />
-                  <span>
-                    <strong>{editingActivityId != null ? 'Notify assignees of this update' : 'Notify assignees'}</strong>
-                    <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                      {smtpConfigured
-                        ? (editingActivityId != null
-                          ? 'Sends an in-app notification and a calendar update email (Outlook / Teams / Google). Untick to save quietly.'
-                          : 'Sends an in-app notification and a calendar invite email so the event is added to each assignee’s Outlook / Teams / Google calendar. Untick to save quietly.')
-                        : (
-                          <>
-                            Sends an in-app notification. Calendar invite emails need SMTP.{' '}
-                            {user?.role === 'admin' ? (
-                              <Link to="/settings/email">Open Settings → Email</Link>
-                            ) : (
-                              'Ask an admin to open Settings → Email and save Gmail SMTP.'
-                            )}
-                          </>
-                        )}
-                    </span>
-                  </span>
-              </label>
-              <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                <button type="submit" className="btn btn-primary" disabled={mutating}>
-                  {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {/* Calendar */}
-      <div style={card} className="calendar-card calendar-shell">
-        <div className="calendar-nav">
-          <div className="calendar-nav__controls">
-            <button type="button" className="calendar-nav__btn" onClick={prevMonth} aria-label="Previous month">
-              ‹
-            </button>
-            <div className="calendar-nav__title-wrap">
-              <h2 className="calendar-month-title">{MONTH_NAMES[month - 1]} {year}</h2>
-              {isToday(today.getDate()) && year === today.getFullYear() && month === today.getMonth() + 1 && (
-                <span className="calendar-nav__today-pill">This month</span>
-              )}
-            </div>
-            <button type="button" className="calendar-nav__btn" onClick={nextMonth} aria-label="Next month">
-              ›
-            </button>
-          </div>
-          <button type="button" className="btn btn-secondary btn-sm calendar-nav__today" onClick={goToToday}>
-            Today
-          </button>
-        </div>
-
-        <div className="calendar-type-bar" role="toolbar" aria-label="Filter by activity type">
-          <button
-            type="button"
-            className={`calendar-type-chip ${typeFilter === 'all' ? 'calendar-type-chip--active' : ''}`}
-            onClick={() => setTypeFilter('all')}
-          >
-            All
-            <span className="calendar-type-chip__count">{groupedCalendarActivities.length}</span>
-          </button>
-          {ACTIVITY_TYPE_OPTIONS.map((t) => {
-            const count = groupedCalendarActivities.filter((a) => a.type === t.value || activityCssClass(a.type) === t.value).length;
-            if (count === 0 && typeFilter !== t.value) return null;
-            return (
-              <button
-                key={t.value}
-                type="button"
-                className={`calendar-type-chip calendar-type-chip--${activityCssClass(t.value)} ${typeFilter === t.value ? 'calendar-type-chip--active' : ''}`}
-                onClick={() => setTypeFilter(t.value)}
-              >
-                {t.label}
-                <span className="calendar-type-chip__count">{count}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {loading ? (
-          <div className="calendar-loading" aria-busy="true" aria-label="Loading activities">
-            <div className="calendar-skeleton-grid">
-              {Array.from({ length: 35 }).map((_, i) => (
-                <div key={i} className="calendar-skeleton-cell" />
-              ))}
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="calendar-scroll">
-              <div className="calendar-grid">
-                {DAY_NAMES.map((day, idx) => (
-                  <div key={day} className={`calendar-cell calendar-day-name ${idx === 0 || idx === 6 ? 'calendar-day-name--weekend' : ''}`}>
-                    <span className="calendar-day-name-full">{day}</span>
-                    <span className="calendar-day-name-short">{DAY_NAMES_SHORT[idx]}</span>
-                  </div>
-                ))}
-                {grid.flat().map((day, i) => {
-                  const col = i % 7;
-                  const isWeekend = col === 0 || col === 6;
-                  const dayCount = day != null ? (activitiesByDay[day]?.length || 0) : 0;
-                  return (
-                  <div
-                    key={i}
-                    className={[
-                      'calendar-cell',
-                      'calendar-day',
-                      day === null ? 'calendar-day-empty' : '',
-                      day !== null && isToday(day) ? 'calendar-day-today' : '',
-                      day !== null && isWeekend ? 'calendar-day--weekend' : '',
-                      day !== null && dayCount > 0 ? 'calendar-day--has-events' : '',
-                    ].filter(Boolean).join(' ')}
-                    onClick={day !== null && canEditCalendar ? () => openCreateForDay(day) : undefined}
-                    onKeyDown={day !== null && canEditCalendar ? (e) => { if (e.key === 'Enter') openCreateForDay(day); } : undefined}
-                    role={day !== null && canEditCalendar ? 'button' : undefined}
-                    tabIndex={day !== null && canEditCalendar ? 0 : undefined}
-                    title={day !== null && canEditCalendar ? `Log activity on ${MONTH_NAMES[month - 1]} ${day}` : undefined}
-                  >
-                    {day !== null && (
-                      <span className="calendar-day-num">
-                        {day}
-                        {dayCount > 0 && <span className="calendar-day-count">{dayCount}</span>}
-                      </span>
-                    )}
-                    {day !== null && activitiesByDay[day]?.length > 0 && (() => {
-                      const list = activitiesByDay[day];
-                      const visible = list.slice(0, CALENDAR_DAY_MAX_VISIBLE);
-                      const extra = list.length - CALENDAR_DAY_MAX_VISIBLE;
-                      return (
-                        <div className="calendar-day-activities" onClick={(e) => e.stopPropagation()}>
-                          {visible.map((a) => (
-                            <CalendarActivityChip
-                              key={a.id}
-                              activity={a}
-                              detailOpen={detailActivityId === a.id}
-                              onToggleDetail={toggleActivityDetail}
-                            />
-                          ))}
-                          {extra > 0 && (
-                            <button
-                              type="button"
-                              className="calendar-day-see-more"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDetailActivityId(null);
-                                setDayListDay(day);
-                              }}
-                            >
-                              +{extra} more
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  );
-                })}
-              </div>
-            </div>
-            <details className="calendar-legend-details">
-              <summary className="calendar-legend-details__summary">Activity types</summary>
-              <div className="calendar-legend">
-                {LEGEND_TYPES.map(({ css, label }) => (
-                  <span key={css} className="calendar-legend-item">
-                    <span className={`calendar-legend-swatch calendar-activity-${css}`} aria-hidden />
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </details>
-            {typeFilter !== 'all' && filteredCalendarActivities.length === 0 && (
-              <p className="calendar-filter-empty">
-                No {activityTypeLabel(typeFilter)} activities this month.
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setTypeFilter('all')}>
-                  Show all
-                </button>
-              </p>
-            )}
-          </>
-        )}
-      </div>
+      <CalendarActivityForm
+        open={showForm}
+        editingActivityId={editingActivityId}
+        form={form}
+        setForm={setForm}
+        filteredUsers={filteredUsers}
+        projects={projects}
+        activitySites={activitySites}
+        personSearch={personSearch}
+        setPersonSearch={setPersonSearch}
+        togglePerson={togglePerson}
+        onSubmit={submit}
+        onClose={() => { setShowForm(false); setEditingActivityId(null); }}
+        mutating={mutating}
+        smtpConfigured={smtpConfigured}
+        userRole={user?.role}
+      />
+      <CalendarMonthGrid
+        year={year}
+        month={month}
+        grid={grid}
+        activitiesByDay={activitiesByDay}
+        loading={loading}
+        canEditCalendar={canEditCalendar}
+        detailActivityId={detailActivityId}
+        typeFilter={typeFilter}
+        setTypeFilter={setTypeFilter}
+        groupedCalendarActivities={groupedCalendarActivities}
+        filteredCalendarActivities={filteredCalendarActivities}
+        isToday={isToday}
+        today={today}
+        prevMonth={prevMonth}
+        nextMonth={nextMonth}
+        goToToday={goToToday}
+        openCreateForDay={openCreateForDay}
+        toggleActivityDetail={toggleActivityDetail}
+        onOpenDayList={(day) => {
+          setDetailActivityId(null);
+          setDayListDay(day);
+        }}
+      />
       {dayListDay != null && dayListActivities.length > 0 && (
         <CalendarDayActivitiesSheet
           year={year}
@@ -2343,71 +1283,15 @@ export default function Calendar() {
           smtpConfigured={smtpConfigured}
         />
       )}
-      {cancelTarget && (
-        <div className="modal-backdrop" role="presentation" onClick={() => !mutating && setCancelTarget(null)}>
-          <div
-            className="modal-dialog"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cancel-activity-modal-title"
-          >
-            <div className="modal-dialog-header">
-              <h2 id="cancel-activity-modal-title" className="modal-dialog-title">
-                Cancel activity
-              </h2>
-              <button
-                type="button"
-                className="modal-dialog-close"
-                onClick={() => setCancelTarget(null)}
-                aria-label="Close dialog"
-                disabled={mutating}
-              >
-                ×
-              </button>
-            </div>
-            <div className="modal-dialog-body" style={{ display: 'grid', gap: '0.85rem' }}>
-              <p style={{ margin: 0 }}>
-                Cancel <strong>{cancelTarget.title}</strong>? This removes it from the calendar
-                {Array.isArray(cancelTarget.person_ids) && cancelTarget.person_ids.length > 1
-                  ? ` (including all ${cancelTarget.person_ids.length} assignee records)`
-                  : ''}
-                .
-              </p>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={cancelNotify}
-                  onChange={(e) => setCancelNotify(e.target.checked)}
-                  disabled={mutating}
-                  style={{ marginTop: '0.2rem' }}
-                />
-                <span>
-                  <strong>Notify assignees</strong>
-                  <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                    {smtpConfigured
-                      ? 'Sends an in-app notification and a cancellation email (Outlook / Teams / Google). Untick to cancel quietly.'
-                      : 'Sends an in-app notification. Cancellation emails need SMTP configured in Settings → Email.'}
-                  </span>
-                </span>
-              </label>
-            </div>
-            <div className="modal-dialog-footer" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setCancelTarget(null)} disabled={mutating}>
-                Keep activity
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={confirmCancelActivity}
-                disabled={mutating}
-              >
-                {mutating ? 'Cancelling…' : 'Cancel activity'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CalendarCancelModal
+        activity={cancelTarget}
+        cancelNotify={cancelNotify}
+        setCancelNotify={setCancelNotify}
+        smtpConfigured={smtpConfigured}
+        mutating={mutating}
+        onConfirm={confirmCancelActivity}
+        onClose={() => setCancelTarget(null)}
+      />
     </div>
   );
 }

@@ -5,7 +5,11 @@ export { requireAdmin } from './requireRole.js';
 
 export function requireAuth(req, res, next) {
   (async () => {
-    store.clearExpiredSessions();
+    try {
+      await store.clearExpiredSessions();
+    } catch (e) {
+      console.warn('clearExpiredSessions:', e?.message || e);
+    }
     const token = getTokenFromHeader(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     const session = await store.findSessionByTokenAny(token);
@@ -18,7 +22,20 @@ export function requireAuth(req, res, next) {
       await store.deleteSessionByToken(token);
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    req.user = { id: user.id, email: user.email, role: user.role, name: user.name };
+    let personId = null;
+    try {
+      const person = await store.findPersonByUserId?.(user.id);
+      personId = person?.id ?? null;
+    } catch (e) {
+      console.warn('requireAuth: findPersonByUserId', e?.message || e);
+    }
+    req.user = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      person_id: personId,
+    };
     next();
   })().catch(() => res.status(401).json({ error: 'Unauthorized' }));
 }

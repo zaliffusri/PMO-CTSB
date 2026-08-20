@@ -88,17 +88,34 @@ npm run db:migrate
 npm run db:verify
 ```
 
-`db:migrate` runs `push_schema_updates.sql` plus every file in `supabase/migrations/` in order, including:
+`db:migrate` applies pending files from `supabase/migrations/` (plus optional `push_schema_updates.sql`), records them in `public.schema_migrations`, and skips already-applied scripts. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-- `issues_app`, `notifications_app`
+Includes:
+
+- `issues_app`, `notifications_app` (+ Realtime publication)
 - `backlogs_app`, `project_phases_app`
 - `project_work_packages_app`, `engagement_type` on projects
+- `people.user_id` hard link to `users_app`, performance indexes, RLS policies
+
+Link existing roster rows (safe email backfill):
+
+```bash
+npm run db:link-people -- --dry-run
+npm run db:link-people
+```
+
+See [docs/SECURITY-IDENTITY.md](docs/SECURITY-IDENTITY.md).
 
 Also set in production:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_ANON_KEY` + `SUPABASE_JWT_SECRET` (in-app notification Realtime; see Operations)
+- `SUPABASE_DB_URL` (Postgres URI — required for multi-table **transactions** such as promote ticket → backlog)
+- Optional `SENTRY_DSN` for API error tracking
 - Optional SMTP for email notifications (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`)
+
+Backend data access is **stateless** (per-request Supabase/Postgres queries). See [docs/STATELESS-STORE.md](docs/STATELESS-STORE.md).
 
 Test email: `npm run email:test`
 
@@ -117,14 +134,16 @@ Test email: `npm run email:test`
 | `npm run build` | Production frontend build |
 | `npm run test` | Unit tests (Vitest) |
 | `npm run seed:demo` | Load demo portfolio |
-| `npm run db:migrate` | Apply all SQL migrations |
+| `npm run db:migrate` | Apply pending SQL migrations (tracked) |
+| `npm run db:migrate:dry-run` | List pending migrations |
+| `npm run db:check-migrations` | Validate migration filenames |
 | `npm run db:verify` | Verify schema |
 
 ## Deploy to Vercel
 
 1. Import repo in Vercel (`vercel.json` configures API + static).
-2. Set env vars (Supabase + optional SMTP).
-3. Run `npm run db:migrate` against production DB **before** first use.
+2. Set env vars (Supabase + optional SMTP / Sentry). For Realtime badges: `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET`.
+3. Run `npm run db:migrate` against production DB **before** first use (or rely on CI migrate job with `SUPABASE_DB_URL` secret).
 4. Deploy.
 
 ## Architecture
@@ -135,4 +154,9 @@ Test email: `npm run email:test`
 
 ## CI
 
-GitHub Actions runs `npm test` and `npm run build` on push/PR (`.github/workflows/ci.yml`).
+GitHub Actions (`.github/workflows/ci.yml`):
+
+- PR / push: `db:check-migrations`, `npm test`, `npm run build`
+- Push to `main`/`master`: apply pending migrations when `SUPABASE_DB_URL` secret is set
+
+Ops details: [docs/OPERATIONS.md](docs/OPERATIONS.md).

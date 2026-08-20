@@ -11,12 +11,15 @@ import { reloadStore, persistStore } from '../lib/storeSync.js';
 
 export const projectPhasesRouter = Router();
 
-function enrichPhase(phase) {
-  const project = store.projects.find((p) => p.id === phase.project_id);
+async function enrichPhase(phase, preloaded = null) {
+  const projects = preloaded?.projects ?? await store.listProjects();
+  const workPackages = preloaded?.workPackages ?? await store.listWorkPackages();
+  const backlogs = preloaded?.backlogs ?? await store.listBacklogs();
+  const project = projects.find((p) => p.id === phase.project_id);
   const wp = phase.work_package_id
-    ? (store.work_packages || []).find((w) => w.id === phase.work_package_id)
+    ? workPackages.find((w) => w.id === phase.work_package_id)
     : null;
-  const backlogCount = (store.backlogs || []).filter((b) => b.phase_id === phase.id).length;
+  const backlogCount = backlogs.filter((b) => b.phase_id === phase.id).length;
   return {
     ...phase,
     project_name: project?.name ?? null,
@@ -28,11 +31,22 @@ function enrichPhase(phase) {
   };
 }
 
-projectPhasesRouter.get('/finance-summary', (req, res) => {
+async function loadPhaseMetaContext() {
+  const [projects, workPackages, backlogs] = await Promise.all([
+    store.listProjects(),
+    store.listWorkPackages(),
+    store.listBacklogs(),
+  ]);
+  return { projects, workPackages, backlogs };
+}
+
+projectPhasesRouter.get('/finance-summary', async (req, res) => {
   if (!canViewFinance(req.user)) {
     return res.status(403).json({ error: 'Finance access required' });
   }
-  const phases = (store.project_phases || []).map(enrichPhase);
+  const ctx = await loadPhaseMetaContext();
+  const phaseRows = await store.listProjectPhases();
+  const phases = await Promise.all(phaseRows.map((p) => enrichPhase(p, ctx)));
   const readyToBill = phases.filter(
     (p) => p.status === 'completed'
       && p.payment_status === 'pending'
@@ -45,7 +59,7 @@ projectPhasesRouter.get('/finance-summary', (req, res) => {
   const byWorkPackage = {};
   for (const p of phases) {
     if (!byProject[p.project_id]) {
-      const project = store.projects.find((pr) => pr.id === p.project_id);
+      const project = ctx.projects.find((pr) => pr.id === p.project_id);
       byProject[p.project_id] = {
         project_id: p.project_id,
         project_name: project?.name,
@@ -63,7 +77,7 @@ projectPhasesRouter.get('/finance-summary', (req, res) => {
     byProject[p.project_id].phases.push(p);
     if (p.work_package_id) {
       if (!byWorkPackage[p.work_package_id]) {
-        const wp = (store.work_packages || []).find((w) => w.id === p.work_package_id);
+        const wp = ctx.workPackages.find((w) => w.id === p.work_package_id);
         byWorkPackage[p.work_package_id] = {
           work_package_id: p.work_package_id,
           work_package_name: wp?.name || p.work_package_name,
@@ -123,9 +137,9 @@ projectPhasesRouter.get('/finance-summary', (req, res) => {
     invoiced,
     paid: paid.sort((a, b) => String(b.paid_date || '').localeCompare(String(a.paid_date || ''))),
     maintenance_renewals: buildMaintenanceRenewals(
-      store.projects,
+      ctx.projects,
       phases,
-      store.work_packages || [],
+      ctx.workPackages,
     ),
     work_packages: Object.values(byWorkPackage).sort((a, b) =>
       (a.project_name || '').localeCompare(b.project_name || '') ||
@@ -138,8 +152,11 @@ projectPhasesRouter.get('/', async (req, res) => {
   await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  let list = (store.project_phases || []).map(enrichPhase);
-  if (projectId) list = list.filter((p) => p.project_id === projectId);
+  const ctx = await loadPhaseMetaContext();
+  let phaseRows = projectId
+    ? await store.listProjectPhases(projectId)
+    : await store.listProjectPhases();
+  let list = await Promise.all(phaseRows.map((p) => enrichPhase(p, ctx)));
   if (workPackageId) list = list.filter((p) => p.work_package_id === workPackageId);
   list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   res.json(list);
@@ -152,10 +169,11 @@ projectPhasesRouter.post('/init-template', async (req, res) => {
   const projectId = req.body?.project_id ? +req.body.project_id : null;
   const workPackageId = req.body?.work_package_id ? +req.body.work_package_id : null;
   if (!projectId) return res.status(400).json({ error: 'project_id is required' });
-  const project = store.projects.find((p) => p.id === projectId);
+  const projects = await store.listProjects();
+  const project = projects.find((p) => p.id === projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const projectPackages = (store.work_packages || []).filter((w) => w.project_id === projectId);
+  const projectPackages = await store.listWorkPackages(projectId);
   if (projectPackages.length > 0 && !workPackageId) {
     return res.status(400).json({
       error: 'This project uses work packages. Initialize delivery phases on each work package instead.',
@@ -167,21 +185,25 @@ projectPhasesRouter.post('/init-template', async (req, res) => {
     const wp = projectPackages.find((w) => w.id === workPackageId);
     if (!wp) return res.status(404).json({ error: 'Work package not found' });
     classification = wp.classification;
-    const existingForPackage = (store.project_phases || []).filter((p) => p.work_package_id === workPackageId);
+    const existingForPackage = (await store.listProjectPhases(projectId))
+      .filter((p) => p.work_package_id === workPackageId);
     if (existingForPackage.length > 0) {
       return res.status(400).json({ error: 'This work package already has phases' });
     }
   } else {
-    const existing = (store.project_phases || []).filter((p) => p.project_id === projectId);
+    const existing = await store.listProjectPhases(projectId);
     if (existing.length > 0) {
       return res.status(400).json({ error: 'Project already has phases. Delete or edit existing phases first.' });
     }
   }
 
   const template = templateForClassification(classification);
-  const ids = store.initProjectPhasesFromTemplate(projectId, template, workPackageId || null);
-  const phases = ids.map((id) => enrichPhase(store.project_phases.find((p) => p.id === id)));
-  store.appendAuditLog(req.user, {
+  const ids = await store.initProjectPhasesFromTemplate(projectId, template, workPackageId || null);
+  const allPhases = await store.listProjectPhases(projectId);
+  const phases = await Promise.all(
+    ids.map((id) => enrichPhase(allPhases.find((p) => p.id === id))),
+  );
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'project_phases',
     target_id: projectId,
@@ -199,7 +221,7 @@ projectPhasesRouter.post('/', async (req, res) => {
   if (!body.project_id || !body.name) {
     return res.status(400).json({ error: 'project_id and name are required' });
   }
-  const id = store.addProjectPhase({
+  const id = await store.addProjectPhase({
     project_id: +body.project_id,
     work_package_id: body.work_package_id != null && body.work_package_id !== '' ? +body.work_package_id : null,
     name: String(body.name).trim(),
@@ -218,12 +240,14 @@ projectPhasesRouter.post('/', async (req, res) => {
     notes: body.notes || null,
   });
   if (!(await persistStore(res))) return;
-  res.status(201).json(enrichPhase(store.project_phases.find((p) => p.id === id)));
+  const phases = await store.listProjectPhases(+body.project_id);
+  res.status(201).json(await enrichPhase(phases.find((p) => p.id === id)));
 });
 
 projectPhasesRouter.put('/:id', async (req, res) => {
   const id = +req.params.id;
-  const cur = (store.project_phases || []).find((p) => p.id === id);
+  const allPhases = await store.listProjectPhases();
+  const cur = allPhases.find((p) => p.id === id);
   if (!cur) return res.status(404).json({ error: 'Phase not found' });
   const canFinance = canViewFinance(req.user);
   const canPmo = canCreateProject(req.user);
@@ -259,7 +283,8 @@ projectPhasesRouter.put('/:id', async (req, res) => {
       }
     }
   }
-  store.updateProjectPhase(id, patch);
+  await store.updateProjectPhase(id, patch);
   if (!(await persistStore(res))) return;
-  res.json(enrichPhase(store.project_phases.find((p) => p.id === id)));
+  const updated = (await store.listProjectPhases(cur.project_id)).find((p) => p.id === id);
+  res.json(await enrichPhase(updated));
 });

@@ -1,141 +1,190 @@
+/**
+ * Stateless auth repository — Supabase when configured, in-memory when ALLOW_LOCAL_STORE only.
+ * Tables: users_app, sessions_app
+ */
 import { nextId, normalizeUserRow } from '../runtime/helpers.js';
-import { supabase } from '../runtime/supabaseSync.js';
+import {
+  isDbMode,
+  requireSupabase,
+  dbSelect,
+  dbInsert,
+  dbUpdate,
+  dbDeleteWhere,
+  dbUpsert,
+} from '../runtime/query.js';
 
 export function createAuthRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
+  async function listUsers() {
+    if (!isDbMode()) return getData().users.map(normalizeUserRow);
+    const rows = await dbSelect('users_app', { order: 'id' });
+    return rows.map(normalizeUserRow);
+  }
+
+  async function listSessions() {
+    if (!isDbMode()) return [...getData().sessions];
+    return dbSelect('sessions_app', { order: 'id' });
+  }
+
+  async function findUserById(id) {
+    if (id == null || id === '') return null;
+    const n = Number(id);
+    if (Number.isNaN(n)) return null;
+    if (!isDbMode()) {
+      const user = getData().users.find((u) => Number(u.id) === n) || null;
+      return user ? normalizeUserRow(user) : null;
+    }
+    const row = await dbSelect('users_app', { filters: { id: n }, maybeSingle: true });
+    return row ? normalizeUserRow(row) : null;
+  }
+
+  async function findUserByEmail(email) {
+    const q = String(email || '').toLowerCase();
+    if (!q) return null;
+    if (!isDbMode()) {
+      const user = getData().users.find((u) => u.email.toLowerCase() === q) || null;
+      return user ? normalizeUserRow(user) : null;
+    }
+    const row = await dbSelect('users_app', { filters: { email: q }, maybeSingle: true });
+    // emails may be mixed case in DB — fallback scan if exact miss
+    if (row) return normalizeUserRow(row);
+    const { data, error } = await requireSupabase()
+      .from('users_app')
+      .select('*')
+      .ilike('email', q)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? normalizeUserRow(data) : null;
+  }
+
+  async function findSessionByToken(token) {
+    if (!token) return null;
+    if (!isDbMode()) return getData().sessions.find((s) => s.token === token) || null;
+    return dbSelect('sessions_app', { filters: { token }, maybeSingle: true });
+  }
+
   return {
+    /** @deprecated Prefer listUsers() — sync getter is local-only. */
     get users() {
-      return [...getData().users];
+      return getData().users.map(normalizeUserRow);
     },
+    /** @deprecated Prefer listSessions() — sync getter is local-only. */
     get sessions() {
       return [...getData().sessions];
     },
 
-    addUser(row) {
-      const data = getData();
-      const id = nextId(data.users);
+    listUsers,
+    listSessions,
+    findUserById,
+    findUserByEmail,
+    findSessionByToken,
+
+    async addUser(row) {
       const created_at = new Date().toISOString();
-      const user = normalizeUserRow({ id, role: 'admin', active: true, ...row, created_at });
-      data.users.push(user);
-      save();
-      return id;
+      if (!isDbMode()) {
+        const data = getData();
+        const id = nextId(data.users);
+        const user = normalizeUserRow({ id, role: 'admin', active: true, ...row, created_at });
+        data.users.push(user);
+        save();
+        return id;
+      }
+      const payload = normalizeUserRow({ role: 'admin', active: true, ...row, created_at });
+      delete payload.id;
+      const saved = await dbInsert('users_app', payload);
+      return saved.id;
     },
 
-    findUserByEmail(email) {
-      const data = getData();
-      return data.users.find((u) => u.email.toLowerCase() === String(email).toLowerCase()) || null;
-    },
-
-    findUserById(id) {
-      const data = getData();
+    /** Query DB directly when configured — do not cache into memory. */
+    async findUserByIdAny(id) {
       if (id == null || id === '') return null;
       const n = Number(id);
       if (Number.isNaN(n)) return null;
-      return data.users.find((u) => Number(u.id) === n) || null;
+      if (!isDbMode()) return findUserById(id);
+      const row = await dbSelect('users_app', { filters: { id: n }, maybeSingle: true });
+      return row ? normalizeUserRow(row) : null;
     },
 
-    async findUserByIdAny(id) {
-      const store = getStore();
-      const local = store.findUserById(id);
-      if (local) return local;
-      if (!supabase) return null;
-      const data = getData();
-      const { data: row, error } = await supabase.from('users_app').select('*').eq('id', id).maybeSingle();
-      if (error || !row) return null;
-      const normalized = normalizeUserRow(row);
-      data.users.push(normalized);
-      return normalized;
-    },
-
-    updateUser(id, row) {
-      const data = getData();
+    async updateUser(id, row) {
       const n = Number(id);
-      const i = data.users.findIndex((u) => Number(u.id) === n);
-      if (i === -1) return false;
-      data.users[i] = normalizeUserRow({ ...data.users[i], ...row });
-      save();
-      return true;
+      if (!isDbMode()) {
+        const data = getData();
+        const i = data.users.findIndex((u) => Number(u.id) === n);
+        if (i === -1) return false;
+        data.users[i] = normalizeUserRow({ ...data.users[i], ...row });
+        save();
+        return true;
+      }
+      const existing = await dbSelect('users_app', { filters: { id: n }, maybeSingle: true });
+      if (!existing) return false;
+      const patch = normalizeUserRow({ ...existing, ...row, id: n });
+      delete patch.id;
+      const saved = await dbUpdate('users_app', n, patch);
+      return Boolean(saved);
     },
 
     async createSession(user_id, token, expires_at) {
-      const data = getData();
       const created_at = new Date().toISOString();
       const row = { user_id, token, expires_at, created_at };
-      if (supabase) {
-        // Upsert by token — never by surrogate id (serverless instances skew ids and overwrite valid sessions).
-        const { data: saved, error } = await supabase
-          .from('sessions_app')
-          .upsert([row], { onConflict: 'token' })
-          .select('*')
-          .maybeSingle();
-        if (error) throw error;
-        const session = saved || { id: nextId(data.sessions), ...row };
-        const existingIdx = data.sessions.findIndex((s) => s.token === token);
-        if (existingIdx === -1) data.sessions.push(session);
-        else data.sessions[existingIdx] = session;
-      } else {
+      if (!isDbMode()) {
+        const data = getData();
         const id = nextId(data.sessions);
         data.sessions.push({ id, ...row });
+        save();
+        return data.sessions.find((s) => s.token === token) || { id, ...row };
       }
-      save();
-      return data.sessions.find((s) => s.token === token) || row;
+      // Upsert by token — never invent local surrogate ids for DB sessions.
+      const saved = await dbUpsert('sessions_app', row, { onConflict: 'token' });
+      return saved[0] || row;
     },
 
-    findSessionByToken(token) {
-      const data = getData();
-      return data.sessions.find((s) => s.token === token) || null;
-    },
-
+    /** Query DB directly when configured — do not cache into memory. */
     async findSessionByTokenAny(token) {
-      const store = getStore();
-      const local = store.findSessionByToken(token);
-      if (local) return local;
-      if (!supabase) return null;
-      const data = getData();
-      const { data: row, error } = await supabase
-        .from('sessions_app')
-        .select('*')
-        .eq('token', token)
-        .maybeSingle();
-      if (error || !row) return null;
-      data.sessions.push(row);
-      return row;
+      if (!token) return null;
+      if (!isDbMode()) return findSessionByToken(token);
+      return dbSelect('sessions_app', { filters: { token }, maybeSingle: true });
     },
 
     async deleteSessionByToken(token) {
-      const data = getData();
-      const i = data.sessions.findIndex((s) => s.token === token);
-      if (i === -1 && !supabase) return false;
-      if (i !== -1) data.sessions.splice(i, 1);
-      if (supabase) {
-        const { error } = await supabase.from('sessions_app').delete().eq('token', token);
-        if (error) throw error;
-      } else if (i === -1) return false;
-      if (i !== -1) save();
+      if (!isDbMode()) {
+        const data = getData();
+        const i = data.sessions.findIndex((s) => s.token === token);
+        if (i === -1) return false;
+        data.sessions.splice(i, 1);
+        save();
+        return true;
+      }
+      await dbDeleteWhere('sessions_app', { token });
       return true;
     },
 
     /** Remove all sessions for a user (e.g. when account deactivated). */
     async deleteSessionsForUser(userId) {
-      const data = getData();
       const n = Number(userId);
       if (Number.isNaN(n)) return;
-      const before = data.sessions.length;
-      data.sessions = data.sessions.filter((s) => Number(s.user_id) !== n);
-      if (data.sessions.length !== before) save();
-      if (supabase) {
-        const { error } = await supabase.from('sessions_app').delete().eq('user_id', n);
-        if (error) throw error;
+      if (!isDbMode()) {
+        const data = getData();
+        const before = data.sessions.length;
+        data.sessions = data.sessions.filter((s) => Number(s.user_id) !== n);
+        if (data.sessions.length !== before) save();
+        return;
       }
+      await dbDeleteWhere('sessions_app', { user_id: n });
     },
 
-    clearExpiredSessions() {
-      const data = getData();
+    async clearExpiredSessions() {
       const now = new Date().toISOString();
-      const before = data.sessions.length;
-      data.sessions = data.sessions.filter((s) => !s.expires_at || s.expires_at > now);
-      if (data.sessions.length !== before) save();
+      if (!isDbMode()) {
+        const data = getData();
+        const before = data.sessions.length;
+        data.sessions = data.sessions.filter((s) => !s.expires_at || s.expires_at > now);
+        if (data.sessions.length !== before) save();
+        return;
+      }
+      const sb = requireSupabase();
+      const { error } = await sb.from('sessions_app').delete().lte('expires_at', now);
+      if (error) throw error;
     },
   };
 }

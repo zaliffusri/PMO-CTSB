@@ -8,6 +8,8 @@ import {
 } from '../lib/projectConstants.js';
 import { canCreateProject, canDeleteProject } from '../lib/permissions.js';
 import { requireAdmin } from '../middleware/requireAuth.js';
+import { validateBody } from '../middleware/validate.js';
+import { createProjectSchema } from '../lib/validationSchemas.js';
 
 export const projectsRouter = Router();
 const DELIVERY_SCOPE_SET = new Set(PROJECT_CLASSIFICATION_IDS);
@@ -24,8 +26,8 @@ function normalizeDeliveryScope(value) {
   return DELIVERY_SCOPE_SET.has(id) ? id : null;
 }
 
-function enrichProject(project, extra = {}) {
-  const { tags: _tags, ...base } = store.projectWithClients(project);
+async function enrichProject(project, extra = {}) {
+  const { tags: _tags, ...base } = await store.projectWithClients(project);
   return { ...base, ...extra };
 }
 
@@ -35,18 +37,23 @@ projectsRouter.get('/', async (req, res) => {
   } catch (e) {
     console.warn('projects GET: could not refresh from Supabase', e?.message || e);
   }
-  let list = store.projects.map((p) => {
-    const member_count = store.project_assignments.filter((a) => a.project_id === p.id).length;
+  const projects = await store.listProjects();
+  const assignments = await store.listAssignments();
+  let list = await Promise.all(projects.map(async (p) => {
+    const member_count = assignments.filter((a) => a.project_id === p.id).length;
     return enrichProject(p, { member_count });
-  });
+  }));
   list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   res.json(list);
 });
 
 projectsRouter.get('/:id', async (req, res) => {
   const id = +req.params.id;
-  const findProject = () => store.projects.find((p) => Number(p.id) === id);
-  let project = findProject();
+  const findProject = async () => {
+    const projects = await store.listProjects();
+    return projects.find((p) => Number(p.id) === id);
+  };
+  let project = await findProject();
   if (!project) {
     // Warm serverless instances may still have a pre-create in-memory snapshot.
     try {
@@ -54,19 +61,21 @@ projectsRouter.get('/:id', async (req, res) => {
     } catch (e) {
       console.warn('reload:', e.message);
     }
-    project = findProject();
+    project = await findProject();
   }
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  const members = store.project_assignments
+  const assignments = await store.listAssignments();
+  const people = await store.listPeople();
+  const members = assignments
     .filter((a) => Number(a.project_id) === id)
     .map((a) => {
-      const person = store.people.find((pe) => Number(pe.id) === Number(a.person_id));
+      const person = people.find((pe) => Number(pe.id) === Number(a.person_id));
       return { ...a, name: person?.name, email: person?.email, role: person?.role };
     });
-  res.json(enrichProject(project, { members }));
+  res.json(await enrichProject(project, { members }));
 });
 
-projectsRouter.post('/', async (req, res) => {
+projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => {
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO officers can create projects' });
   }
@@ -81,7 +90,7 @@ projectsRouter.post('/', async (req, res) => {
   if (classification != null && String(classification).trim() && !normalizedClassification) {
     return res.status(400).json({ error: 'Invalid delivery scope value' });
   }
-  const id = store.addProject({
+  const id = await store.addProject({
     name,
     description: description || null,
     status: status || 'active',
@@ -91,7 +100,7 @@ projectsRouter.post('/', async (req, res) => {
     classification: normalizedClassification,
     client_ids: clientIds ?? [],
   });
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'project',
     target_id: id,
@@ -109,14 +118,16 @@ projectsRouter.post('/', async (req, res) => {
   }
   // Best-effort full sync (audit log, etc.) — do not block the response.
   store.persistToSupabase().catch((e) => console.warn('persist full:', e.message));
-  const project = store.projects.find((p) => Number(p.id) === id);
-  res.status(201).json(enrichProject(project));
+  const projects = await store.listProjects();
+  const project = projects.find((p) => Number(p.id) === id);
+  res.status(201).json(await enrichProject(project));
 });
 
 projectsRouter.put('/:id', async (req, res) => {
   const { name, description, status, start_date, end_date, classification, engagement_type } = req.body;
   const id = +req.params.id;
-  const existing = store.projects.find((p) => Number(p.id) === id);
+  const projects = await store.listProjects();
+  const existing = projects.find((p) => Number(p.id) === id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
   const clientIds = parseClientIds(req.body);
   const nextEngagementType = engagement_type !== undefined
@@ -146,12 +157,14 @@ projectsRouter.put('/:id', async (req, res) => {
       ? null
       : validateImageDataUrl(req.body.cover_image_url, { maxBytes: 240_000, field: 'cover_image_url' });
   }
-  store.updateProject(id, patch);
-  store.appendAuditLog(req.user, {
+  await store.updateProject(id, patch);
+  const updatedProjects = await store.listProjects();
+  const updatedName = updatedProjects.find((p) => Number(p.id) === id)?.name || id;
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'project',
     target_id: id,
-    summary: `Updated project "${store.projects.find((p) => Number(p.id) === id)?.name || id}"`,
+    summary: `Updated project "${updatedName}"`,
   });
   try {
     await store.persistToSupabase();
@@ -159,8 +172,8 @@ projectsRouter.put('/:id', async (req, res) => {
     console.warn('persist:', e.message);
     return res.status(500).json({ error: 'Failed to save project changes', detail: e.message });
   }
-  const project = store.projects.find((p) => Number(p.id) === id);
-  res.json(enrichProject(project));
+  const project = updatedProjects.find((p) => Number(p.id) === id);
+  res.json(await enrichProject(project));
 });
 
 projectsRouter.delete('/:id', requireAdmin, async (req, res) => {
@@ -175,7 +188,8 @@ projectsRouter.delete('/:id', requireAdmin, async (req, res) => {
     console.warn('project delete reload:', e?.message || e);
   }
 
-  const existing = store.projects.find((p) => Number(p.id) === id);
+  const projects = await store.listProjects();
+  const existing = projects.find((p) => Number(p.id) === id);
   if (!existing) return res.status(404).json({ error: 'Project not found' });
 
   // Durable DB delete first so other serverless instances cannot re-upsert this project.
@@ -186,8 +200,8 @@ projectsRouter.delete('/:id', requireAdmin, async (req, res) => {
     return res.status(500).json({ error: 'Failed to delete project in database', detail: e.message });
   }
 
-  store.deleteProject(id, { skipSave: true });
-  store.appendAuditLog(req.user, {
+  await store.deleteProject(id, { skipSave: true });
+  await store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'project',
     target_id: id,

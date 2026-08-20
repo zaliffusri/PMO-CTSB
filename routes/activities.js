@@ -19,6 +19,8 @@ import {
 } from '../lib/activityActorEmbed.js';
 import { nextCalendarSequence } from '../lib/calendarInvite.js';
 import { notifyInApp, resolveAppUserId } from '../lib/notifyUser.js';
+import { validateBody } from '../middleware/validate.js';
+import { createActivitySchema } from '../lib/validationSchemas.js';
 
 export const activitiesRouter = Router();
 
@@ -38,31 +40,34 @@ function normalizeActivityType(type) {
 }
 
 /** Activities store `person_id` as app user id (for workload). Accept user id or team `people` id and normalize. */
-function resolveActivityUserId(raw) {
+async function resolveActivityUserId(raw) {
   if (raw == null || raw === '') return null;
   const n = Number(raw);
   if (!Number.isFinite(n)) return null;
-  if (store.findUserById(n)) return n;
-  const person = store.people.find((p) => Number(p.id) === n);
+  if (await store.findUserById(n)) return n;
+  const people = await store.listPeople();
+  const person = people.find((p) => Number(p.id) === n);
   if (!person) return null;
   const em = String(person.email || '').trim().toLowerCase();
   if (em) {
-    const u = store.findUserByEmail(em);
+    const u = await store.findUserByEmail(em);
     if (u) return u.id;
   }
   const nm = String(person.name || '').trim().toLowerCase();
   if (nm) {
-    const u = store.users.find((x) => String(x.name || '').trim().toLowerCase() === nm);
+    const users = await store.listUsers();
+    const u = users.find((x) => String(x.name || '').trim().toLowerCase() === nm);
     if (u) return u.id;
   }
   return null;
 }
 
-function activityPersonName(storedId) {
+async function activityPersonName(storedId) {
   if (storedId == null) return null;
-  const u = store.findUserById(storedId);
+  const u = await store.findUserById(storedId);
   if (u?.name) return u.name;
-  const person = store.people.find((p) => Number(p.id) === Number(storedId));
+  const people = await store.listPeople();
+  const person = people.find((p) => Number(p.id) === Number(storedId));
   return person?.name ?? null;
 }
 
@@ -72,22 +77,23 @@ function actorSnapshot(user) {
   return { id, name };
 }
 
-function enrichActivityForClient(a) {
-  const project = store.projects.find((p) => p.id === a.project_id);
+async function enrichActivityForClient(a, projects = null) {
+  const projectList = projects || await store.listProjects();
+  const project = projectList.find((p) => p.id === a.project_id);
   const actors = resolveActivityActors(a);
   const createdByName =
     actors.created_by_name
-    || activityPersonName(actors.created_by_user_id)
+    || await activityPersonName(actors.created_by_user_id)
     || null;
   const updatedByName =
     actors.updated_by_name
-    || activityPersonName(actors.updated_by_user_id)
+    || await activityPersonName(actors.updated_by_user_id)
     || null;
 
   return {
     ...a,
     type: normalizeActivityType(a.type),
-    person_name: activityPersonName(a.person_id),
+    person_name: await activityPersonName(a.person_id),
     external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
     project_name: project?.name,
     // Never expose embed marker to clients as "notes".
@@ -102,7 +108,7 @@ function enrichActivityForClient(a) {
 }
 
 /** Prefer earliest creator across a multi-assignee group before recreate. */
-function inheritAuditFromGroup(groupRows, existing) {
+async function inheritAuditFromGroup(groupRows, existing) {
   const rows = (groupRows || []).filter(Boolean);
   const seed = existing || rows[0] || {};
   let best = resolveActivityActors(seed);
@@ -128,7 +134,7 @@ function inheritAuditFromGroup(groupRows, existing) {
   return {
     created_at: created_at || new Date().toISOString(),
     created_by_user_id: best.created_by_user_id,
-    created_by_name: best.created_by_name || activityPersonName(best.created_by_user_id) || null,
+    created_by_name: best.created_by_name || await activityPersonName(best.created_by_user_id) || null,
   };
 }
 
@@ -163,14 +169,15 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
 }
 
 /** Resolve assignee + guest emails for a multi-person meeting invite (Outlook/Teams). */
-function resolveCalendarAttendees(assigneeUids, external_attendees) {
+async function resolveCalendarAttendees(assigneeUids, external_attendees) {
   const out = [];
   const seen = new Set();
+  const people = await store.listPeople();
   for (const uid of [...new Set((assigneeUids || []).filter((x) => x != null))]) {
-    const assignee = store.findUserById(uid);
+    const assignee = await store.findUserById(uid);
     let email = String(assignee?.email || '').trim().toLowerCase();
     if (!email && assignee?.name) {
-      const pe = store.people.find(
+      const pe = people.find(
         (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
       );
       email = String(pe?.email || '').trim().toLowerCase();
@@ -188,11 +195,12 @@ function resolveCalendarAttendees(assigneeUids, external_attendees) {
   return out;
 }
 
-function resolveAssigneeEmail(uid) {
-  const assignee = store.findUserById(uid);
+async function resolveAssigneeEmail(uid) {
+  const assignee = await store.findUserById(uid);
   let recipientEmail = String(assignee?.email || '').trim();
   if (!recipientEmail && assignee?.name) {
-    const pe = store.people.find(
+    const people = await store.listPeople();
+    const pe = people.find(
       (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
     );
     recipientEmail = String(pe?.email || '').trim();
@@ -218,11 +226,11 @@ async function notifyActivityAssignee(uid, {
   sequence = 0,
   attendees = [],
 }) {
-  const { assignee, email: recipientEmail } = resolveAssigneeEmail(uid);
+  const { assignee, email: recipientEmail } = await resolveAssigneeEmail(uid);
   if (!recipientEmail) {
     return { sent: false, reason: 'no_email', to: null, name: assignee?.name || null };
   }
-  if (!isMailerConfigured()) {
+  if (!(await isMailerConfigured())) {
     return { sent: false, reason: 'smtp_not_configured', to: recipientEmail, name: assignee?.name || null };
   }
   const whenLabel = formatEmailScheduleWhen(start_at, end_at);
@@ -267,7 +275,7 @@ async function notifyActivityAssignee(uid, {
 
 async function notifyActivityGuests(external_attendees, payload) {
   if (!external_attendees) return [];
-  if (!isMailerConfigured()) {
+  if (!(await isMailerConfigured())) {
     return extractEmailsFromText(external_attendees).map((to) => ({
       sent: false,
       reason: 'smtp_not_configured',
@@ -341,7 +349,7 @@ async function dispatchActivityInAppNotifications({
   const errors = [];
 
   for (const uid of uniqueUids) {
-    const userId = resolveAppUserId(uid);
+    const userId = await resolveAppUserId(uid);
     if (!userId || notifiedUserIds.has(userId)) continue;
     notifiedUserIds.add(userId);
 
@@ -401,7 +409,7 @@ async function dispatchActivityNotifications({
   sendEmail = true,
 }) {
   const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
-  const attendees = resolveCalendarAttendees(uniqueUids, external_attendees);
+  const attendees = await resolveCalendarAttendees(uniqueUids, external_attendees);
 
   let inApp = 0;
   let inAppError = null;
@@ -423,7 +431,7 @@ async function dispatchActivityNotifications({
 
   if (!sendEmail) {
     return {
-      smtp_configured: isMailerConfigured(),
+      smtp_configured: await isMailerConfigured(),
       variant,
       in_app: inApp,
       in_app_error: inAppError,
@@ -456,7 +464,7 @@ async function dispatchActivityNotifications({
   const results = [...assigneeResults, ...guestResults];
 
   return {
-    smtp_configured: isMailerConfigured(),
+    smtp_configured: await isMailerConfigured(),
     variant,
     in_app: inApp,
     in_app_error: inAppError,
@@ -477,9 +485,13 @@ activitiesRouter.get('/', async (req, res) => {
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const from = req.query.from;
   const to = req.query.to;
-  let rows = store.activities.map((a) => enrichActivityForClient(a));
-  if (personId) rows = rows.filter(r => r.person_id === personId);
-  if (projectId) rows = rows.filter(r => r.project_id === projectId);
+  const [activities, projects] = await Promise.all([
+    store.listActivities(),
+    store.listProjects(),
+  ]);
+  let rows = await Promise.all(activities.map((a) => enrichActivityForClient(a, projects)));
+  if (personId) rows = rows.filter((r) => r.person_id === personId);
+  if (projectId) rows = rows.filter((r) => r.project_id === projectId);
   const range = parseActivityRangeFilter(from, to);
   if (range) {
     const { fromMs, toExclusive } = range;
@@ -493,9 +505,13 @@ activitiesRouter.get('/', async (req, res) => {
   res.json(rows);
 });
 
-function listActivitiesInRange(from, to) {
+async function listActivitiesInRange(from, to) {
   const range = parseActivityRangeFilter(from, to);
-  let rows = store.activities.map((a) => enrichActivityForClient(a));
+  const [activities, projects] = await Promise.all([
+    store.listActivities(),
+    store.listProjects(),
+  ]);
+  let rows = await Promise.all(activities.map((a) => enrichActivityForClient(a, projects)));
   if (range) {
     const { fromMs, toExclusive } = range;
     rows = rows.filter((r) => {
@@ -526,11 +542,11 @@ function periodLabelFromRange(fromRaw, toRaw) {
   return `${fromStr} – ${toStr}`;
 }
 
-activitiesRouter.get('/mail-status', (req, res) => {
-  res.json({ smtp_configured: isMailerConfigured(), ...publicSmtpStatus() });
+activitiesRouter.get('/mail-status', async (req, res) => {
+  res.json({ smtp_configured: await isMailerConfigured(), ...(await publicSmtpStatus()) });
 });
 
-activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, (req, res) => {
+activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, async (req, res) => {
   const from = req.query.from;
   const to = req.query.to;
   const mode = String(req.query.mode || 'team');
@@ -544,10 +560,11 @@ activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, (req, res
     return res.status(400).json({ error: 'from and to query parameters are required' });
   }
 
-  const rawRows = listActivitiesInRange(from, to);
+  const rawRows = await listActivitiesInRange(from, to);
   const scheduleRows = groupActivitiesForScheduleEmail(rawRows);
   const periodLabel = periodLabelFromRange(from, to);
-  const orgName = store.getSettings()?.org_display_name || 'PMO CTSB';
+  const settings = await store.getSettings();
+  const orgName = settings?.org_display_name || 'PMO CTSB';
   const sentBy = req.user?.name || req.user?.email || '';
 
   const { html, text, subject } = buildTeamScheduleEmail({
@@ -559,14 +576,14 @@ activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, (req, res
     orgName,
   });
 
-  const recipients = resolveScheduleRecipients(store, {
+  const recipients = await resolveScheduleRecipients(store, {
     mode,
     customEmails,
     activityRows: scheduleRows,
   });
 
   res.json({
-    smtp_configured: isMailerConfigured(),
+    smtp_configured: await isMailerConfigured(),
     subject,
     html,
     text,
@@ -578,7 +595,7 @@ activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, (req, res
 });
 
 activitiesRouter.post('/schedule-email/send', requireCalendarEditor, async (req, res) => {
-  if (!isMailerConfigured()) {
+  if (!(await isMailerConfigured())) {
     return res.status(503).json({ error: 'SMTP is not configured on the server. Ask an admin to set SMTP_* in .env.' });
   }
 
@@ -587,13 +604,13 @@ activitiesRouter.post('/schedule-email/send', requireCalendarEditor, async (req,
     return res.status(400).json({ error: 'from and to are required' });
   }
 
-  const rawRows = listActivitiesInRange(from, to);
+  const rawRows = await listActivitiesInRange(from, to);
   const scheduleRows = groupActivitiesForScheduleEmail(rawRows);
   const periodLabel = periodLabelFromRange(from, to);
   const sentBy = req.user?.name || req.user?.email || '';
   const customEmails = Array.isArray(emails) ? emails : String(emails || '').split(/[,;]/).map((x) => x.trim()).filter(Boolean);
 
-  const recipients = resolveScheduleRecipients(store, {
+  const recipients = await resolveScheduleRecipients(store, {
     mode: String(mode),
     customEmails,
     activityRows: scheduleRows,
@@ -605,11 +622,12 @@ activitiesRouter.post('/schedule-email/send', requireCalendarEditor, async (req,
     });
   }
 
+  const [people, users] = await Promise.all([store.listPeople(), store.listUsers()]);
   const results = { sent: 0, failed: 0, recipients: [] };
   for (const toEmail of recipients) {
     const person =
-      store.people.find((p) => String(p.email || '').trim().toLowerCase() === toEmail) ||
-      store.users.find((u) => String(u.email || '').trim().toLowerCase() === toEmail);
+      people.find((p) => String(p.email || '').trim().toLowerCase() === toEmail) ||
+      users.find((u) => String(u.email || '').trim().toLowerCase() === toEmail);
     try {
       // eslint-disable-next-line no-await-in-loop
       const r = await sendTeamScheduleEmail({
@@ -633,7 +651,7 @@ activitiesRouter.post('/schedule-email/send', requireCalendarEditor, async (req,
     }
   }
 
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'email',
     target_type: 'activity_schedule',
     target_id: null,
@@ -656,7 +674,7 @@ activitiesRouter.post('/schedule-email/send', requireCalendarEditor, async (req,
 });
 
 activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => {
-  if (!isMailerConfigured()) {
+  if (!(await isMailerConfigured())) {
     return res.status(503).json({ error: 'SMTP is not configured on the server.' });
   }
   try {
@@ -665,14 +683,18 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
     console.warn('activities notify: could not refresh from Supabase', e?.message || e);
   }
   const id = +req.params.id;
-  const existing = store.activities.find((a) => a.id === id);
+  const [activities, projects] = await Promise.all([
+    store.listActivities(),
+    store.listProjects(),
+  ]);
+  const existing = activities.find((a) => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
 
-  const groupIds = idsInSameLogicalGroup(store.activities, id);
+  const groupIds = idsInSameLogicalGroup(activities, id);
   const groupRows = groupIds
-    .map((gid) => store.activities.find((a) => a.id === gid))
+    .map((gid) => activities.find((a) => a.id === gid))
     .filter(Boolean);
-  const project = store.projects.find((p) => p.id === existing.project_id);
+  const project = projects.find((p) => p.id === existing.project_id);
   const loggedBy = req.user?.name || req.user?.email || '';
   const typeKey = normalizeActivityType(existing.type);
   const ext = String(existing.external_attendees || '').trim();
@@ -704,7 +726,7 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
   });
 });
 
-activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
+activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySchema), async (req, res) => {
   const {
     person_id,
     person_ids,
@@ -743,7 +765,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
 
   const resolvedUsers = [];
   for (const pid of uniquePersonIds) {
-    const uid = resolveActivityUserId(pid);
+    const uid = await resolveActivityUserId(pid);
     if (!uid) {
       return res.status(400).json({
         error:
@@ -756,7 +778,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
 
   const normalizedType = normalizeActivityType(type);
   const activityGroupId = crypto.randomUUID();
-  const created = [];
+  const createdIds = [];
   const extForRow = external_attendees || null;
   const actor = actorSnapshot(req.user);
   const nowIso = new Date().toISOString();
@@ -782,9 +804,8 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
       start_at,
       end_at,
     }, actors);
-    const id = store.addActivity(row);
-    const a = store.activities.find((x) => x.id === id);
-    if (a) created.push(a);
+    const id = await store.addActivity(row);
+    createdIds.push(id);
   } else {
     for (const uid of uniqueResolved) {
       const row = applyActorsToActivityRow({
@@ -799,21 +820,30 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
         start_at,
         end_at,
       }, actors);
-      const id = store.addActivity(row);
-      const a = store.activities.find((x) => x.id === id);
-      if (a) created.push(a);
+      const id = await store.addActivity(row);
+      createdIds.push(id);
     }
   }
 
-  const project = store.projects.find((p) => p.id === (project_id || null));
-  store.appendAuditLog(req.user, {
+  const [activities, projects] = await Promise.all([
+    store.listActivities(),
+    store.listProjects(),
+  ]);
+  const created = createdIds.map((id) => activities.find((x) => x.id === id)).filter(Boolean);
+  const project = projects.find((p) => p.id === (project_id || null));
+  const personNames = [];
+  for (const a of created) {
+    const name = await activityPersonName(a.person_id);
+    if (name) personNames.push(name);
+  }
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'activity',
     target_id: created[0]?.id ?? null,
     summary: `Logged activity "${title}"`,
     detail: {
       person_count: created.length,
-      person_names: created.map((a) => activityPersonName(a.person_id)).filter(Boolean),
+      person_names: personNames,
       external_attendees: external_attendees || null,
       project_name: project?.name,
       activity_group_id: activityGroupId,
@@ -837,7 +867,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
   );
   // In-app + email only when the notify checkbox is on.
   let emailNotify = {
-    smtp_configured: isMailerConfigured(),
+    smtp_configured: await isMailerConfigured(),
     variant: 'scheduled',
     in_app: 0,
     attempted: 0,
@@ -864,7 +894,7 @@ activitiesRouter.post('/', requireCalendarEditor, async (req, res) => {
     });
   }
 
-  const responseRows = created.map((a) => enrichActivityForClient(a));
+  const responseRows = await Promise.all(created.map((a) => enrichActivityForClient(a, projects)));
   const meta = {
     email_notify: emailNotify,
     notify_email_requested: shouldNotify,
@@ -893,7 +923,8 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     notify_email: notifyEmailRaw,
   } = req.body;
   const id = +req.params.id;
-  const existing = store.activities.find(a => a.id === id);
+  let activities = await store.listActivities();
+  const existing = activities.find((a) => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
 
   const nextLocation = location !== undefined ? String(location || '').trim() : (existing.location != null ? String(existing.location).trim() : '');
@@ -916,11 +947,11 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   const resolvedUids = [];
   if (Array.isArray(person_ids)) {
     for (const pid of person_ids) {
-      const uid = resolveActivityUserId(pid);
+      const uid = await resolveActivityUserId(pid);
       if (uid) resolvedUids.push(uid);
     }
   } else if (person_id !== undefined) {
-    const resolved = resolveActivityUserId(person_id);
+    const resolved = await resolveActivityUserId(person_id);
     if (!resolved) {
       return res.status(400).json({
         error:
@@ -929,8 +960,8 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     }
     resolvedUids.push(resolved);
   } else {
-    const peerRows = idsInSameLogicalGroup(store.activities, id)
-      .map((pid) => store.activities.find((a) => a.id === pid))
+    const peerRows = idsInSameLogicalGroup(activities, id)
+      .map((pid) => activities.find((a) => a.id === pid))
       .filter(Boolean);
     peerRows.forEach((row) => {
       if (row.person_id != null) resolvedUids.push(row.person_id);
@@ -950,11 +981,11 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     || notifyEmailRaw === '0'
   );
   const activityGroupId = existing.activity_group_id || crypto.randomUUID();
-  const previousGroupIds = idsInSameLogicalGroup(store.activities, id);
+  const previousGroupIds = idsInSameLogicalGroup(activities, id);
   const previousRows = previousGroupIds
-    .map((aid) => store.activities.find((a) => a.id === aid))
+    .map((aid) => activities.find((a) => a.id === aid))
     .filter(Boolean);
-  const inherited = inheritAuditFromGroup(previousRows, existing);
+  const inherited = await inheritAuditFromGroup(previousRows, existing);
   const actor = actorSnapshot(req.user);
   const nowIso = new Date().toISOString();
   const actors = {
@@ -966,8 +997,9 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     updated_at: nowIso,
   };
   await store.deleteActivityLogicalGroupByAnyMemberId(id);
-  const createdRows = [];
-  const project = store.projects.find(p => p.id === (nextProjectId || null));
+  const createdIds = [];
+  const projects = await store.listProjects();
+  const project = projects.find((p) => p.id === (nextProjectId || null));
   const extForRow = nextExternal || null;
   // Client notes never include the embed marker (stripped on GET); rebuild embed on save.
   const cleanDescription = stripActorEmbedFromDescription(nextDescription) || null;
@@ -985,9 +1017,8 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       start_at: nextStart,
       end_at: nextEnd,
     }, actors);
-    const newId = store.addActivity(prepared);
-    const row = store.activities.find(x => x.id === newId);
-    createdRows.push(row);
+    const newId = await store.addActivity(prepared);
+    createdIds.push(newId);
   }
 
   if (uniqueUids.length === 0) {
@@ -1003,14 +1034,16 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       start_at: nextStart,
       end_at: nextEnd,
     }, actors);
-    const newId = store.addActivity(prepared);
-    const row = store.activities.find((x) => x.id === newId);
-    if (row) createdRows.push(row);
+    const newId = await store.addActivity(prepared);
+    createdIds.push(newId);
   }
+
+  activities = await store.listActivities();
+  const createdRows = createdIds.map((newId) => activities.find((x) => x.id === newId)).filter(Boolean);
 
   // In-app + email only when the notify checkbox is on.
   let emailNotify = {
-    smtp_configured: isMailerConfigured(),
+    smtp_configured: await isMailerConfigured(),
     variant: 'updated',
     in_app: 0,
     attempted: 0,
@@ -1039,8 +1072,12 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   }
 
   const firstNewId = createdRows[0]?.id ?? id;
-  const assigneeNames = createdRows.map((r) => activityPersonName(r.person_id)).filter(Boolean);
-  store.appendAuditLog(req.user, {
+  const assigneeNames = [];
+  for (const r of createdRows) {
+    const name = await activityPersonName(r.person_id);
+    if (name) assigneeNames.push(name);
+  }
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'activity',
     target_id: firstNewId,
@@ -1062,13 +1099,16 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   }
 
   const first = createdRows[0];
-  return res.json({
-    ...enrichActivityForClient(first),
-    split_into: createdRows.length > 1 ? createdRows.map((r) => ({
+  const splitInto = createdRows.length > 1
+    ? await Promise.all(createdRows.map(async (r) => ({
       id: r.id,
       person_id: r.person_id,
-      person_name: activityPersonName(r.person_id),
-    })) : null,
+      person_name: await activityPersonName(r.person_id),
+    })))
+    : null;
+  return res.json({
+    ...await enrichActivityForClient(first, projects),
+    split_into: splitInto,
     replaced_id: id,
     email_notify: emailNotify,
     notify_email_requested: shouldNotify,
@@ -1082,7 +1122,11 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     console.warn('activities DELETE: could not refresh from Supabase', e?.message || e);
   }
   const id = +req.params.id;
-  const existing = store.activities.find((a) => a.id === id);
+  const [activities, projects] = await Promise.all([
+    store.listActivities(),
+    store.listProjects(),
+  ]);
+  const existing = activities.find((a) => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
 
   const notifyRaw = req.query.notify_email ?? req.body?.notify_email;
@@ -1090,15 +1134,15 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     ? true
     : !(notifyRaw === false || notifyRaw === 'false' || notifyRaw === 0 || notifyRaw === '0');
 
-  const deletedIds = idsInSameLogicalGroup(store.activities, id);
+  const deletedIds = idsInSameLogicalGroup(activities, id);
   const groupRows = deletedIds
-    .map((aid) => store.activities.find((a) => a.id === aid))
+    .map((aid) => activities.find((a) => a.id === aid))
     .filter(Boolean);
   const assigneeUids = [...new Set(groupRows.map((r) => r.person_id).filter((x) => x != null))];
   const external_attendees = groupRows.map((r) => r.external_attendees).find((x) => x != null && String(x).trim())
     || existing.external_attendees
     || null;
-  const project = store.projects.find((p) => p.id === existing.project_id);
+  const project = projects.find((p) => p.id === existing.project_id);
   const cancelledBy = req.user?.name || req.user?.email || '';
   const cancelPayload = {
     title: existing.title,
@@ -1127,7 +1171,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   const calendarUid = existing.activity_group_id || `activity-${id}`;
 
   let emailNotify = {
-    smtp_configured: isMailerConfigured(),
+    smtp_configured: await isMailerConfigured(),
     variant: 'cancelled',
     in_app: 0,
     attempted: 0,
@@ -1156,7 +1200,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   }
 
   const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'cancel',
     target_type: 'activity',
     target_id: id,

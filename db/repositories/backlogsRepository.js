@@ -2,24 +2,40 @@ import { normalizeBacklogStatus } from '../../lib/backlogConstants.js';
 import { normalizeModuleCode } from '../../lib/epbtModules.js';
 import { cleanExternalTicketRef } from '../../lib/issueBacklogLink.js';
 import { nextId } from '../runtime/helpers.js';
+import { isDbMode, dbSelect, dbInsert, dbUpdate } from '../runtime/query.js';
 
 export function createBacklogsRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
+  async function listBacklogs() {
+    if (!isDbMode()) return [...(getData().backlogs || [])];
+    return dbSelect('backlogs_app', { order: 'id' });
+  }
+
   return {
+    /** @deprecated Prefer listBacklogs() — sync getter is local-only. */
     get backlogs() {
       return [...(getData().backlogs || [])];
     },
+    /** @deprecated Prefer listBacklogComments(backlogId) — sync getter is local-only. */
     get backlog_comments() {
       return [...(getData().backlog_comments || [])];
     },
 
-    nextBacklogRefNo() {
-      const data = getData();
-      if (!data.backlogs) data.backlogs = [];
+    listBacklogs,
+
+    async nextBacklogRefNo() {
       const year = new Date().getFullYear();
       const prefix = `BLG-${year}-`;
-      const nums = data.backlogs
+      let backlogs;
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.backlogs) data.backlogs = [];
+        backlogs = data.backlogs;
+      } else {
+        backlogs = await dbSelect('backlogs_app', { columns: 'ref_no' });
+      }
+      const nums = backlogs
         .filter((b) => b.ref_no && String(b.ref_no).startsWith(prefix))
         .map((b) => parseInt(String(b.ref_no).slice(prefix.length), 10))
         .filter((n) => Number.isFinite(n));
@@ -27,15 +43,11 @@ export function createBacklogsRepository(ctx, getStore) {
       return `${prefix}${String(next).padStart(4, '0')}`;
     },
 
-    addBacklog(row) {
-      const data = getData();
+    async addBacklog(row) {
       const store = getStore();
-      if (!data.backlogs) data.backlogs = [];
-      const id = nextId(data.backlogs);
       const now = new Date().toISOString();
       const item = {
-        id,
-        ref_no: row.ref_no || store.nextBacklogRefNo(),
+        ref_no: row.ref_no || await store.nextBacklogRefNo(),
         project_id: +row.project_id,
         title: String(row.title || '').trim(),
         description: row.description != null ? String(row.description) : null,
@@ -62,36 +74,53 @@ export function createBacklogsRepository(ctx, getStore) {
         created_at: now,
         updated_at: now,
       };
-      data.backlogs.push(item);
-      save();
-      return id;
+
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.backlogs) data.backlogs = [];
+        const id = nextId(data.backlogs);
+        data.backlogs.push({ id, ...item });
+        save();
+        return id;
+      }
+      const saved = await dbInsert('backlogs_app', item);
+      return saved.id;
     },
 
-    updateBacklog(id, patch) {
-      const data = getData();
-      if (!data.backlogs) data.backlogs = [];
-      const i = data.backlogs.findIndex((b) => b.id === +id);
-      if (i === -1) return false;
+    async updateBacklog(id, patch) {
       const next = { ...patch };
       if (next.status != null) next.status = normalizeBacklogStatus(next.status);
-      data.backlogs[i] = { ...data.backlogs[i], ...next, updated_at: new Date().toISOString() };
-      save();
-      return true;
+      next.updated_at = new Date().toISOString();
+
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.backlogs) data.backlogs = [];
+        const i = data.backlogs.findIndex((b) => b.id === +id);
+        if (i === -1) return false;
+        data.backlogs[i] = { ...data.backlogs[i], ...next };
+        save();
+        return true;
+      }
+      const saved = await dbUpdate('backlogs_app', +id, next);
+      return Boolean(saved);
     },
 
-    listBacklogComments(backlogId) {
-      const data = getData();
-      return (data.backlog_comments || [])
-        .filter((c) => c.backlog_id === +backlogId)
-        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    async listBacklogComments(backlogId) {
+      if (!isDbMode()) {
+        const data = getData();
+        return (data.backlog_comments || [])
+          .filter((c) => c.backlog_id === +backlogId)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      }
+      const rows = await dbSelect('backlog_comments_app', {
+        filters: { backlog_id: +backlogId },
+        order: 'created_at',
+      });
+      return rows.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     },
 
-    addBacklogComment(row) {
-      const data = getData();
-      if (!data.backlog_comments) data.backlog_comments = [];
-      const id = nextId(data.backlog_comments);
+    async addBacklogComment(row) {
       const comment = {
-        id,
         backlog_id: +row.backlog_id,
         author_user_id: +row.author_user_id,
         body: String(row.body || '').trim(),
@@ -100,14 +129,25 @@ export function createBacklogsRepository(ctx, getStore) {
           : [],
         created_at: new Date().toISOString(),
       };
-      data.backlog_comments.push(comment);
-      save();
-      return id;
+
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.backlog_comments) data.backlog_comments = [];
+        const id = nextId(data.backlog_comments);
+        data.backlog_comments.push({ id, ...comment });
+        save();
+        return id;
+      }
+      const saved = await dbInsert('backlog_comments_app', comment);
+      return saved.id;
     },
 
-    findBacklogByIssueId(issueId) {
-      const data = getData();
-      return (data.backlogs || []).find((b) => b.issue_id === +issueId) || null;
+    async findBacklogByIssueId(issueId) {
+      if (!isDbMode()) {
+        const data = getData();
+        return (data.backlogs || []).find((b) => b.issue_id === +issueId) || null;
+      }
+      return dbSelect('backlogs_app', { filters: { issue_id: +issueId }, maybeSingle: true });
     },
   };
 }

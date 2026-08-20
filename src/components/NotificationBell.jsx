@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useNotificationsRealtime } from '../hooks/useNotificationsRealtime';
 
 function resolveNotificationLink(n) {
   if (n?.link) return n.link;
@@ -11,7 +12,6 @@ function resolveNotificationLink(n) {
   }
   if (type === 'activity_cancelled') return '/calendar';
   if ((type === 'project_task' || type === 'task_assigned') && id != null) {
-    // Prefer project link from body is unavailable; fall back to my-work
     return '/my-work';
   }
   if (type === 'issue' || type === 'issue_assigned') {
@@ -23,54 +23,16 @@ function resolveNotificationLink(n) {
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState([]);
-  const [unread, setUnread] = useState(0);
   const wrapRef = useRef(null);
   const navigate = useNavigate();
-
-  const [loadError, setLoadError] = useState(false);
-
-  const refresh = () => {
-    setLoadError(false);
-    const load = () =>
-      Promise.all([
-        api.notifications.list(),
-        api.notifications.unreadCount().catch(() => ({ unread: 0 })),
-      ]);
-
-    load()
-      .catch(() => new Promise((resolve, reject) => {
-        setTimeout(() => load().then(resolve, reject), 400);
-      }))
-      .then(([list, count]) => {
-        setItems(Array.isArray(list) ? list : []);
-        setUnread(Number(count?.unread) || 0);
-        setLoadError(false);
-      })
-      .catch(() => {
-        setLoadError(true);
-        // Keep previous items on transient errors so the list does not flicker empty.
-      });
-  };
-
-  useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 15000);
-    const onFocus = () => refresh();
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') refresh();
-    };
-    const onChanged = () => refresh();
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('pmo:notifications-changed', onChanged);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('pmo:notifications-changed', onChanged);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, []);
+  const {
+    items,
+    setItems,
+    unread,
+    setUnread,
+    loadError,
+    refresh,
+  } = useNotificationsRealtime();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -82,16 +44,22 @@ export default function NotificationBell() {
   }, [open]);
 
   const openNotification = async (n) => {
-    if (!n.read_at) await api.notifications.markRead(n.id).catch(() => {});
+    if (!n.read_at) {
+      const now = new Date().toISOString();
+      setItems((prev) => prev.map((row) => (Number(row.id) === Number(n.id) ? { ...row, read_at: now } : row)));
+      setUnread((u) => Math.max(0, u - 1));
+      await api.notifications.markRead(n.id).catch(() => refresh());
+    }
     setOpen(false);
     const href = resolveNotificationLink(n);
     if (href) navigate(href);
-    else refresh();
   };
 
   const markAll = async () => {
-    await api.notifications.markAllRead().catch(() => {});
-    refresh();
+    const now = new Date().toISOString();
+    setItems((prev) => prev.map((row) => (row.read_at ? row : { ...row, read_at: now })));
+    setUnread(0);
+    await api.notifications.markAllRead().catch(() => refresh());
   };
 
   return (

@@ -11,42 +11,58 @@ export const workPackagesRouter = Router();
 
 const CLASSIFICATION_SET = new Set(PROJECT_CLASSIFICATIONS.map((c) => c.id));
 
-function enrichWorkPackage(wp) {
-  const tasks = store.project_tasks.filter((t) => t.work_package_id === wp.id);
-  const phases = (store.project_phases || []).filter((p) => p.work_package_id === wp.id);
-  const backlogs = (store.backlogs || []).filter((b) => b.work_package_id === wp.id);
-  const currentPhase = phases.find((p) => p.status === 'in_progress')
-    || phases.find((p) => p.status === 'pending');
-  const totalContract = phases.reduce((s, p) => s + (+p.payment_amount || 0), 0);
-  const totalPaid = phases
+async function enrichWorkPackage(wp, preloaded = null) {
+  const tasks = preloaded?.tasks ?? await store.listProjectTasks();
+  const phases = preloaded?.phases ?? await store.listProjectPhases(wp.project_id);
+  const backlogs = preloaded?.backlogs ?? await store.listBacklogs();
+  const wpTasks = tasks.filter((t) => t.work_package_id === wp.id);
+  const wpPhases = phases.filter((p) => p.work_package_id === wp.id);
+  const wpBacklogs = backlogs.filter((b) => b.work_package_id === wp.id);
+  const currentPhase = wpPhases.find((p) => p.status === 'in_progress')
+    || wpPhases.find((p) => p.status === 'pending');
+  const totalContract = wpPhases.reduce((s, p) => s + (+p.payment_amount || 0), 0);
+  const totalPaid = wpPhases
     .filter((p) => p.payment_status === 'paid')
     .reduce((s, p) => s + (+p.payment_amount || 0), 0);
   return {
     ...wp,
-    task_count: tasks.length,
-    phase_count: phases.length,
-    backlog_count: backlogs.length,
-    open_backlog_count: backlogs.filter((b) => OPEN_BACKLOG_STATUSES.has(b.status)).length,
+    task_count: wpTasks.length,
+    phase_count: wpPhases.length,
+    backlog_count: wpBacklogs.length,
+    open_backlog_count: wpBacklogs.filter((b) => OPEN_BACKLOG_STATUSES.has(b.status)).length,
     current_phase: currentPhase?.name || null,
     total_contract: totalContract,
     total_paid: totalPaid,
   };
 }
 
+async function loadWorkPackageMetaContext(projectId = null) {
+  const [tasks, phases, backlogs] = await Promise.all([
+    store.listProjectTasks(),
+    store.listProjectPhases(projectId ?? undefined),
+    store.listBacklogs(),
+  ]);
+  return { tasks, phases, backlogs };
+}
+
 workPackagesRouter.get('/', async (req, res) => {
   await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
-  let list = (store.work_packages || []).map(enrichWorkPackage);
-  if (projectId) list = list.filter((w) => w.project_id === projectId);
+  const packages = projectId
+    ? await store.listWorkPackages(projectId)
+    : await store.listWorkPackages();
+  const ctx = await loadWorkPackageMetaContext(projectId);
+  let list = await Promise.all(packages.map((w) => enrichWorkPackage(w, ctx)));
   list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
   res.json(list);
 });
 
 workPackagesRouter.get('/:id', async (req, res) => {
   await reloadStore();
-  const wp = (store.work_packages || []).find((w) => w.id === +req.params.id);
+  const packages = await store.listWorkPackages();
+  const wp = packages.find((w) => w.id === +req.params.id);
   if (!wp) return res.status(404).json({ error: 'Work package not found' });
-  res.json(enrichWorkPackage(wp));
+  res.json(await enrichWorkPackage(wp));
 });
 
 workPackagesRouter.post('/', async (req, res) => {
@@ -61,10 +77,11 @@ workPackagesRouter.post('/', async (req, res) => {
   if (!CLASSIFICATION_SET.has(classification)) {
     return res.status(400).json({ error: 'Invalid delivery scope' });
   }
-  const project = store.projects.find((p) => p.id === +body.project_id);
+  const projects = await store.listProjects();
+  const project = projects.find((p) => p.id === +body.project_id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const id = store.addWorkPackage({
+  const id = await store.addWorkPackage({
     project_id: +body.project_id,
     name: String(body.name).trim(),
     description: body.description != null ? String(body.description) : null,
@@ -75,8 +92,9 @@ workPackagesRouter.post('/', async (req, res) => {
     sort_order: body.sort_order != null ? +body.sort_order : undefined,
   });
 
-  const wp = enrichWorkPackage(store.work_packages.find((w) => w.id === id));
-  store.appendAuditLog(req.user, {
+  const packages = await store.listWorkPackages(+body.project_id);
+  const wp = await enrichWorkPackage(packages.find((w) => w.id === id));
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'work_package',
     target_id: id,
@@ -91,7 +109,8 @@ workPackagesRouter.put('/:id', async (req, res) => {
     return res.status(403).json({ error: 'Only PMO can update work packages' });
   }
   const id = +req.params.id;
-  const cur = (store.work_packages || []).find((w) => w.id === id);
+  const packages = await store.listWorkPackages();
+  const cur = packages.find((w) => w.id === id);
   if (!cur) return res.status(404).json({ error: 'Work package not found' });
 
   const body = req.body || {};
@@ -110,9 +129,10 @@ workPackagesRouter.put('/:id', async (req, res) => {
   if (body.end_date !== undefined) patch.end_date = body.end_date || null;
   if (body.sort_order != null) patch.sort_order = +body.sort_order;
 
-  store.updateWorkPackage(id, patch);
+  await store.updateWorkPackage(id, patch);
   if (!(await persistStore(res))) return;
-  res.json(enrichWorkPackage(store.work_packages.find((w) => w.id === id)));
+  const updated = (await store.listWorkPackages(cur.project_id)).find((w) => w.id === id);
+  res.json(await enrichWorkPackage(updated));
 });
 
 workPackagesRouter.delete('/:id', async (req, res) => {
@@ -120,11 +140,12 @@ workPackagesRouter.delete('/:id', async (req, res) => {
     return res.status(403).json({ error: 'Only PMO can delete work packages' });
   }
   const id = +req.params.id;
-  const cur = (store.work_packages || []).find((w) => w.id === id);
+  const packages = await store.listWorkPackages();
+  const cur = packages.find((w) => w.id === id);
   if (!cur) return res.status(404).json({ error: 'Work package not found' });
 
-  store.deleteWorkPackage(id);
-  store.appendAuditLog(req.user, {
+  await store.deleteWorkPackage(id);
+  await store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'work_package',
     target_id: id,
@@ -139,18 +160,21 @@ workPackagesRouter.post('/:id/init-phases', async (req, res) => {
     return res.status(403).json({ error: 'Only PMO can initialize phases' });
   }
   const id = +req.params.id;
-  const wp = (store.work_packages || []).find((w) => w.id === id);
+  const packages = await store.listWorkPackages();
+  const wp = packages.find((w) => w.id === id);
   if (!wp) return res.status(404).json({ error: 'Work package not found' });
 
-  const existing = (store.project_phases || []).filter((p) => p.work_package_id === id);
+  const existing = (await store.listProjectPhases(wp.project_id))
+    .filter((p) => p.work_package_id === id);
   if (existing.length > 0) {
     return res.status(400).json({ error: 'This work package already has delivery phases' });
   }
 
   const template = templateForClassification(wp.classification);
-  const phaseIds = store.initProjectPhasesFromTemplate(wp.project_id, template, id);
+  const phaseIds = await store.initProjectPhasesFromTemplate(wp.project_id, template, id);
+  const allPhases = await store.listProjectPhases(wp.project_id);
   const phases = phaseIds.map((pid) => {
-    const phase = store.project_phases.find((p) => p.id === pid);
+    const phase = allPhases.find((p) => p.id === pid);
     return {
       ...phase,
       work_package_name: wp.name,
@@ -158,8 +182,9 @@ workPackagesRouter.post('/:id/init-phases', async (req, res) => {
     };
   });
 
-  const project = store.projects.find((p) => p.id === wp.project_id);
-  store.appendAuditLog(req.user, {
+  const projects = await store.listProjects();
+  const project = projects.find((p) => p.id === wp.project_id);
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'project_phases',
     target_id: wp.project_id,

@@ -8,8 +8,8 @@ if (process.env.ALLOW_LOCAL_STORE !== '1') {
 }
 
 resetLocalDemoData();
-const summary = runRichDemoSeed(store);
-store.updateSettings({ demo_seed_version: DEMO_SEED_VERSION });
+const summary = await runRichDemoSeed(store);
+await store.updateSettings({ demo_seed_version: DEMO_SEED_VERSION });
 
 console.log(`Demo data loaded (v${DEMO_SEED_VERSION}). Restart the dev server if it is already running.`);
 console.log('');

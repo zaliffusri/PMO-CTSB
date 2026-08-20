@@ -227,6 +227,8 @@ export const api = {
       return request(q ? `/notifications?${q}` : '/notifications');
     },
     unreadCount: () => request('/notifications/count'),
+    /** Short-lived Supabase Realtime JWT (RLS-scoped to the current user). */
+    realtime: () => request('/notifications/realtime'),
     markRead: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
     markAllRead: () => request('/notifications/read-all', { method: 'POST' }),
   },

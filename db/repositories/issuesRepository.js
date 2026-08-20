@@ -9,64 +9,95 @@ import {
 } from '../../lib/issueConstants.js';
 import { cleanExternalTicketRef, normalizeBacklogRef } from '../../lib/issueBacklogLink.js';
 import { nextId } from '../runtime/helpers.js';
+import { isDbMode, dbSelect, dbInsert, dbUpdate } from '../runtime/query.js';
 
 export function createIssuesRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
+  async function listIssues() {
+    if (!isDbMode()) return [...(getData().issues || [])];
+    return dbSelect('issues_app', { order: 'id' });
+  }
+
   return {
+    /** @deprecated Prefer listIssues() — sync getter is local-only. */
     get issues() {
       return [...(getData().issues || [])];
     },
 
-    nextIssueTicketNo(moduleCode = 'XXX') {
-      const data = getData();
-      return nextEticketNo(data.issues, moduleCode);
+    listIssues,
+
+    async nextIssueTicketNo(moduleCode = 'XXX') {
+      if (!isDbMode()) {
+        return nextEticketNo(getData().issues, moduleCode);
+      }
+      const rows = await dbSelect('issues_app', { columns: 'ticket_no' });
+      return nextEticketNo(rows, moduleCode);
     },
 
-    findIssueByTicketNo(ticketNo) {
-      const data = getData();
-      if (!data.issues || !ticketNo) return null;
+    async findIssueByTicketNo(ticketNo) {
+      if (!ticketNo) return null;
       const q = String(ticketNo).trim().toUpperCase();
-      return data.issues.find((i) => String(i.ticket_no || '').toUpperCase() === q) || null;
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.issues) return null;
+        return data.issues.find((i) => String(i.ticket_no || '').toUpperCase() === q) || null;
+      }
+      const rows = await dbSelect('issues_app', { order: 'id' });
+      return rows.find((i) => String(i.ticket_no || '').toUpperCase() === q) || null;
     },
 
-    findIssueByExternalTicketRef(ref) {
-      const data = getData();
-      if (!data.issues || !ref) return null;
+    async findIssueByExternalTicketRef(ref) {
+      if (!ref) return null;
       const q = cleanExternalTicketRef(ref);
       if (!q) return null;
       const qu = q.toUpperCase();
-      return data.issues.find((i) => {
+      const match = (i) => {
         const ir = cleanExternalTicketRef(i.external_ticket_ref);
         return ir && ir.toUpperCase() === qu;
-      }) || null;
+      };
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.issues) return null;
+        return data.issues.find(match) || null;
+      }
+      const rows = await dbSelect('issues_app', { order: 'id' });
+      return rows.find(match) || null;
     },
 
-    findBacklogByRefNo(refNo) {
-      const data = getData();
-      if (!data.backlogs || !refNo) return null;
+    async findBacklogByRefNo(refNo) {
+      if (!refNo) return null;
       const q = normalizeBacklogRef(refNo);
       if (!q) return null;
-      return data.backlogs.find((b) => normalizeBacklogRef(b.ref_no) === q) || null;
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.backlogs) return null;
+        return data.backlogs.find((b) => normalizeBacklogRef(b.ref_no) === q) || null;
+      }
+      const rows = await dbSelect('backlogs_app', { order: 'id' });
+      return rows.find((b) => normalizeBacklogRef(b.ref_no) === q) || null;
     },
 
-    findBacklogByExternalTicketRef(ref) {
-      const data = getData();
-      if (!data.backlogs || !ref) return null;
+    async findBacklogByExternalTicketRef(ref) {
+      if (!ref) return null;
       const q = cleanExternalTicketRef(ref);
       if (!q) return null;
       const qu = q.toUpperCase();
-      return data.backlogs.find((b) => {
+      const match = (b) => {
         const br = cleanExternalTicketRef(b.external_ticket_ref);
         return br && br.toUpperCase() === qu;
-      }) || null;
+      };
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.backlogs) return null;
+        return data.backlogs.find(match) || null;
+      }
+      const rows = await dbSelect('backlogs_app', { order: 'id' });
+      return rows.find(match) || null;
     },
 
-    addIssue(row) {
-      const data = getData();
+    async addIssue(row) {
       const store = getStore();
-      if (!data.issues) data.issues = [];
-      const id = nextId(data.issues);
       const now = new Date().toISOString();
       const moduleCode = normalizeModuleCode(row.module_code || row.epbt_module);
       const epbtModule = row.epbt_module != null ? String(row.epbt_module).trim() : moduleLabelForCode(moduleCode);
@@ -76,9 +107,9 @@ export function createIssuesRepository(ctx, getStore) {
       const intakeChannel = row.intake_channel && ISSUE_INTAKE_CHANNEL_SET.has(row.intake_channel)
         ? row.intake_channel
         : parseIntakeChannel(row.intake_channel);
+      const ticket_no = row.ticket_no || await store.nextIssueTicketNo(moduleCode);
       const issue = {
-        id,
-        ticket_no: row.ticket_no || store.nextIssueTicketNo(moduleCode),
+        ticket_no,
         title: String(row.title || '').trim(),
         description: row.description != null ? String(row.description) : null,
         status: row.status || 'open',
@@ -109,27 +140,49 @@ export function createIssuesRepository(ctx, getStore) {
         updated_at: row.updated_at || now,
         resolved_at: row.resolved_at || null,
       };
-      data.issues.push(issue);
-      save();
-      return id;
+
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.issues) data.issues = [];
+        const id = nextId(data.issues);
+        data.issues.push({ id, ...issue });
+        save();
+        return id;
+      }
+      const saved = await dbInsert('issues_app', issue);
+      return saved.id;
     },
 
-    updateIssue(id, patch) {
-      const data = getData();
-      if (!data.issues) data.issues = [];
-      const i = data.issues.findIndex((x) => x.id === +id);
-      if (i === -1) return false;
-      const cur = data.issues[i];
-      const next = { ...cur, ...patch, updated_at: new Date().toISOString() };
+    async updateIssue(id, patch) {
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.issues) data.issues = [];
+        const i = data.issues.findIndex((x) => x.id === +id);
+        if (i === -1) return false;
+        const cur = data.issues[i];
+        const next = { ...cur, ...patch, updated_at: new Date().toISOString() };
+        if (patch.status === 'resolved' || patch.status === 'closed') {
+          if (!cur.resolved_at) next.resolved_at = new Date().toISOString();
+        }
+        if (patch.status === 'open' || patch.status === 'in_progress') {
+          next.resolved_at = null;
+        }
+        data.issues[i] = next;
+        save();
+        return true;
+      }
+
+      const cur = await dbSelect('issues_app', { filters: { id: +id }, maybeSingle: true });
+      if (!cur) return false;
+      const next = { ...patch, updated_at: new Date().toISOString() };
       if (patch.status === 'resolved' || patch.status === 'closed') {
         if (!cur.resolved_at) next.resolved_at = new Date().toISOString();
       }
       if (patch.status === 'open' || patch.status === 'in_progress') {
         next.resolved_at = null;
       }
-      data.issues[i] = next;
-      save();
-      return true;
+      const saved = await dbUpdate('issues_app', +id, next);
+      return Boolean(saved);
     },
   };
 }

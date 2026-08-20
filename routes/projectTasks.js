@@ -8,8 +8,8 @@ import { reloadStore, persistStore } from '../lib/storeSync.js';
 
 export const projectTasksRouter = Router();
 
-function rollupGroupHours(groupId) {
-  const kids = store.project_tasks.filter(
+function rollupGroupHours(groupId, allTasks) {
+  const kids = allTasks.filter(
     (t) => t.parent_id === groupId && t.task_kind !== 'group',
   );
   const estimated = kids.reduce((s, t) => s + (Number(t.estimated_hours) || 0), 0);
@@ -20,15 +20,19 @@ function rollupGroupHours(groupId) {
   };
 }
 
-function withTaskMeta(t) {
-  const project = store.projects.find(p => p.id === t.project_id);
-  const assignee = t.assignee_id != null ? store.people.find(p => p.id === t.assignee_id) : null;
+async function withTaskMeta(t, preloaded = null) {
+  const projects = preloaded?.projects ?? await store.listProjects();
+  const people = preloaded?.people ?? await store.listPeople();
+  const allTasks = preloaded?.tasks ?? await store.listProjectTasks();
+  const workPackages = preloaded?.workPackages ?? await store.listWorkPackages();
+  const project = projects.find(p => p.id === t.project_id);
+  const assignee = t.assignee_id != null ? people.find(p => p.id === t.assignee_id) : null;
   const task_kind = t.task_kind === 'group' ? 'group' : 'task';
-  const parent = t.parent_id != null ? store.project_tasks.find(p => p.id === t.parent_id) : null;
+  const parent = t.parent_id != null ? allTasks.find(p => p.id === t.parent_id) : null;
   const wp = t.work_package_id
-    ? (store.work_packages || []).find((w) => w.id === t.work_package_id)
+    ? workPackages.find((w) => w.id === t.work_package_id)
     : null;
-  const hours = task_kind === 'group' ? rollupGroupHours(t.id) : {
+  const hours = task_kind === 'group' ? rollupGroupHours(t.id, allTasks) : {
     estimated_hours: t.estimated_hours ?? null,
     actual_hours: t.actual_hours ?? null,
   };
@@ -73,23 +77,37 @@ function applySort(tasks) {
   return hierarchicalTaskSort(tasks);
 }
 
+async function loadTaskMetaContext() {
+  const [projects, people, tasks, workPackages] = await Promise.all([
+    store.listProjects(),
+    store.listPeople(),
+    store.listProjectTasks(),
+    store.listWorkPackages(),
+  ]);
+  return { projects, people, tasks, workPackages };
+}
+
 projectTasksRouter.get('/', async (req, res) => {
   await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  let tasks = store.project_tasks.map(t => withTaskMeta(t));
+  const ctx = await loadTaskMetaContext();
+  let tasks = await Promise.all(ctx.tasks.map((t) => withTaskMeta(t, ctx)));
   if (projectId) tasks = tasks.filter(t => t.project_id === projectId);
   if (workPackageId) tasks = tasks.filter((t) => t.work_package_id === workPackageId);
   tasks = applySort(tasks);
   res.json(tasks);
 });
 
-projectTasksRouter.get('/gantt', (req, res) => {
+projectTasksRouter.get('/gantt', async (req, res) => {
   const from = req.query.from;
   const to = req.query.to;
-  let tasks = store.project_tasks
-    .filter((t) => t.task_kind !== 'group')
-    .map(t => withTaskMeta(t));
+  const ctx = await loadTaskMetaContext();
+  let tasks = await Promise.all(
+    ctx.tasks
+      .filter((t) => t.task_kind !== 'group')
+      .map((t) => withTaskMeta(t, ctx)),
+  );
   if (from && to) {
     tasks = tasks.filter(t => {
       const taskStart = t.planned_start_date || t.actual_start_date;
@@ -130,11 +148,14 @@ projectTasksRouter.post('/', async (req, res) => {
     if (Number.isFinite(n) && n > 0) pid = n;
   }
 
+  const allTasks = await store.listProjectTasks();
+  const people = await store.listPeople();
+
   if (task_kind === 'group') {
     if (pid != null) return res.status(400).json({ error: 'A task group cannot have a parent' });
   }
   if (pid != null) {
-    const parent = store.project_tasks.find(t => t.id === pid);
+    const parent = allTasks.find(t => t.id === pid);
     if (!parent || parent.project_id !== +project_id) {
       return res.status(400).json({ error: 'Parent task group not found' });
     }
@@ -148,11 +169,11 @@ projectTasksRouter.post('/', async (req, res) => {
   }
 
   const aid = task_kind === 'group' ? null : parseAssigneeId({ assignee_id }, {});
-  if (aid != null && !store.people.some(p => p.id === aid)) {
+  if (aid != null && !people.some(p => p.id === aid)) {
     return res.status(400).json({ error: 'Invalid assignee' });
   }
 
-  const id = store.addProjectTask({
+  const id = await store.addProjectTask({
     project_id: +project_id,
     name,
     planned_start_date: planned_start_date || null,
@@ -169,16 +190,18 @@ projectTasksRouter.post('/', async (req, res) => {
     estimated_hours: task_kind === 'group' ? null : parseHoursInput(estimated_hours),
     actual_hours: task_kind === 'group' ? null : parseHoursInput(actual_hours),
   });
-  const task = store.project_tasks.find(t => t.id === id);
-  const proj = store.projects.find((p) => p.id === task.project_id);
-  store.appendAuditLog(req.user, {
+  const tasks = await store.listProjectTasks();
+  const projects = await store.listProjects();
+  const task = tasks.find(t => t.id === id);
+  const proj = projects.find((p) => p.id === task.project_id);
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'project_task',
     target_id: id,
     summary: `Created ${task_kind === 'group' ? 'task group' : 'task'} "${name}" in "${proj?.name || task.project_id}"`,
   });
   if (aid != null && task_kind !== 'group') {
-    const person = store.people.find((p) => p.id === aid);
+    const person = people.find((p) => p.id === aid);
     await notifyPersonInApp(aid, {
       type: 'task_assigned',
       title: `New task: ${name}`,
@@ -187,7 +210,7 @@ projectTasksRouter.post('/', async (req, res) => {
       entity_type: 'project_task',
       entity_id: id,
     });
-    const to = emailForPerson(person);
+    const to = await emailForPerson(person);
     if (to) {
       sendTaskAssignedEmail({
         to,
@@ -199,15 +222,16 @@ projectTasksRouter.post('/', async (req, res) => {
     }
   }
   if (!(await persistStore(res))) return;
-  res.status(201).json(withTaskMeta(task));
+  res.status(201).json(await withTaskMeta(task));
 });
 
 projectTasksRouter.put('/:id', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.project_tasks.find(t => t.id === id);
+  const allTasks = await store.listProjectTasks();
+  const existing = allTasks.find(t => t.id === id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
 
-  const hasChildren = store.project_tasks.some(t => t.parent_id === existing.id);
+  const hasChildren = allTasks.some(t => t.parent_id === existing.id);
   const existingKind = existing.task_kind === 'group' ? 'group' : 'task';
 
   let nextKind = existingKind;
@@ -231,7 +255,7 @@ projectTasksRouter.put('/:id', async (req, res) => {
     nextParentId = null;
   }
   if (nextParentId != null) {
-    const parent = store.project_tasks.find(t => t.id === nextParentId);
+    const parent = allTasks.find(t => t.id === nextParentId);
     if (!parent || parent.project_id !== existing.project_id) {
       return res.status(400).json({ error: 'Parent task group not found' });
     }
@@ -280,10 +304,11 @@ projectTasksRouter.put('/:id', async (req, res) => {
     if (nextStatus === 'done' && nextProgress < 100) nextProgress = 100;
   }
 
+  const people = await store.listPeople();
   let nextAssignee = parseAssigneeId({ assignee_id }, existing);
   if (nextKind === 'group') {
     nextAssignee = null;
-  } else if (assignee_id !== undefined && nextAssignee != null && !store.people.some(p => p.id === nextAssignee)) {
+  } else if (assignee_id !== undefined && nextAssignee != null && !people.some(p => p.id === nextAssignee)) {
     return res.status(400).json({ error: 'Invalid assignee' });
   }
 
@@ -295,7 +320,7 @@ projectTasksRouter.put('/:id', async (req, res) => {
     ? (nextKind === 'group' ? null : parseHoursInput(actual_hours))
     : existing.actual_hours;
 
-  store.updateProjectTask(id, {
+  await store.updateProjectTask(id, {
     name: name ?? existing.name,
     planned_start_date: planned_start_date !== undefined ? planned_start_date : existing.planned_start_date,
     planned_end_date: planned_end_date !== undefined ? planned_end_date : existing.planned_end_date,
@@ -311,15 +336,16 @@ projectTasksRouter.put('/:id', async (req, res) => {
     estimated_hours: nextEstimated,
     actual_hours: nextActual,
   });
-  const task = store.project_tasks.find(t => t.id === id);
-  const meta = withTaskMeta(task);
+  const tasks = await store.listProjectTasks();
+  const task = tasks.find(t => t.id === id);
+  const meta = await withTaskMeta(task);
   if (
     nextKind !== 'group'
     && nextAssignee != null
     && nextAssignee !== prevAssignee
     && assignee_id !== undefined
   ) {
-    const person = store.people.find((p) => p.id === nextAssignee);
+    const person = people.find((p) => p.id === nextAssignee);
     await notifyPersonInApp(nextAssignee, {
       type: 'task_assigned',
       title: `Task assigned: ${meta.name}`,
@@ -328,7 +354,7 @@ projectTasksRouter.put('/:id', async (req, res) => {
       entity_type: 'project_task',
       entity_id: id,
     });
-    const to = emailForPerson(person);
+    const to = await emailForPerson(person);
     if (to) {
       sendTaskAssignedEmail({
         to,
@@ -345,11 +371,13 @@ projectTasksRouter.put('/:id', async (req, res) => {
 
 projectTasksRouter.delete('/:id', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.project_tasks.find(t => t.id === id);
+  const allTasks = await store.listProjectTasks();
+  const existing = allTasks.find(t => t.id === id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
-  const proj = store.projects.find((p) => p.id === existing.project_id);
-  store.deleteProjectTask(id);
-  store.appendAuditLog(req.user, {
+  const projects = await store.listProjects();
+  const proj = projects.find((p) => p.id === existing.project_id);
+  await store.deleteProjectTask(id);
+  await store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'project_task',
     target_id: id,

@@ -8,7 +8,7 @@ import { publicSmtpStatus, resolveSmtpConfig } from '../lib/smtpConfig.js';
 
 export const settingsRouter = Router();
 
-function settingsForClient(raw, { includeSecrets = false } = {}) {
+async function settingsForClient(raw, { includeSecrets = false } = {}) {
   const s = { ...raw };
   const passSet = Boolean(String(s.smtp_pass || '').trim());
   delete s.smtp_pass;
@@ -18,14 +18,14 @@ function settingsForClient(raw, { includeSecrets = false } = {}) {
   return {
     ...s,
     smtp_pass_set: passSet,
-    smtp_configured: isMailerConfigured(),
-    smtp_status: publicSmtpStatus(),
+    smtp_configured: await isMailerConfigured(),
+    smtp_status: await publicSmtpStatus(),
     ...(includeSecrets ? {} : {}),
   };
 }
 
-export function publicBrandingPayload() {
-  const s = store.getSettings();
+export async function publicBrandingPayload() {
+  const s = await store.getSettings();
   return {
     org_display_name: s.org_display_name,
     org_tagline: s.org_tagline,
@@ -34,8 +34,8 @@ export function publicBrandingPayload() {
   };
 }
 
-settingsRouter.get('/', (req, res) => {
-  res.json(settingsForClient(store.getSettings()));
+settingsRouter.get('/', async (req, res) => {
+  res.json(await settingsForClient(await store.getSettings()));
 });
 
 settingsRouter.put('/', requireAdmin, async (req, res) => {
@@ -138,7 +138,7 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
 
   // Changing provider with the old password left in place causes Gmail 535 BadCredentials
   // (e.g. Microsoft 365 password kept after switching back to Gmail).
-  const cur = store.getSettings();
+  const cur = await store.getSettings();
   const nextService = patch.smtp_service !== undefined
     ? String(patch.smtp_service || '').toLowerCase()
     : String(cur.smtp_service || '').toLowerCase();
@@ -155,9 +155,9 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Nothing to update' });
   }
 
-  store.updateSettings(patch);
+  await store.updateSettings(patch);
   invalidateMailerCache();
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'settings',
     target_id: null,
@@ -173,7 +173,7 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
   } catch (e) {
     console.warn('settings persist:', e.message);
   }
-  res.json(settingsForClient(store.getSettings()));
+  res.json(await settingsForClient(await store.getSettings()));
 });
 
 /** Admin: send a test email using current SMTP config. */
@@ -182,10 +182,10 @@ settingsRouter.post('/test-email', requireAdmin, async (req, res) => {
   if (!to || !to.includes('@')) {
     return res.status(400).json({ error: 'Provide a valid recipient email in "to"' });
   }
-  if (!isMailerConfigured()) {
+  if (!(await isMailerConfigured())) {
     return res.status(503).json({
       error: 'SMTP is not configured. Save Gmail/SMTP settings first (Settings → Email).',
-      smtp_status: publicSmtpStatus(),
+      smtp_status: await publicSmtpStatus(),
     });
   }
   try {
@@ -199,15 +199,17 @@ settingsRouter.post('/test-email', requireAdmin, async (req, res) => {
       action: 'assigned',
     });
     if (!result.sent) {
-      return res.status(502).json({ error: result.reason || 'Failed to send', smtp_status: publicSmtpStatus() });
+      return res.status(502).json({ error: result.reason || 'Failed to send', smtp_status: await publicSmtpStatus() });
     }
-    res.json({ ok: true, to, smtp_status: publicSmtpStatus(), config: { source: resolveSmtpConfig().source } });
+    const cfg = await resolveSmtpConfig();
+    res.json({ ok: true, to, smtp_status: await publicSmtpStatus(), config: { source: cfg.source } });
   } catch (e) {
     const raw = String(e?.message || e || 'SMTP send failed');
     const badCreds = /535|BadCredentials|Username and Password not accepted/i.test(raw);
+    const cfg = await resolveSmtpConfig();
     res.status(502).json({
       error: badCreds
-        ? `Gmail login rejected for ${resolveSmtpConfig().user || 'this account'}. Use an App Password created while logged into THAT same Gmail (Google Account → Security → App passwords), then save it again in Settings → Email. Normal Gmail password will not work.`
+        ? `Gmail login rejected for ${cfg.user || 'this account'}. Use an App Password created while logged into THAT same Gmail (Google Account → Security → App passwords), then save it again in Settings → Email. Normal Gmail password will not work.`
         : raw,
     });
   }

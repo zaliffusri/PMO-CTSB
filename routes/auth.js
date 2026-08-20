@@ -41,18 +41,18 @@ authRouter.post('/register-admin', async (req, res) => {
     if (String(password).length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
-    if (store.findUserByEmail(email)) {
+    if (await store.findUserByEmail(email)) {
       return res.status(409).json({ error: 'Email is already registered' });
     }
 
-    const id = store.addUser({
+    const id = await store.addUser({
       name: String(name).trim(),
       email: String(email).trim().toLowerCase(),
       role: 'admin',
       password_hash: hashPassword(String(password)),
     });
-    const created = store.findUserById(id);
-    store.appendAuditLog(
+    const created = await store.findUserById(id);
+    await store.appendAuditLog(
       { id: created.id, email: created.email, name: created.name },
       {
         action: 'create',
@@ -74,7 +74,7 @@ authRouter.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'email and password are required' });
     }
-    const user = store.findUserByEmail(String(email).trim().toLowerCase());
+    const user = await store.findUserByEmail(String(email).trim().toLowerCase());
     if (!user || !verifyPassword(String(password), user.password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -89,7 +89,7 @@ authRouter.post('/login', async (req, res) => {
 });
 
 authRouter.get('/me', async (req, res) => {
-  store.clearExpiredSessions();
+  await store.clearExpiredSessions();
   const token = getTokenFromHeader(req);
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   const session = await store.findSessionByTokenAny(token);
@@ -120,10 +120,10 @@ authRouter.post('/avatar', requireAuth, async (req, res) => {
     if (avatar_url.length > MAX_AVATAR_BYTES) {
       return res.status(413).json({ error: 'Avatar is too large. Please choose a smaller image.' });
     }
-    const user = store.findUserById(req.user.id);
+    const user = await store.findUserById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    store.updateUser(user.id, { avatar_url });
-    store.appendAuditLog(req.user, {
+    await store.updateUser(user.id, { avatar_url });
+    await store.appendAuditLog(req.user, {
       action: 'update',
       target_type: 'user',
       target_id: user.id,
@@ -135,7 +135,7 @@ authRouter.post('/avatar', requireAuth, async (req, res) => {
       console.error('auth /avatar POST persistToSupabase failed', e);
       return res.status(500).json({ error: e.message || 'Failed to save avatar' });
     }
-    const updated = store.findUserById(user.id);
+    const updated = await store.findUserById(user.id);
     return res.json({ user: sanitizeUser(updated) });
   } catch (e) {
     console.error('auth /avatar POST failed', e);
@@ -145,13 +145,13 @@ authRouter.post('/avatar', requireAuth, async (req, res) => {
 
 authRouter.delete('/avatar', requireAuth, async (req, res) => {
   try {
-    const user = store.findUserById(req.user.id);
+    const user = await store.findUserById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (!user.avatar_url) {
       return res.json({ user: sanitizeUser(user) });
     }
-    store.updateUser(user.id, { avatar_url: null });
-    store.appendAuditLog(req.user, {
+    await store.updateUser(user.id, { avatar_url: null });
+    await store.appendAuditLog(req.user, {
       action: 'update',
       target_type: 'user',
       target_id: user.id,
@@ -163,7 +163,7 @@ authRouter.delete('/avatar', requireAuth, async (req, res) => {
       console.error('auth /avatar DELETE persistToSupabase failed', e);
       return res.status(500).json({ error: e.message || 'Failed to remove avatar' });
     }
-    const updated = store.findUserById(user.id);
+    const updated = await store.findUserById(user.id);
     return res.json({ user: sanitizeUser(updated) });
   } catch (e) {
     console.error('auth /avatar DELETE failed', e);
@@ -171,7 +171,7 @@ authRouter.delete('/avatar', requireAuth, async (req, res) => {
   }
 });
 
-authRouter.post('/change-password', requireAuth, (req, res) => {
+authRouter.post('/change-password', requireAuth, async (req, res) => {
   const { current_password, new_password } = req.body || {};
   if (!current_password || !new_password) {
     return res.status(400).json({ error: 'current_password and new_password are required' });
@@ -179,13 +179,13 @@ authRouter.post('/change-password', requireAuth, (req, res) => {
   if (String(new_password).length < 6) {
     return res.status(400).json({ error: 'New password must be at least 6 characters' });
   }
-  const user = store.findUserById(req.user.id);
+  const user = await store.findUserById(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (!verifyPassword(String(current_password), user.password_hash)) {
     return res.status(401).json({ error: 'Current password is incorrect' });
   }
-  store.updateUser(user.id, { password_hash: hashPassword(String(new_password)) });
-  store.appendAuditLog(req.user, {
+  await store.updateUser(user.id, { password_hash: hashPassword(String(new_password)) });
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'user',
     target_id: user.id,

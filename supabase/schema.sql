@@ -25,6 +25,7 @@ create table if not exists people (
   name text not null,
   email text,
   role text,
+  user_id bigint references users_app(id) on delete set null,
   created_at timestamptz not null default now()
 );
 

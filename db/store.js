@@ -1,3 +1,8 @@
+/**
+ * Store facade — repository composer.
+ * Production: repositories query Supabase/Postgres directly (stateless).
+ * Local (ALLOW_LOCAL_STORE without Supabase): in-memory via dataState.
+ */
 import { initDataState, resetLocalDemoData } from './runtime/dataState.js';
 import { createClientsRepository } from './repositories/clientsRepository.js';
 import { createPeopleRepository } from './repositories/peopleRepository.js';
@@ -12,12 +17,13 @@ import { createNotificationsRepository } from './repositories/notificationsRepos
 import { createBacklogsRepository } from './repositories/backlogsRepository.js';
 import { createDeliveryRepository } from './repositories/deliveryRepository.js';
 import { createAttachmentsRepository } from './repositories/attachmentsRepository.js';
-import { persistDataToSupabase, persistProjectById, persistAssignmentsToSupabase, persistUsersToSupabase, purgeProjectFromSupabase, persistNotificationsToSupabase } from './runtime/supabaseSync.js';
+import { purgeProjectFromSupabase, hasSupabaseClient } from './runtime/supabaseSync.js';
 import { mergeRepositories } from './runtime/mergeRepositories.js';
 
 const ctx = await initDataState();
 let store;
 const getStore = () => store;
+
 store = mergeRepositories(
   createClientsRepository(ctx, getStore),
   createPeopleRepository(ctx, getStore),
@@ -33,22 +39,27 @@ store = mergeRepositories(
   createDeliveryRepository(ctx, getStore),
   createAttachmentsRepository(ctx, getStore),
   {
+    /**
+     * No-op in DB mode (writes already durable).
+     * Kept so existing route contracts that call persistToSupabase() do not break.
+     */
     async persistToSupabase() {
-      await persistDataToSupabase(ctx.getData());
+      return true;
     },
-    async persistProjectById(projectId) {
-      await persistProjectById(ctx.getData(), projectId);
+    async persistProjectById() {
+      return true;
     },
     async persistAssignmentsToSupabase() {
-      await persistAssignmentsToSupabase(ctx.getData());
+      return true;
     },
     async persistUsersToSupabase() {
-      await persistUsersToSupabase(ctx.getData());
+      return true;
     },
-    async persistNotificationsToSupabase(onlyIds = null) {
-      await persistNotificationsToSupabase(ctx.getData(), onlyIds);
+    async persistNotificationsToSupabase() {
+      return true;
     },
     async purgeProjectFromSupabase(projectId) {
+      if (!hasSupabaseClient()) return;
       await purgeProjectFromSupabase(projectId);
     },
     async reloadFromSupabase() {

@@ -1,56 +1,46 @@
-import { allowLocalStore } from './config.js';
-import {
-  emptyData,
-  migrateLegacyClientContacts,
-  migrateLegacyProjectClients,
-} from './helpers.js';
-import { bindSyncDataRef, loadFromSupabase, queueSupabaseSync } from './supabaseSync.js';
+/**
+ * Data state for LOCAL DEV only (ALLOW_LOCAL_STORE=1).
+ * Production / Supabase mode is stateless — repositories query Postgres directly.
+ * No process-wide snapshot load on cold start.
+ */
+import { allowLocalStore, hasSupabase } from './config.js';
+import { emptyData } from './helpers.js';
 
 let data = emptyData();
-let reloadInFlight = null;
 
 export function getData() {
   return data;
 }
 
+/** Local-only: no-op for DB mode (writes go straight to Supabase). */
 export function save() {
-  queueSupabaseSync(data);
+  // Intentionally empty — persistence is per-repository via Supabase / pg.
 }
 
-async function loadInitialData() {
-  const remote = await loadFromSupabase();
-  const base = remote || emptyData();
-  return migrateLegacyProjectClients(migrateLegacyClientContacts(base));
-}
-
-/** Re-read from Supabase so warm serverless instances pick up writes from other instances. */
 export async function reloadFromSupabase() {
-  if (reloadInFlight) return reloadInFlight;
-  reloadInFlight = (async () => {
-    const remote = await loadFromSupabase();
-    if (!remote) return false;
-    data = migrateLegacyProjectClients(migrateLegacyClientContacts(remote));
-    return true;
-  })();
-  try {
-    return await reloadInFlight;
-  } finally {
-    reloadInFlight = null;
-  }
+  // Stateless mode: nothing to reload into memory.
+  return false;
 }
 
 export async function initDataState() {
-  data = await loadInitialData();
-  bindSyncDataRef(getData);
-  return {
-    getData,
-    save,
-    reloadFromSupabase,
-  };
+  data = emptyData();
+  if (hasSupabase && !allowLocalStore) {
+    // Production path: empty in-memory shell; repositories use Supabase.
+    return { getData, save, reloadFromSupabase, mode: 'db' };
+  }
+  return { getData, save, reloadFromSupabase, mode: 'local' };
 }
 
 export function resetLocalDemoData() {
   if (!allowLocalStore) return false;
   data = emptyData();
   return true;
+}
+
+export function isLocalStoreMode() {
+  return allowLocalStore && !hasSupabase;
+}
+
+export function isDbStoreMode() {
+  return hasSupabase;
 }

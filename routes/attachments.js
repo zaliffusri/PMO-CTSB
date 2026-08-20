@@ -13,8 +13,8 @@ import { canAssignIssues } from '../lib/permissions.js';
 
 export const attachmentsRouter = Router();
 
-function enrichAttachment(att) {
-  const uploader = att.uploaded_by_user_id ? store.findUserById(att.uploaded_by_user_id) : null;
+async function enrichAttachment(att) {
+  const uploader = att.uploaded_by_user_id ? await store.findUserById(att.uploaded_by_user_id) : null;
   return {
     ...att,
     uploaded_by_name: uploader?.name ?? null,
@@ -23,24 +23,35 @@ function enrichAttachment(att) {
   };
 }
 
-function entityExists(entityType, entityId) {
+async function entityExists(entityType, entityId) {
   const id = +entityId;
-  if (entityType === 'issue') return store.issues.some((i) => i.id === id);
-  if (entityType === 'backlog') return (store.backlogs || []).some((b) => b.id === id);
-  if (entityType === 'task') return store.project_tasks.some((t) => t.id === id);
+  if (entityType === 'issue') {
+    const issues = await store.listIssues();
+    return issues.some((i) => i.id === id);
+  }
+  if (entityType === 'backlog') {
+    const backlogs = await store.listBacklogs();
+    return backlogs.some((b) => b.id === id);
+  }
+  if (entityType === 'task') {
+    const tasks = await store.listProjectTasks();
+    return tasks.some((t) => t.id === id);
+  }
   return false;
 }
 
-attachmentsRouter.get('/', (req, res) => {
+attachmentsRouter.get('/', async (req, res) => {
   const entityType = String(req.query.entity_type || '');
   const entityId = req.query.entity_id ? +req.query.entity_id : null;
   if (!ATTACHMENT_ENTITY_TYPES.has(entityType) || !entityId) {
     return res.status(400).json({ error: 'entity_type and entity_id are required' });
   }
-  if (!entityExists(entityType, entityId)) {
+  if (!(await entityExists(entityType, entityId))) {
     return res.status(404).json({ error: 'Entity not found' });
   }
-  const list = store.listAttachments(entityType, entityId).map(enrichAttachment);
+  const list = await Promise.all(
+    (await store.listAttachments(entityType, entityId)).map((att) => enrichAttachment(att)),
+  );
   res.json(list);
 });
 
@@ -51,7 +62,7 @@ attachmentsRouter.post('/', async (req, res) => {
   if (!ATTACHMENT_ENTITY_TYPES.has(entityType) || !entityId) {
     return res.status(400).json({ error: 'entity_type and entity_id are required' });
   }
-  if (!entityExists(entityType, entityId)) {
+  if (!(await entityExists(entityType, entityId))) {
     return res.status(404).json({ error: 'Entity not found' });
   }
 
@@ -91,9 +102,9 @@ attachmentsRouter.post('/', async (req, res) => {
     }
   }
 
-  const id = store.addAttachment(row);
-  const att = enrichAttachment(store.findAttachment(id));
-  store.appendAuditLog(req.user, {
+  const id = await store.addAttachment(row);
+  const att = await enrichAttachment(await store.findAttachment(id));
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'attachment',
     target_id: id,
@@ -103,8 +114,8 @@ attachmentsRouter.post('/', async (req, res) => {
   res.status(201).json(att);
 });
 
-attachmentsRouter.get('/:id/file', (req, res) => {
-  const att = store.findAttachment(+req.params.id);
+attachmentsRouter.get('/:id/file', async (req, res) => {
+  const att = await store.findAttachment(+req.params.id);
   if (!att || att.kind !== 'file' || !att.storage_path) {
     return res.status(404).json({ error: 'File not found' });
   }
@@ -118,7 +129,7 @@ attachmentsRouter.get('/:id/file', (req, res) => {
 });
 
 attachmentsRouter.delete('/:id', async (req, res) => {
-  const att = store.findAttachment(+req.params.id);
+  const att = await store.findAttachment(+req.params.id);
   if (!att) return res.status(404).json({ error: 'Attachment not found' });
 
   const isOwner = att.uploaded_by_user_id === req.user.id;
@@ -127,13 +138,14 @@ attachmentsRouter.delete('/:id', async (req, res) => {
   }
 
   if (att.kind === 'file' && att.storage_path) {
-    const stillUsed = (store.attachments || []).some(
+    const siblings = await store.listAttachments(att.entity_type, att.entity_id);
+    const stillUsed = siblings.some(
       (a) => a.id !== att.id && a.storage_path === att.storage_path,
     );
     if (!stillUsed) deleteAttachmentFile(att.storage_path);
   }
-  store.deleteAttachment(att.id);
-  store.appendAuditLog(req.user, {
+  await store.deleteAttachment(att.id);
+  await store.appendAuditLog(req.user, {
     action: 'delete',
     target_type: 'attachment',
     target_id: att.id,

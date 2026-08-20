@@ -4,21 +4,24 @@ import { normalizeTaskStatus } from '../lib/taskStatus.js';
 
 export const availabilityRouter = Router();
 
-function taskSummaryForPerson(personId) {
+async function taskSummaryForPerson(personId, { assignments, projects, tasks } = {}) {
   if (personId == null) {
     return { new: 0, ongoing: 0, done: 0, notDone: 0 };
   }
+  const projectAssignments = assignments || await store.listAssignments();
+  const projectList = projects || await store.listProjects();
+  const projectTasks = tasks || await store.listProjectTasks();
   const projectIds = new Set(
-    store.project_assignments
+    projectAssignments
       .filter((a) => a.person_id === personId)
       .map((a) => a.project_id)
       .filter((pid) => {
-        const pr = store.projects.find((p) => p.id === pid);
+        const pr = projectList.find((p) => p.id === pid);
         return pr?.status === 'active';
       }),
   );
   const counts = { new: 0, ongoing: 0, done: 0 };
-  store.project_tasks.forEach((t) => {
+  projectTasks.forEach((t) => {
     if (t.task_kind === 'group') return;
     if (!projectIds.has(t.project_id)) return;
     if (t.assignee_id != null && t.assignee_id !== personId) return;
@@ -43,20 +46,29 @@ function userIdByPersonId(users, people) {
   return map;
 }
 
-availabilityRouter.get('/workload', (req, res) => {
+availabilityRouter.get('/workload', async (req, res) => {
   const from = req.query.from || new Date().toISOString().slice(0, 10);
   const to = req.query.to || from;
-  const people = store.people;
-  const users = [...store.users].sort((a, b) => a.name.localeCompare(b.name));
+  const [people, usersRaw, projectAssignments, projects, activitiesAll, projectTasks] = await Promise.all([
+    store.listPeople(),
+    store.listUsers(),
+    store.listAssignments(),
+    store.listProjects(),
+    store.listActivities(),
+    store.listProjectTasks(),
+  ]);
+  const users = [...usersRaw].sort((a, b) => a.name.localeCompare(b.name));
   const personToUser = userIdByPersonId(users, people);
-  const assignments = store.project_assignments.filter(pa => {
-    const p = store.projects.find(pr => pr.id === pa.project_id);
+  const assignments = projectAssignments.filter((pa) => {
+    const p = projects.find((pr) => pr.id === pa.project_id);
     return p?.status === 'active';
   });
-  const activities = store.activities.filter(a => a.end_at >= from && a.start_at <= to).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+  const activities = activitiesAll
+    .filter((a) => a.end_at >= from && a.start_at <= to)
+    .sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
 
   const byUser = {};
-  users.forEach(u => {
+  users.forEach((u) => {
     byUser[u.id] = {
       id: u.id,
       name: u.name,
@@ -68,14 +80,14 @@ availabilityRouter.get('/workload', (req, res) => {
       activityHours: 0,
     };
   });
-  assignments.forEach(a => {
+  assignments.forEach((a) => {
     const uid = personToUser.get(a.person_id);
     if (uid == null || !byUser[uid]) return;
-    const project = store.projects.find(p => p.id === a.project_id);
+    const project = projects.find((p) => p.id === a.project_id);
     byUser[uid].projects.push({ name: project?.name, allocation: a.allocation_percent });
     byUser[uid].totalAllocation += a.allocation_percent;
   });
-  activities.forEach(a => {
+  activities.forEach((a) => {
     if (!byUser[a.person_id]) return;
     const start = new Date(a.start_at).getTime();
     const end = new Date(a.end_at).getTime();
@@ -96,47 +108,60 @@ availabilityRouter.get('/workload', (req, res) => {
     if (!userIdToPersonId.has(uid)) userIdToPersonId.set(uid, pid);
   });
 
-  const workload = Object.values(byUser).map((p) => ({
+  const workload = await Promise.all(Object.values(byUser).map(async (p) => ({
     ...p,
     person_id: userIdToPersonId.get(p.id) ?? null,
     projectCount: p.projects.length,
-    taskSummary: taskSummaryForPerson(userIdToPersonId.get(p.id) ?? null),
+    taskSummary: await taskSummaryForPerson(userIdToPersonId.get(p.id) ?? null, {
+      assignments: projectAssignments,
+      projects,
+      tasks: projectTasks,
+    }),
     availability: Math.max(0, 100 - p.totalAllocation),
     isOverloaded: p.totalAllocation > 100,
-  }));
+  })));
 
   res.json({ from, to, workload });
 });
 
-availabilityRouter.get('/check', (req, res) => {
+availabilityRouter.get('/check', async (req, res) => {
   const personId = +req.query.person_id;
   const from = req.query.from;
   const to = req.query.to;
   if (!personId) return res.status(400).json({ error: 'person_id is required' });
 
-  const person = store.people.find((p) => p.id === personId);
+  const [people, users, projectAssignments, projects, activitiesAll, projectTasks] = await Promise.all([
+    store.listPeople(),
+    store.listUsers(),
+    store.listAssignments(),
+    store.listProjects(),
+    store.listActivities(),
+    store.listProjectTasks(),
+  ]);
+
+  const person = people.find((p) => p.id === personId);
   if (!person) return res.status(404).json({ error: 'Person not found' });
 
-  const personToUser = userIdByPersonId(store.users, store.people);
+  const personToUser = userIdByPersonId(users, people);
   const userId = personToUser.get(personId) ?? null;
-  const user = userId != null ? store.findUserById(userId) : null;
+  const user = userId != null ? await store.findUserById(userId) : null;
 
-  const projects = store.project_assignments
+  const personProjects = projectAssignments
     .filter((pa) => pa.person_id === personId)
     .map((pa) => {
-      const proj = store.projects.find((p) => p.id === pa.project_id);
+      const proj = projects.find((p) => p.id === pa.project_id);
       return proj?.status === 'active' ? { ...pa, project_name: proj?.name } : null;
     })
     .filter(Boolean);
-  const totalAllocation = projects.reduce((s, p) => s + (p.allocation_percent || 0), 0);
+  const totalAllocation = personProjects.reduce((s, p) => s + (p.allocation_percent || 0), 0);
 
   let activities = [];
   if (from && to && userId != null) {
-    activities = store.activities
+    activities = activitiesAll
       .filter((a) => a.person_id === userId && a.end_at >= from && a.start_at <= to)
       .sort((a, b) => new Date(a.start_at) - new Date(b.start_at))
       .map((a) => {
-        const proj = store.projects.find((p) => p.id === a.project_id);
+        const proj = projects.find((p) => p.id === a.project_id);
         return { ...a, project_name: proj?.name };
       });
   }
@@ -150,11 +175,15 @@ availabilityRouter.get('/check', (req, res) => {
       user_id: userId,
     },
     user: user ? { id: user.id, name: user.name, email: user.email, role: user.role } : null,
-    currentProjects: projects,
+    currentProjects: personProjects,
     totalAllocation,
     availabilityPercent: Math.max(0, 100 - totalAllocation),
     isOverloaded: totalAllocation > 100,
     activitiesInRange: activities,
-    taskSummary: taskSummaryForPerson(personId),
+    taskSummary: await taskSummaryForPerson(personId, {
+      assignments: projectAssignments,
+      projects,
+      tasks: projectTasks,
+    }),
   });
 });

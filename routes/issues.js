@@ -38,27 +38,34 @@ import {
   issueCategoryToBacklogSource,
 } from '../lib/backlogConstants.js';
 import {
-  promoteIssueToBacklog,
   tryLinkIssueToBacklogByRef,
 } from '../lib/issueBacklogLink.js';
+import { promoteIssueToBacklogDurable } from '../lib/issueBacklogPromoteTx.js';
+import { validateBody } from '../middleware/validate.js';
+import { createIssueSchema, promoteBacklogSchema } from '../lib/validationSchemas.js';
 import { copyAttachments } from '../lib/attachmentCopy.js';
 
 export const issuesRouter = Router();
 
-function enrichIssue(issue, user = null) {
-  const project = issue.project_id ? store.projects.find((p) => p.id === issue.project_id) : null;
-  const client = issue.client_id ? store.clients.find((c) => c.id === issue.client_id) : null;
+async function enrichIssue(issue, user = null) {
+  const [projects, clients, people] = await Promise.all([
+    store.listProjects(),
+    store.listClients(),
+    store.listPeople(),
+  ]);
+  const project = issue.project_id ? projects.find((p) => p.id === issue.project_id) : null;
+  const client = issue.client_id ? clients.find((c) => c.id === issue.client_id) : null;
   const assignee = issue.assignee_person_id
-    ? store.people.find((p) => p.id === issue.assignee_person_id)
+    ? people.find((p) => p.id === issue.assignee_person_id)
     : null;
-  const reporter = issue.reporter_user_id ? store.findUserById(issue.reporter_user_id) : null;
+  const reporter = issue.reporter_user_id ? await store.findUserById(issue.reporter_user_id) : null;
   const level = normalizeSupportLevel(issue.support_level);
-  const backlog = store.findBacklogByIssueId(issue.id);
+  const backlog = await store.findBacklogByIssueId(issue.id);
   const stage = helpdeskStageForIssue(issue, backlog);
   const backlogRef = issue.backlog_ref || backlog?.ref_no || null;
   const eligibleForBacklog = isIssueEligibleForBacklogPromote(issue) && !backlog;
   const canPromote = user
-    ? eligibleForBacklog && canUserPromoteIssueToBacklog(user, issue, store.people)
+    ? eligibleForBacklog && canUserPromoteIssueToBacklog(user, issue, people)
     : eligibleForBacklog;
   return {
     ...issue,
@@ -81,24 +88,27 @@ function enrichIssue(issue, user = null) {
   };
 }
 
-function canEscalateIssue(user, issue) {
-  const backlog = store.findBacklogByIssueId(issue.id);
+async function canEscalateIssue(user, issue) {
+  const backlog = await store.findBacklogByIssueId(issue.id);
   const stage = helpdeskStageForIssue(issue, backlog);
   if (stage.code !== 'L1') return false;
   if (!OPEN_ISSUE_STATUSES.has(issue.status)) return false;
   if (canAssignIssues(user)) return true;
-  return isHelpdeskAssignee(user, issue, store.people);
+  const people = await store.listPeople();
+  return isHelpdeskAssignee(user, issue, people);
 }
 
-function canResolveIssue(user, issue) {
+async function canResolveIssue(user, issue) {
   if (!OPEN_ISSUE_STATUSES.has(issue.status)) return false;
   if (canAssignIssues(user)) return true;
-  return isHelpdeskAssignee(user, issue, store.people);
+  const people = await store.listPeople();
+  return isHelpdeskAssignee(user, issue, people);
 }
 
 async function notifyAssignee(issue, assigneeId, assignedBy, id) {
   if (!assigneeId) return;
-  const person = store.people.find((p) => p.id === assigneeId);
+  const people = await store.listPeople();
+  const person = people.find((p) => p.id === assigneeId);
   await notifyPersonInApp(assigneeId, {
     type: 'issue_assigned',
     title: `Issue assigned: ${issue.ticket_no}`,
@@ -107,7 +117,7 @@ async function notifyAssignee(issue, assigneeId, assignedBy, id) {
     entity_type: 'issue',
     entity_id: id,
   });
-  const to = emailForPerson(person);
+  const to = await emailForPerson(person);
   if (to) {
     await sendIssueAssignedEmail({
       to,
@@ -120,14 +130,15 @@ async function notifyAssignee(issue, assigneeId, assignedBy, id) {
   }
 }
 
-issuesRouter.get('/', (req, res) => {
+issuesRouter.get('/', async (req, res) => {
   const status = req.query.status;
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const supportLevel = req.query.support_level;
   const moduleCode = req.query.module_code;
   const incidentType = req.query.incident_type;
   const mine = req.query.mine === '1' || req.query.mine === 'true';
-  let list = (store.issues || []).map((i) => enrichIssue(i, req.user));
+  const issues = await store.listIssues();
+  let list = await Promise.all(issues.map((i) => enrichIssue(i, req.user)));
   if (status && status !== 'all') list = list.filter((i) => i.status === status);
   if (projectId) list = list.filter((i) => i.project_id === projectId);
   if (supportLevel && supportLevel !== 'all') {
@@ -147,7 +158,8 @@ issuesRouter.get('/', (req, res) => {
     list = list.filter((i) => i.incident_type === incidentType);
   }
   if (mine) {
-    const myPerson = personIdForUser(req.user, store.people);
+    const people = await store.listPeople();
+    const myPerson = personIdForUser(req.user, people);
     list = list.filter(
       (i) => i.reporter_user_id === req.user.id
         || (myPerson && i.assignee_person_id === myPerson),
@@ -177,22 +189,22 @@ issuesRouter.post('/import-eticket', async (req, res) => {
         skipped += 1;
         continue;
       }
-      if (store.findIssueByTicketNo(ticketNo)) {
+      if (await store.findIssueByTicketNo(ticketNo)) {
         skipped += 1;
         continue;
       }
       const clientCode = row.Client ? String(row.Client).trim() : null;
-      const clientId = clientCode ? store.findOrCreateClient(clientCode, clientCode) : null;
+      const clientId = clientCode ? await store.findOrCreateClient(clientCode, clientCode) : null;
       const payload = mapEticketRowToIssue(row, { clientId, reporterUserId: req.user.id });
-      const issueId = store.addIssue(payload);
-      tryLinkIssueToBacklogByRef(store, issueId);
+      const issueId = await store.addIssue(payload);
+      await tryLinkIssueToBacklogByRef(store, issueId);
       imported += 1;
     } catch (e) {
       errors.push({ ticket: row.TicketID, error: e.message });
     }
   }
 
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'import',
     target_type: 'issue',
     target_id: null,
@@ -203,13 +215,14 @@ issuesRouter.post('/import-eticket', async (req, res) => {
   res.json({ imported, skipped, errors: errors.slice(0, 20) });
 });
 
-issuesRouter.get('/:id', (req, res) => {
-  const issue = store.issues.find((i) => i.id === +req.params.id);
+issuesRouter.get('/:id', async (req, res) => {
+  const issues = await store.listIssues();
+  const issue = issues.find((i) => i.id === +req.params.id);
   if (!issue) return res.status(404).json({ error: 'Issue not found' });
-  res.json(enrichIssue(issue, req.user));
+  res.json(await enrichIssue(issue, req.user));
 });
 
-issuesRouter.post('/', async (req, res) => {
+issuesRouter.post('/', validateBody(createIssueSchema), async (req, res) => {
   const {
     title,
     description,
@@ -231,20 +244,21 @@ issuesRouter.post('/', async (req, res) => {
   } = req.body || {};
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'title is required' });
 
+  const people = await store.listPeople();
   let assigneeId = assignee_person_id != null && assignee_person_id !== '' ? +assignee_person_id : null;
   if (!canAssignIssues(req.user) && assigneeId == null) {
-    assigneeId = personIdForUser(req.user, store.people);
+    assigneeId = personIdForUser(req.user, people);
   }
-  if (assigneeId != null && !canAssignIssues(req.user) && assigneeId !== personIdForUser(req.user, store.people)) {
+  if (assigneeId != null && !canAssignIssues(req.user) && assigneeId !== personIdForUser(req.user, people)) {
     return res.status(403).json({ error: 'You can only assign new issues to yourself' });
   }
 
   const parsedIncident = parseIncidentType(incident_type) || 'issue';
   const modCode = normalizeModuleCode(module_code || epbt_module);
-  const assignee = assigneeId ? store.people.find((p) => p.id === assigneeId) : null;
+  const assignee = assigneeId ? people.find((p) => p.id === assigneeId) : null;
   const l1Label = assignee?.name ? `CTSB | ${assignee.name}` : personLabelFromUser(req.user);
 
-  const id = store.addIssue({
+  const id = await store.addIssue({
     title: String(title).trim(),
     description: description != null ? String(description) : null,
     priority: ISSUE_PRIORITY_SET.has(priority) ? priority : 'medium',
@@ -266,8 +280,9 @@ issuesRouter.post('/', async (req, res) => {
     external_ticket_ref: external_ticket_ref != null ? String(external_ticket_ref).trim() : null,
     support_level: 'L1',
   });
-  const issue = enrichIssue(store.issues.find((i) => i.id === id), req.user);
-  store.appendAuditLog(req.user, {
+  const issuesAfterCreate = await store.listIssues();
+  const issue = await enrichIssue(issuesAfterCreate.find((i) => i.id === id), req.user);
+  await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'issue',
     target_id: id,
@@ -278,15 +293,17 @@ issuesRouter.post('/', async (req, res) => {
     await notifyAssignee(issue, issue.assignee_person_id, req.user.name, id);
   }
 
-  tryLinkIssueToBacklogByRef(store, id);
+  await tryLinkIssueToBacklogByRef(store, id);
 
   try { await store.persistToSupabase(); } catch (e) { console.warn('persist:', e.message); }
-  res.status(201).json(enrichIssue(store.issues.find((i) => i.id === id), req.user));
+  const issuesFinal = await store.listIssues();
+  res.status(201).json(await enrichIssue(issuesFinal.find((i) => i.id === id), req.user));
 });
 
 issuesRouter.put('/:id', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.issues.find((i) => i.id === id);
+  const issues = await store.listIssues();
+  const existing = issues.find((i) => i.id === id);
   if (!existing) return res.status(404).json({ error: 'Issue not found' });
 
   const patch = {};
@@ -369,13 +386,14 @@ issuesRouter.put('/:id', async (req, res) => {
   }
 
   const prevAssignee = existing.assignee_person_id;
-  store.updateIssue(id, patch);
+  await store.updateIssue(id, patch);
 
   if (patch.backlog_ref !== undefined || patch.external_ticket_ref !== undefined) {
-    tryLinkIssueToBacklogByRef(store, id);
+    await tryLinkIssueToBacklogByRef(store, id);
   }
 
-  const issue = enrichIssue(store.issues.find((i) => i.id === id), req.user);
+  const issuesAfter = await store.listIssues();
+  const issue = await enrichIssue(issuesAfter.find((i) => i.id === id), req.user);
 
   if (patch.assignee_person_id != null && patch.assignee_person_id !== prevAssignee) {
     await notifyAssignee(issue, patch.assignee_person_id, req.user.name, id);
@@ -392,7 +410,7 @@ issuesRouter.put('/:id', async (req, res) => {
     });
   }
 
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'issue',
     target_id: id,
@@ -405,9 +423,10 @@ issuesRouter.put('/:id', async (req, res) => {
 
 issuesRouter.post('/:id/escalate', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.issues.find((i) => i.id === id);
+  const issues = await store.listIssues();
+  const existing = issues.find((i) => i.id === id);
   if (!existing) return res.status(404).json({ error: 'Issue not found' });
-  if (!canEscalateIssue(req.user, existing)) {
+  if (!(await canEscalateIssue(req.user, existing))) {
     return res.status(403).json({ error: 'You cannot escalate this issue' });
   }
 
@@ -416,16 +435,17 @@ issuesRouter.post('/:id/escalate', async (req, res) => {
     return res.status(400).json({ error: 'Already at 2nd level — promote to backlog for dev/data work' });
   }
 
+  const people = await store.listPeople();
   const assigneeId = req.body?.assignee_person_id != null && req.body.assignee_person_id !== ''
     ? +req.body.assignee_person_id
     : null;
-  if (!assigneeId || !store.people.some((p) => p.id === assigneeId)) {
+  if (!assigneeId || !people.some((p) => p.id === assigneeId)) {
     return res.status(400).json({ error: 'assignee_person_id is required when escalating' });
   }
 
   const note = req.body?.note != null ? String(req.body.note).trim() : '';
   const prevLevel = normalizeSupportLevel(existing.support_level);
-  const assigneePerson = store.people.find((p) => p.id === assigneeId);
+  const assigneePerson = people.find((p) => p.id === assigneeId);
   const assigneeLabel = assigneePerson?.name ? `CTSB | ${assigneePerson.name}` : null;
   const descriptionAppend = note
     ? `\n\n[Escalated ${prevLevel} → ${nextLevel} by ${req.user.name}: ${note}]`
@@ -441,12 +461,13 @@ issuesRouter.post('/:id/escalate', async (req, res) => {
   };
   if (nextLevel === 'L2') escalatePatch.l2_assignee_label = assigneeLabel;
 
-  store.updateIssue(id, escalatePatch);
+  await store.updateIssue(id, escalatePatch);
 
-  const issue = enrichIssue(store.issues.find((i) => i.id === id), req.user);
+  const issuesAfter = await store.listIssues();
+  const issue = await enrichIssue(issuesAfter.find((i) => i.id === id), req.user);
   await notifyAssignee(issue, assigneeId, req.user.name, id);
 
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: 'escalate',
     target_type: 'issue',
     target_id: id,
@@ -459,9 +480,10 @@ issuesRouter.post('/:id/escalate', async (req, res) => {
 
 issuesRouter.post('/:id/resolve', async (req, res) => {
   const id = +req.params.id;
-  const existing = store.issues.find((i) => i.id === id);
+  const issues = await store.listIssues();
+  const existing = issues.find((i) => i.id === id);
   if (!existing) return res.status(404).json({ error: 'Issue not found' });
-  if (!canResolveIssue(req.user, existing)) {
+  if (!(await canResolveIssue(req.user, existing))) {
     return res.status(403).json({ error: 'You cannot resolve this issue' });
   }
 
@@ -474,7 +496,7 @@ issuesRouter.post('/:id/resolve', async (req, res) => {
   const actionTaken = req.body?.action_taken != null ? String(req.body.action_taken).trim() : '';
   const level = normalizeSupportLevel(existing.support_level);
 
-  store.updateIssue(id, {
+  await store.updateIssue(id, {
     status: 'resolved',
     resolution_method: method,
     resolution_notes: notes || null,
@@ -484,8 +506,9 @@ issuesRouter.post('/:id/resolve', async (req, res) => {
       : existing.resolution_attachment_ref,
   });
 
-  const issue = enrichIssue(store.issues.find((i) => i.id === id), req.user);
-  store.appendAuditLog(req.user, {
+  const issuesAfter = await store.listIssues();
+  const issue = await enrichIssue(issuesAfter.find((i) => i.id === id), req.user);
+  await store.appendAuditLog(req.user, {
     action: 'resolve',
     target_type: 'issue',
     target_id: id,
@@ -496,12 +519,14 @@ issuesRouter.post('/:id/resolve', async (req, res) => {
   res.json(issue);
 });
 
-issuesRouter.post('/:id/promote-backlog', async (req, res) => {
+issuesRouter.post('/:id/promote-backlog', validateBody(promoteBacklogSchema), async (req, res) => {
   const id = +req.params.id;
-  const issue = store.issues.find((i) => i.id === id);
+  const issues = await store.listIssues();
+  const issue = issues.find((i) => i.id === id);
   if (!issue) return res.status(404).json({ error: 'Issue not found' });
 
-  if (!canUserPromoteIssueToBacklog(req.user, issue, store.people)) {
+  const people = await store.listPeople();
+  if (!canUserPromoteIssueToBacklog(req.user, issue, people)) {
     return res.status(403).json({ error: 'You do not have permission to promote this issue to backlog' });
   }
 
@@ -529,7 +554,7 @@ issuesRouter.post('/:id/promote-backlog', async (req, res) => {
 
   let result;
   try {
-    result = promoteIssueToBacklog(store, id, projectId, {
+    result = await promoteIssueToBacklogDurable(store, id, projectId, {
       createdByUserId: req.user.id,
       assigneePersonId: assigneeId,
     });
@@ -541,15 +566,16 @@ issuesRouter.post('/:id/promote-backlog', async (req, res) => {
   const level = normalizeSupportLevel(issue.support_level);
 
   if (created && backlog?.id && !backlog.created_by_user_id) {
-    store.updateBacklog(backlog.id, { created_by_user_id: req.user.id });
+    await store.updateBacklog(backlog.id, { created_by_user_id: req.user.id });
   }
-  const freshBacklog = store.backlogs.find((b) => b.id === backlog?.id) || backlog;
+  const backlogs = await store.listBacklogs();
+  const freshBacklog = backlogs.find((b) => b.id === backlog?.id) || backlog;
 
   if (issue.id && freshBacklog?.id) {
-    copyAttachments(store, 'issue', issue.id, 'backlog', freshBacklog.id);
+    await copyAttachments(store, 'issue', issue.id, 'backlog', freshBacklog.id);
   }
 
-  store.appendAuditLog(req.user, {
+  await store.appendAuditLog(req.user, {
     action: created ? 'promote' : 'link',
     target_type: 'issue',
     target_id: id,
@@ -564,17 +590,19 @@ issuesRouter.post('/:id/promote-backlog', async (req, res) => {
     await notifyBacklogAssigned(store, freshBacklog, { actorUser: req.user, isNew: false });
   }
 
-  const updatedIssue = store.issues.find((i) => i.id === id);
+  const issuesAfter = await store.listIssues();
+  const updatedIssue = issuesAfter.find((i) => i.id === id);
   if (updatedIssue?.assignee_person_id && updatedIssue.assignee_person_id !== prevIssueAssignee) {
     await notifyAssignee(updatedIssue, updatedIssue.assignee_person_id, req.user.name, id);
   }
 
   try { await store.persistToSupabase(); } catch (e) { console.warn('persist:', e.message); }
+  const projects = await store.listProjects();
   res.status(created ? 201 : 200).json({
-    issue: enrichIssue(store.issues.find((i) => i.id === id), req.user),
+    issue: await enrichIssue(issuesAfter.find((i) => i.id === id), req.user),
     backlog: {
       ...freshBacklog,
-      project_name: store.projects.find((p) => p.id === freshBacklog.project_id)?.name,
+      project_name: projects.find((p) => p.id === freshBacklog.project_id)?.name,
     },
     linked,
     created,

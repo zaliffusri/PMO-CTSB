@@ -37,6 +37,7 @@ const REQUIRED_TABLES = [
 const REQUIRED_COLUMNS = [
   ['projects', 'classification'],
   ['projects', 'engagement_type'],
+  ['people', 'user_id'],
   ['project_phases_app', 'work_package_id'],
   ['project_tasks', 'work_package_id'],
   ['project_tasks', 'backlog_id'],

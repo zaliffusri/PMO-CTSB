@@ -114,7 +114,7 @@ function pad4(n) {
  *   createdByUserId?: number,
  * }} ctx
  */
-export function seedBulkVolumeData(store, ctx) {
+export async function seedBulkVolumeData(store, ctx) {
   const { adminId, pmoId } = ctx;
   let people = [...ctx.people];
   const clientIds = [...ctx.clientIds];
@@ -123,15 +123,15 @@ export function seedBulkVolumeData(store, ctx) {
 
   // —— Clients & people ——
   for (const name of EXTRA_CLIENTS) {
-    clientIds.push(store.findOrCreateClient(name));
+    clientIds.push(await store.findOrCreateClient(name));
   }
   for (const p of EXTRA_PEOPLE) {
-    people.push(store.addPerson(p));
+    people.push(await store.addPerson(p));
   }
 
   // —— Projects ——
   for (const spec of EXTRA_PROJECTS) {
-    const pid = store.addProject({
+    const pid = await store.addProject({
       name: spec.name,
       description: `${spec.name} — demo bulk seed for portfolio volume testing.`,
       engagement_type: spec.engagement,
@@ -141,22 +141,23 @@ export function seedBulkVolumeData(store, ctx) {
       end_date: dayOffset(30 + Math.floor(Math.random() * 240)),
     });
     const cid = pick(clientIds);
-    store.setProjectClients(pid, [cid]);
+    await store.setProjectClients(pid, [cid]);
     projectIds.push(pid);
     try {
-      store.initProjectPhasesFromTemplate(pid, templateForClassification(spec.classification));
+      await store.initProjectPhasesFromTemplate(pid, templateForClassification(spec.classification));
     } catch {
-      store.initProjectPhasesFromTemplate(pid, templateForClassification('New System Development'));
+      await store.initProjectPhasesFromTemplate(pid, templateForClassification('New System Development'));
     }
     const roster = pickN(people, 2 + Math.floor(Math.random() * 3));
-    roster.forEach((personId, idx) => {
-      store.addAssignment({
+    for (let idx = 0; idx < roster.length; idx++) {
+      const personId = roster[idx];
+      await store.addAssignment({
         project_id: pid,
         person_id: personId,
         role_in_project: ['Lead', 'Developer', 'BA', 'QA', 'Support'][idx % 5],
         allocation_percent: 30 + Math.floor(Math.random() * 60),
       });
-    });
+    }
   }
 
   const issueTitles = [
@@ -195,7 +196,7 @@ export function seedBulkVolumeData(store, ctx) {
     const projectId = pick(projectIds);
     const clientId = pick(clientIds);
     const assignee = pick(people);
-    const id = store.addIssue({
+    const id = await store.addIssue({
       ticket_no: ticketNo,
       title: `${issueTitles[i % issueTitles.length]} (#${i + 1})`,
       description: `Bulk demo ticket for module ${mod.label}. Generated for volume testing.`,
@@ -231,7 +232,7 @@ export function seedBulkVolumeData(store, ctx) {
     const refNo = `${mod.code}-${1000 + i}`;
     const status = pickWeighted(BACKLOG_STATUS_WEIGHTS, BACKLOG_STATUSES);
     const assignee = pick(people);
-    const id = store.addBacklog({
+    const id = await store.addBacklog({
       ref_no: refNo,
       project_id: projectId,
       title: `Backlog item ${refNo}: ${issueTitles[i % issueTitles.length]}`,
@@ -250,8 +251,8 @@ export function seedBulkVolumeData(store, ctx) {
     });
     backlogIds.push(id);
     if (i < 35 && issueIds[i]) {
-      store.updateBacklog(id, { issue_id: issueIds[i] });
-      store.updateIssue(issueIds[i], { backlog_ref: refNo, status: 'in_progress' });
+      await store.updateBacklog(id, { issue_id: issueIds[i] });
+      await store.updateIssue(issueIds[i], { backlog_ref: refNo, status: 'in_progress' });
     }
   }
 
@@ -263,7 +264,7 @@ export function seedBulkVolumeData(store, ctx) {
     const progress = status === 'done' ? 100 : status === 'ongoing' ? 15 + (i % 8) * 10 : 0;
     const start = dayOffset(-30 + (i % 25));
     const end = dayOffset(-5 + (i % 40));
-    store.addProjectTask({
+    await store.addProjectTask({
       project_id: projectId,
       name: `Task ${i + 1}: ${issueTitles[i % issueTitles.length]}`,
       task_kind: 'task',
@@ -298,7 +299,7 @@ export function seedBulkVolumeData(store, ctx) {
     const day = -45 + (i % 90);
     const hour = 8 + (i % 9);
     const personId = pick(people);
-    store.addActivity({
+    await store.addActivity({
       person_id: personId,
       project_id: pick(projectIds),
       type: pick(ACTIVITY_TYPES),
@@ -323,7 +324,7 @@ export function seedBulkVolumeData(store, ctx) {
   for (let i = 0; i < 50; i++) {
     const backlogId = backlogIds[i % backlogIds.length];
     if (!backlogId) continue;
-    store.addBacklogComment({
+    await store.addBacklogComment({
       backlog_id: backlogId,
       author_user_id: i % 2 === 0 ? pmoId : adminId,
       body: commentBodies[i % commentBodies.length],
@@ -338,7 +339,7 @@ export function seedBulkVolumeData(store, ctx) {
     const targetUser = userId ?? findUserIdForPerson(store, personId);
     if (!targetUser) continue;
     const types = ['info', 'issue_assigned', 'backlog_assigned', 'backlog_status', 'task_assigned', 'backlog_comment'];
-    store.addNotification({
+    await store.addNotification({
       user_id: targetUser,
       type: pick(types),
       title: `Demo notification ${i + 1}`,
