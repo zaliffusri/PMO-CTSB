@@ -3,6 +3,7 @@ import { store } from '../db/store.js';
 import { generateToken, hashPassword, verifyPassword } from '../lib/auth.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getTokenFromHeader } from '../middleware/authUtils.js';
+import { mintSupabaseRealtimeJwt } from '../lib/realtimeJwt.js';
 
 export const authRouter = Router();
 
@@ -19,6 +20,17 @@ function sanitizeUser(user) {
     active: user.active !== false,
     created_at: user.created_at,
     avatar_url: user.avatar_url || null,
+  };
+}
+
+/** Short-lived JWT for browser → Supabase Realtime (RLS). Not a session bearer. */
+function realtimeAuthFields(userId) {
+  const minted = mintSupabaseRealtimeJwt({ userId, ttlSeconds: 3600 });
+  if (!minted) return {};
+  return {
+    supabase_realtime_token: minted.token,
+    supabase_realtime_expires_at: minted.expiresAt,
+    supabase_realtime_expires_in: minted.expiresIn,
   };
 }
 
@@ -62,7 +74,11 @@ authRouter.post('/register-admin', async (req, res) => {
       },
     );
     const session = await createUserSession(created);
-    return res.status(201).json({ user: sanitizeUser(created), ...session });
+    return res.status(201).json({
+      user: sanitizeUser(created),
+      ...session,
+      ...realtimeAuthFields(created.id),
+    });
   } catch {
     return res.status(500).json({ error: 'Failed to register admin' });
   }
@@ -82,7 +98,11 @@ authRouter.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Account is inactive. Contact an administrator.' });
     }
     const session = await createUserSession(user);
-    return res.json({ user: sanitizeUser(user), ...session });
+    return res.json({
+      user: sanitizeUser(user),
+      ...session,
+      ...realtimeAuthFields(user.id),
+    });
   } catch {
     return res.status(500).json({ error: 'Failed to login' });
   }
@@ -102,7 +122,10 @@ authRouter.get('/me', async (req, res) => {
     await store.deleteSessionByToken(token);
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  return res.json({ user: sanitizeUser(user) });
+  return res.json({
+    user: sanitizeUser(user),
+    ...realtimeAuthFields(user.id),
+  });
 });
 
 authRouter.post('/logout', async (req, res) => {

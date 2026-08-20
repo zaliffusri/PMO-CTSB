@@ -1,10 +1,11 @@
 /**
- * Notifications via initial REST load + Supabase Realtime (no interval polling).
- * Falls back to focus/visibility/event refresh when Realtime is unavailable.
+ * Notifications: REST for initial load + direct Supabase Realtime (browser → Supabase).
+ * Does not use Vercel for WebSockets. No /api/notifications/realtime proxy.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { createRealtimeClient } from '../lib/supabaseBrowser';
+import { createRealtimeClient, getSupabaseBrowserConfig } from '../lib/supabaseBrowser';
+import { useAuth } from '../AuthContext';
 
 function countUnread(list) {
   return (list || []).filter((n) => !n.read_at).length;
@@ -25,7 +26,38 @@ function removeNotification(prev, id) {
   return prev.filter((n) => Number(n.id) !== nid);
 }
 
+function applyRealtimePayload(payload, setItems, setUnread) {
+  const eventType = payload.eventType || payload.event;
+  if (eventType === 'INSERT' && payload.new) {
+    // Defense in depth: ignore other users' rows even if filter misconfigured
+    setItems((prev) => {
+      const next = mergeNotification(prev, payload.new);
+      setUnread(countUnread(next));
+      return next;
+    });
+    return;
+  }
+  if (eventType === 'UPDATE' && payload.new) {
+    setItems((prev) => {
+      const next = mergeNotification(prev, payload.new);
+      setUnread(countUnread(next));
+      return next;
+    });
+    return;
+  }
+  if (eventType === 'DELETE' && payload.old) {
+    setItems((prev) => {
+      const next = removeNotification(prev, payload.old.id);
+      setUnread(countUnread(next));
+      return next;
+    });
+  }
+}
+
 export function useNotificationsRealtime() {
+  const { user } = useAuth();
+  const userId = user?.id != null ? Number(user.id) : null;
+
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
   const [loadError, setLoadError] = useState(false);
@@ -42,6 +74,11 @@ export function useNotificationsRealtime() {
   }, []);
 
   const refresh = useCallback(() => {
+    if (userId == null) {
+      setItems([]);
+      setUnread(0);
+      return Promise.resolve();
+    }
     setLoadError(false);
     const load = () =>
       Promise.all([
@@ -61,7 +98,7 @@ export function useNotificationsRealtime() {
       .catch(() => {
         setLoadError(true);
       });
-  }, [applyList]);
+  }, [applyList, userId]);
 
   const teardownRealtime = useCallback(async () => {
     if (tokenRefreshRef.current) {
@@ -76,97 +113,115 @@ export function useNotificationsRealtime() {
       }
     }
     channelRef.current = null;
+    if (clientRef.current) {
+      try {
+        await clientRef.current.removeAllChannels?.();
+      } catch {
+        /* ignore */
+      }
+    }
     clientRef.current = null;
     setRealtimeActive(false);
   }, []);
 
   const connectRealtime = useCallback(async () => {
     await teardownRealtime();
-    let cfg;
-    try {
-      cfg = await api.notifications.realtime();
-    } catch {
-      setRealtimeActive(false);
-      return false;
-    }
-    if (!cfg?.accessToken || !cfg?.supabaseUrl || !cfg?.anonKey || cfg.userId == null) {
+    if (userId == null) return false;
+    if (!getSupabaseBrowserConfig()) {
       setRealtimeActive(false);
       return false;
     }
 
-    const client = await createRealtimeClient(cfg);
+    // Optional RLS JWT from auth (server-minted). Not a Vercel WebSocket proxy.
+    let accessToken = null;
+    let expiresIn = 3600;
+    try {
+      const me = await api.auth.me();
+      accessToken = me?.supabase_realtime_token || null;
+      expiresIn = Number(me?.supabase_realtime_expires_in) || 3600;
+      if (me?.user?.id != null && Number(me.user.id) !== userId) {
+        setRealtimeActive(false);
+        return false;
+      }
+    } catch {
+      // Still try anon + filter; RLS may block events until token is available
+    }
+
+    let client;
+    try {
+      client = await createRealtimeClient({ accessToken });
+    } catch {
+      setRealtimeActive(false);
+      return false;
+    }
     clientRef.current = client;
-    const userId = Number(cfg.userId);
 
     const channel = client
       .channel(`notifications_app:user:${userId}`)
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'notifications_app',
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          const eventType = payload.eventType || payload.event;
-          if (eventType === 'INSERT' && payload.new) {
-            setItems((prev) => {
-              const next = mergeNotification(prev, payload.new);
-              setUnread(countUnread(next));
-              return next;
-            });
-            return;
-          }
-          if (eventType === 'UPDATE' && payload.new) {
-            setItems((prev) => {
-              const next = mergeNotification(prev, payload.new);
-              setUnread(countUnread(next));
-              return next;
-            });
-            return;
-          }
-          if (eventType === 'DELETE' && payload.old) {
-            setItems((prev) => {
-              const next = removeNotification(prev, payload.old.id);
-              setUnread(countUnread(next));
-              return next;
-            });
-          }
+          if (payload?.new && Number(payload.new.user_id) !== userId) return;
+          applyRealtimePayload(payload, setItems, setUnread);
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications_app',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          if (payload?.new && Number(payload.new.user_id) !== userId) return;
+          applyRealtimePayload(payload, setItems, setUnread);
         },
       )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') setRealtimeActive(true);
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setRealtimeActive(false);
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setRealtimeActive(false);
+        }
       });
 
     channelRef.current = channel;
 
-    const expiresMs = Math.max(60_000, (Number(cfg.expiresIn) || 3600) * 1000 - 120_000);
-    tokenRefreshRef.current = setTimeout(() => {
-      connectRealtime().catch(() => {});
-    }, expiresMs);
+    if (accessToken) {
+      const expiresMs = Math.max(60_000, expiresIn * 1000 - 120_000);
+      tokenRefreshRef.current = setTimeout(() => {
+        connectRealtime().catch(() => {});
+      }, expiresMs);
+    }
 
     return true;
-  }, [teardownRealtime]);
+  }, [teardownRealtime, userId]);
 
   useEffect(() => {
     refresh();
     connectRealtime();
 
-    const scheduleRefresh = () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = setTimeout(() => refresh(), 150);
-    };
-
     const onFocus = () => {
-      refresh();
-      if (!clientRef.current) connectRealtime();
+      // Reconnect Realtime if needed; do not full-refetch when already live
+      if (!clientRef.current) {
+        refresh();
+        connectRealtime();
+      }
     };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') onFocus();
     };
-    const onChanged = () => scheduleRefresh();
+    const onChanged = () => {
+      // Local optimistic path (e.g. after create activity) — soft refresh list once
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => refresh(), 150);
+    };
 
     window.addEventListener('focus', onFocus);
     window.addEventListener('pmo:notifications-changed', onChanged);

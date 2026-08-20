@@ -110,7 +110,8 @@ Also set in production:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_ANON_KEY` + `SUPABASE_JWT_SECRET` (in-app notification Realtime; see Operations)
+- `SUPABASE_JWT_SECRET` (optional Realtime RLS tokens on `/api/auth/me`)
+- `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (browser Realtime; never service role)
 - `SUPABASE_DB_URL` (Postgres URI — required for multi-table **transactions** such as promote ticket → backlog)
 - Optional `SENTRY_DSN` for API error tracking
 - Optional SMTP for email notifications (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`)
@@ -142,7 +143,7 @@ Test email: `npm run email:test`
 ## Deploy to Vercel
 
 1. Import repo in Vercel (`vercel.json` configures API + static).
-2. Set env vars (Supabase + optional SMTP / Sentry). For Realtime badges: `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET`.
+2. Set env vars (Supabase + optional SMTP / Sentry). For Realtime badges: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and server `SUPABASE_JWT_SECRET`.
 3. Run `npm run db:migrate` against production DB **before** first use (or rely on CI migrate job with `SUPABASE_DB_URL` secret).
 4. Deploy.
 

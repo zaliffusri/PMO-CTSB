@@ -1,17 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mintSupabaseRealtimeJwt, realtimeConfigAvailable } from '../lib/realtimeJwt.js';
+import { mintSupabaseRealtimeJwt } from '../lib/realtimeJwt.js';
 
 describe('realtimeJwt', () => {
-  const prev = { ...process.env };
+  const prevSecret = process.env.SUPABASE_JWT_SECRET;
 
   beforeEach(() => {
     process.env.SUPABASE_JWT_SECRET = 'test-secret-for-jwt-hs256';
-    process.env.SUPABASE_URL = 'https://example.supabase.co';
-    process.env.SUPABASE_ANON_KEY = 'anon-public-key';
   });
 
   afterEach(() => {
-    process.env = { ...prev };
+    if (prevSecret === undefined) delete process.env.SUPABASE_JWT_SECRET;
+    else process.env.SUPABASE_JWT_SECRET = prevSecret;
   });
 
   it('mints a three-part JWT with app_user_id claim', () => {
@@ -27,11 +26,5 @@ describe('realtimeJwt', () => {
   it('returns null without secret', () => {
     delete process.env.SUPABASE_JWT_SECRET;
     expect(mintSupabaseRealtimeJwt({ userId: 1 })).toBeNull();
-  });
-
-  it('reports config availability', () => {
-    expect(realtimeConfigAvailable()).toBe(true);
-    delete process.env.SUPABASE_ANON_KEY;
-    expect(realtimeConfigAvailable()).toBe(false);
   });
 });

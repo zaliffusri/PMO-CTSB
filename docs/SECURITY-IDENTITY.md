@@ -35,13 +35,13 @@ Then sync from the UI (**Team → Sync from users**) or `POST /api/people/sync-f
 | Role gates | `middleware/requireRole.js` + `lib/permissions.js` |
 | Payload shape | Zod via `middleware/validate.js` on key write routes (users, issues, activities, projects, promote) |
 | Direct PostgREST / anon | RLS enabled + deny policies on `sessions_app`, `audit_log`; select policies for `authenticated` |
-| Secrets | `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_JWT_SECRET` stay **server-only**; anon key may be returned by `/api/notifications/realtime` for Realtime only |
+| Secrets | `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_JWT_SECRET` stay **server-only**; browser uses `VITE_SUPABASE_ANON_KEY` only |
 
 **RLS does not constrain the Express service role.** Treat RLS as defense-in-depth for accidental client exposure; keep strengthening route-level checks.
 
 ### Realtime notifications
 
-Browser clients subscribe with a short-lived JWT (`app_user_id` claim) minted by the API. RLS `notifications_own_select` / `notifications_own_update` limits `postgres_changes` to the caller's rows. Session bearer tokens from `sessions_app` are never placed in Realtime JWTs or logs. See [OPERATIONS.md](OPERATIONS.md).
+Browser connects **directly** to Supabase Realtime (not via Vercel). Public anon key is in Vite env. A short-lived JWT with `app_user_id` may be attached to `/api/auth/me` (and login) so RLS `notifications_own_*` policies allow only the caller's rows. Session tokens from `sessions_app` are never used as Realtime JWTs. See [OPERATIONS.md](OPERATIONS.md).
 
 ## Indexes added
 

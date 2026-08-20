@@ -7,7 +7,6 @@ import {
   markAllNotificationsReadRemote,
   hasSupabaseClient,
 } from '../db/runtime/supabaseSync.js';
-import { mintSupabaseRealtimeJwt, realtimeConfigAvailable } from '../lib/realtimeJwt.js';
 import { logger } from '../lib/logger.js';
 
 export const notificationsRouter = Router();
@@ -53,35 +52,6 @@ async function loadCount(uid) {
   const list = await memoryNotifications(uid, { unreadOnly: true, limit: 500 });
   return list.length;
 }
-
-/**
- * Short-lived Supabase anon JWT for Realtime postgres_changes on notifications_app.
- * RLS uses claim app_user_id — users only receive their own rows.
- */
-notificationsRouter.get('/realtime', async (req, res) => {
-  if (!realtimeConfigAvailable()) {
-    return res.status(503).json({
-      error: 'Realtime not configured',
-      code: 'realtime_unconfigured',
-      hint: 'Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_JWT_SECRET on the API.',
-    });
-  }
-  const minted = mintSupabaseRealtimeJwt({ userId: req.user.id, ttlSeconds: 3600 });
-  if (!minted) {
-    return res.status(503).json({ error: 'Realtime token unavailable', code: 'realtime_token_failed' });
-  }
-  const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
-  const anonKey = String(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
-  res.json({
-    supabaseUrl,
-    anonKey,
-    accessToken: minted.token,
-    expiresAt: minted.expiresAt,
-    expiresIn: minted.expiresIn,
-    userId: Number(req.user.id),
-    table: 'notifications_app',
-  });
-});
 
 notificationsRouter.get('/', async (req, res) => {
   const unreadOnly = req.query.unread === '1' || req.query.unread === 'true';
