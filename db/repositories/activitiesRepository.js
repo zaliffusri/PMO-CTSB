@@ -1,7 +1,7 @@
 import { idsInSameLogicalGroup } from '../../lib/activityLogicalGroup.js';
 import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 import { nextId } from '../runtime/helpers.js';
-import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere } from '../runtime/query.js';
+import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere, requireSupabase } from '../runtime/query.js';
 import {
   rememberDeletedActivityId,
   rememberDeletedActivityIds,
@@ -25,6 +25,15 @@ function rehydrateActivityActors(rows) {
   });
 }
 
+function overlapInMemory(rows, fromMs, toExclusive) {
+  if (fromMs == null || toExclusive == null) return rows;
+  return (rows || []).filter((r) => {
+    const s = new Date(r.start_at).getTime();
+    const e = new Date(r.end_at).getTime();
+    return Number.isFinite(s) && Number.isFinite(e) && s < toExclusive && e > fromMs;
+  });
+}
+
 export function createActivitiesRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
@@ -37,6 +46,53 @@ export function createActivitiesRepository(ctx, getStore) {
     return rehydrateActivityActors(kept);
   }
 
+  /**
+   * Fast calendar read: Postgres overlap filter + tombstone exclusion (no full-table pull).
+   * @param {{ fromMs?: number|null, toExclusive?: number|null, personId?: number|null, projectId?: number|null }} opts
+   */
+  async function listActivitiesOverlapping({
+    fromMs = null,
+    toExclusive = null,
+    personId = null,
+    projectId = null,
+  } = {}) {
+    if (!isDbMode()) {
+      let rows = await filterOutDeletedActivityRows([...getData().activities]);
+      rows = overlapInMemory(rows, fromMs, toExclusive);
+      if (personId != null) rows = rows.filter((r) => Number(r.person_id) === Number(personId));
+      if (projectId != null) rows = rows.filter((r) => Number(r.project_id) === Number(projectId));
+      rows.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+      return rehydrateActivityActors(rows);
+    }
+
+    const sb = requireSupabase();
+    const p_from = fromMs != null && Number.isFinite(fromMs) ? new Date(fromMs).toISOString() : null;
+    const p_to = toExclusive != null && Number.isFinite(toExclusive) ? new Date(toExclusive).toISOString() : null;
+
+    const { data, error } = await sb.rpc('list_activities_in_range', {
+      p_from,
+      p_to,
+      p_person_id: personId != null && Number.isFinite(Number(personId)) ? Number(personId) : null,
+      p_project_id: projectId != null && Number.isFinite(Number(projectId)) ? Number(projectId) : null,
+    });
+
+    if (error) {
+      // Fallback if migration not applied yet: filtered select + JS tombstone filter.
+      console.warn('list_activities_in_range RPC unavailable, using filtered select:', error.message || error);
+      let q = sb.from('activities').select('*').order('start_at', { ascending: true });
+      if (p_from) q = q.gt('end_at', p_from);
+      if (p_to) q = q.lt('start_at', p_to);
+      if (personId != null) q = q.eq('person_id', Number(personId));
+      if (projectId != null) q = q.eq('project_id', Number(projectId));
+      const { data: rows, error: selErr } = await q;
+      if (selErr) throw selErr;
+      const kept = await filterOutDeletedActivityRows(rows || []);
+      return rehydrateActivityActors(kept);
+    }
+
+    return rehydrateActivityActors(data || []);
+  }
+
   return {
     /** @deprecated Prefer listActivities() — sync getter is local-only. */
     get activities() {
@@ -44,6 +100,7 @@ export function createActivitiesRepository(ctx, getStore) {
     },
 
     listActivities,
+    listActivitiesOverlapping,
 
     async addActivity(row) {
       const created_at = row?.created_at || new Date().toISOString();
@@ -123,7 +180,6 @@ export function createActivitiesRepository(ctx, getStore) {
         if (data.activities) {
           data.activities = data.activities.filter((a) => !idSet.has(Number(a.id)));
         }
-        // Belt-and-suspenders: remove again in case a stale sync raced.
         await dbDeleteWhere('activities', {}, { inFilters: { id: ids } });
         return { deleted: ids.length, deleted_ids: ids };
       }
@@ -152,8 +208,7 @@ export function createActivitiesRepository(ctx, getStore) {
     },
 
     /**
-     * Re-read activities from Supabase into memory. Use before listing so direct DB edits
-     * (e.g. SQL/dashboard deletes) are visible without restarting the server.
+     * Re-read activities from Supabase into memory. Prefer listActivitiesOverlapping for calendar GET.
      */
     async refreshActivitiesFromSupabase() {
       if (!isDbMode()) return;

@@ -27,6 +27,17 @@ Apply `20260820180000_notifications_realtime.sql` (and enable Realtime for `noti
 
 If Vite env is missing, the UI falls back to focus / `pmo:notifications-changed` refresh (still **no** interval polling).
 
+## Calendar activities GET (performance)
+
+`GET /api/activities?from=&to=` no longer refreshes the full activities table into memory.
+
+- Uses Postgres RPC `list_activities_in_range` (migration `20260820182000_activities_range_query.sql`)
+- Overlap filter + `activities_deleted` tombstone exclusion run in SQL
+- Indexes on `start_at` / `end_at`
+- Response shape unchanged (enrichment still adds `person_name`, `project_name`, actors)
+
+Apply with `npm run db:migrate` after deploy.
+
 ## Database migrations (strict)
 
 All schema changes must land as numbered files under `supabase/migrations/`. See `npm run db:migrate` / CI migrate job.

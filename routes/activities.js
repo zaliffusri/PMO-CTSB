@@ -62,13 +62,20 @@ async function resolveActivityUserId(raw) {
   return null;
 }
 
-async function activityPersonName(storedId) {
+async function activityPersonName(storedId, nameCache = null) {
   if (storedId == null) return null;
+  const key = Number(storedId);
+  if (nameCache && nameCache.has(key)) return nameCache.get(key);
   const u = await store.findUserById(storedId);
-  if (u?.name) return u.name;
+  if (u?.name) {
+    if (nameCache) nameCache.set(key, u.name);
+    return u.name;
+  }
   const people = await store.listPeople();
   const person = people.find((p) => Number(p.id) === Number(storedId));
-  return person?.name ?? null;
+  const name = person?.name ?? null;
+  if (nameCache) nameCache.set(key, name);
+  return name;
 }
 
 function actorSnapshot(user) {
@@ -77,23 +84,35 @@ function actorSnapshot(user) {
   return { id, name };
 }
 
-async function enrichActivityForClient(a, projects = null) {
+async function buildPersonNameCache() {
+  const cache = new Map();
+  const [users, people] = await Promise.all([store.listUsers(), store.listPeople()]);
+  for (const u of users || []) {
+    if (u?.id != null) cache.set(Number(u.id), u.name || null);
+  }
+  for (const p of people || []) {
+    if (p?.id != null && !cache.has(Number(p.id))) cache.set(Number(p.id), p.name || null);
+  }
+  return cache;
+}
+
+async function enrichActivityForClient(a, projects = null, nameCache = null) {
   const projectList = projects || await store.listProjects();
   const project = projectList.find((p) => p.id === a.project_id);
   const actors = resolveActivityActors(a);
   const createdByName =
     actors.created_by_name
-    || await activityPersonName(actors.created_by_user_id)
+    || await activityPersonName(actors.created_by_user_id, nameCache)
     || null;
   const updatedByName =
     actors.updated_by_name
-    || await activityPersonName(actors.updated_by_user_id)
+    || await activityPersonName(actors.updated_by_user_id, nameCache)
     || null;
 
   return {
     ...a,
     type: normalizeActivityType(a.type),
-    person_name: await activityPersonName(a.person_id),
+    person_name: await activityPersonName(a.person_id, nameCache),
     external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
     project_name: project?.name,
     // Never expose embed marker to clients as "notes".
@@ -476,52 +495,41 @@ async function dispatchActivityNotifications({
 }
 
 activitiesRouter.get('/', async (req, res) => {
-  try {
-    await store.refreshActivitiesFromSupabase();
-  } catch (e) {
-    console.warn('activities GET: could not refresh from Supabase', e?.message || e);
-  }
+  // DB-first range query — do not refresh the full activities snapshot into memory.
   const personId = req.query.person_id ? +req.query.person_id : null;
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const from = req.query.from;
   const to = req.query.to;
-  const [activities, projects] = await Promise.all([
-    store.listActivities(),
-    store.listProjects(),
-  ]);
-  let rows = await Promise.all(activities.map((a) => enrichActivityForClient(a, projects)));
-  if (personId) rows = rows.filter((r) => r.person_id === personId);
-  if (projectId) rows = rows.filter((r) => r.project_id === projectId);
   const range = parseActivityRangeFilter(from, to);
-  if (range) {
-    const { fromMs, toExclusive } = range;
-    rows = rows.filter((r) => {
-      const s = new Date(r.start_at).getTime();
-      const e = new Date(r.end_at).getTime();
-      return s < toExclusive && e > fromMs;
-    });
-  }
-  rows.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+
+  const [activities, projects, nameCache] = await Promise.all([
+    store.listActivitiesOverlapping({
+      fromMs: range?.fromMs ?? null,
+      toExclusive: range?.toExclusive ?? null,
+      personId: Number.isFinite(personId) ? personId : null,
+      projectId: Number.isFinite(projectId) ? projectId : null,
+    }),
+    store.listProjects(),
+    buildPersonNameCache(),
+  ]);
+
+  const rows = await Promise.all(
+    activities.map((a) => enrichActivityForClient(a, projects, nameCache)),
+  );
   res.json(rows);
 });
 
 async function listActivitiesInRange(from, to) {
   const range = parseActivityRangeFilter(from, to);
-  const [activities, projects] = await Promise.all([
-    store.listActivities(),
+  const [activities, projects, nameCache] = await Promise.all([
+    store.listActivitiesOverlapping({
+      fromMs: range?.fromMs ?? null,
+      toExclusive: range?.toExclusive ?? null,
+    }),
     store.listProjects(),
+    buildPersonNameCache(),
   ]);
-  let rows = await Promise.all(activities.map((a) => enrichActivityForClient(a, projects)));
-  if (range) {
-    const { fromMs, toExclusive } = range;
-    rows = rows.filter((r) => {
-      const s = new Date(r.start_at).getTime();
-      const e = new Date(r.end_at).getTime();
-      return s < toExclusive && e > fromMs;
-    });
-  }
-  rows.sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
-  return rows;
+  return Promise.all(activities.map((a) => enrichActivityForClient(a, projects, nameCache)));
 }
 
 function periodLabelFromRange(fromRaw, toRaw) {
