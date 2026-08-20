@@ -6,7 +6,6 @@ import PageHeader from '../../components/PageHeader';
 
 const SETTINGS_TABS = [
   { to: '/settings/branding', label: 'Branding' },
-  { to: '/settings/appearance', label: 'Appearance' },
   { to: '/settings/locations', label: 'Locations' },
   { to: '/settings/email', label: 'Email' },
 ];
@@ -43,7 +42,7 @@ export default function SettingsLayout() {
       <div className="page-module settings-page">
         <PageHeader
           title="System settings"
-          subtitle="Configure branding, appearance, locations, and workspace preferences."
+          subtitle="Configure branding, locations, and workspace preferences."
         />
         <div className="settings-loading ui-card">Loading settings…</div>
       </div>
@@ -55,7 +54,7 @@ export default function SettingsLayout() {
       <div className="page-module settings-page">
         <PageHeader
           title="System settings"
-          subtitle="Configure branding, appearance, locations, and workspace preferences."
+          subtitle="Configure branding, locations, and workspace preferences."
         />
         <div className="settings-error ui-card">
           <p>{err}</p>
@@ -79,7 +78,7 @@ export default function SettingsLayout() {
     <div className="page-module settings-page">
       <PageHeader
         title="System settings"
-        subtitle="Configure branding, appearance, locations, and workspace preferences."
+        subtitle="Configure branding, locations, and workspace preferences. UI mode is changed from the header theme control."
       />
 
       <nav className="settings-subnav module-tabs" aria-label="Settings sections">

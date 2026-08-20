@@ -99,7 +99,8 @@ export default function AppShell({ children }) {
               Logout
             </button>
           )}
-          <ThemeToggle />
+          {/* Mobile global header — same ThemeToggle control; desktop uses app-topbar only */}
+          <ThemeToggle className="theme-toggle--mobile-header" />
           <button type="button" className="app-nav-toggle" onClick={() => setNavOpen(!navOpen)} aria-label="Toggle menu">
             {navOpen ? '✕' : '☰'}
           </button>
@@ -155,7 +156,6 @@ export default function AppShell({ children }) {
                 <path d="M18 6L6 18M6 6l12 12" />
               </SidebarIcon>
             </button>
-            <ThemeToggle className="nav-theme-desktop" />
             <button
               type="button"
               className="sidebar-ctrl-btn sidebar-ctrl-mobile"
@@ -300,7 +300,7 @@ export default function AppShell({ children }) {
           </div>
           <div className="app-topbar-actions">
             {!hrOnly && <NotificationBell />}
-            <ThemeToggle />
+            <ThemeToggle className="theme-toggle--topbar" />
             {user && (
               <NavLink to="/account" className="app-topbar-user">
                 <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />

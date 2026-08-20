@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useAuth } from '../AuthContext';
 import { useBranding } from '../context/BrandingContext';
 import { useSubmitLock } from '../hooks/useSubmitLock';
-import ThemeToggle from '../components/ThemeToggle';
 
 const DEMO_HINT = import.meta.env.DEV;
 
@@ -37,7 +36,6 @@ export default function AuthScreen() {
           )}
           <span>{branding.org_display_name}</span>
         </div>
-        <ThemeToggle className="auth-theme-toggle" />
       </header>
 
       <div className="auth-page__grid">
