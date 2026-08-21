@@ -12,6 +12,7 @@ import {
   extractEmailsFromText,
 } from '../lib/scheduleEmailUtils.js';
 import { canEditCalendarUser } from '../lib/permissions.js';
+import { normalizeEmail } from '../lib/teamUserSync.js';
 import {
   applyActorsToActivityRow,
   resolveActivityActors,
@@ -48,19 +49,35 @@ async function resolveActivityPersonId(raw) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return null;
   const [people, users] = await Promise.all([store.listPeople(), store.listUsers()]);
-  const activeUserIds = new Set(
-    (users || []).filter((u) => u.active !== false).map((u) => Number(u.id)),
-  );
+  const activeUsers = (users || []).filter((u) => u.active !== false);
+  const activeUserIds = new Set(activeUsers.map((u) => Number(u.id)));
 
   const byPeopleId = people.find((p) => Number(p.id) === n);
   if (byPeopleId) {
     const uid = Number(byPeopleId.user_id);
     if (Number.isFinite(uid) && activeUserIds.has(uid)) return byPeopleId.id;
+    // Stale schema cache may omit user_id; allow roster id when email matches an active login.
+    if (!Object.prototype.hasOwnProperty.call(byPeopleId, 'user_id')) {
+      const email = normalizeEmail(byPeopleId.email);
+      if (email && activeUsers.some((u) => normalizeEmail(u.email) === email)) {
+        return byPeopleId.id;
+      }
+    }
     return null;
   }
 
   const byUserLink = people.find((p) => Number(p.user_id) === n);
   if (byUserLink && activeUserIds.has(n)) return byUserLink.id;
+
+  // Legacy: client sent users_app.id; map via email when user_id column omitted from selects.
+  const legacyUser = activeUsers.find((u) => Number(u.id) === n);
+  if (legacyUser) {
+    const email = normalizeEmail(legacyUser.email);
+    if (email) {
+      const byEmail = people.find((p) => normalizeEmail(p.email) === email);
+      if (byEmail) return byEmail.id;
+    }
+  }
 
   return null;
 }

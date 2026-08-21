@@ -3,20 +3,35 @@ import { store } from '../db/store.js';
 import { requirePmoOrAdmin } from '../middleware/requireRole.js';
 import {
   isPersonLinkedToUser,
+  isPersonVisibleOnLinkedRoster,
+  listLinkedPeopleViaRpc,
   syncPeopleRosterFromUsers,
 } from '../lib/teamUserSync.js';
+import { isDbMode } from '../db/runtime/query.js';
 
 export const peopleRouter = Router();
 
 peopleRouter.get('/', async (req, res) => {
   const linkedOnly = req.query.linked_only === '1' || req.query.linked_only === 'true';
+
+  if (linkedOnly && isDbMode()) {
+    try {
+      const rows = await listLinkedPeopleViaRpc();
+      return res.json(rows);
+    } catch (e) {
+      console.warn('list_linked_people RPC unavailable, using table select:', e?.message || e);
+    }
+  }
+
   const users = await store.listUsers();
   const people = await store.listPeople();
   const assignments = await store.listAssignments();
   const activeUsers = users.filter((u) => u.active !== false);
   let rows = people.map((pe) => {
     const project_count = assignments.filter((a) => a.person_id === pe.id).length;
-    const linked_to_user = isPersonLinkedToUser(pe, activeUsers);
+    const linked_to_user = linkedOnly
+      ? isPersonVisibleOnLinkedRoster(pe, activeUsers)
+      : isPersonLinkedToUser(pe, activeUsers);
     return { ...pe, project_count, linked_to_user };
   });
   if (linkedOnly) {

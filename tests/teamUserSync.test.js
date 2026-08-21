@@ -70,6 +70,22 @@ describe('teamUserSync', () => {
     ])).toBe(9);
   });
 
+  it('shows roster via email when user_id key is omitted (stale schema cache)', async () => {
+    const { isPersonVisibleOnLinkedRoster, pruneOrphanPeople } = await import('../lib/teamUserSync.js');
+    expect(isPersonVisibleOnLinkedRoster(
+      { id: 10, name: 'ramlee', email: 'ramlee@ctsb.com' },
+      store.users,
+    )).toBe(true);
+    expect(isPersonVisibleOnLinkedRoster(
+      { id: 10, name: 'ramlee', email: 'ramlee@ctsb.com', user_id: null },
+      store.users,
+    )).toBe(false);
+    store.people.push({ id: 1, name: 'ramlee', email: 'ramlee@ctsb.com' });
+    const pruned = await pruneOrphanPeople(store);
+    expect(pruned).toHaveLength(0);
+    expect(store.people).toHaveLength(1);
+  });
+
   it('syncs users into people with user_id and updates names', async () => {
     await store.addPerson({ name: 'ramlee', email: 'ramlee@ctsb.com', role: null, user_id: null });
     await syncAllUsersToTeamPeople(store);

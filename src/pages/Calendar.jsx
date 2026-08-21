@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
@@ -83,6 +83,24 @@ export default function Calendar() {
     user && (normalizeRole(user.role) === 'admin' || PMO_ROLES.has(normalizeRole(user.role))),
   );
 
+  const loadPeopleRoster = useCallback(async ({ syncIfEmpty = false } = {}) => {
+    let roster = await api.people.list({ linked_only: '1' });
+    if (
+      syncIfEmpty
+      && canSyncRoster
+      && Array.isArray(roster)
+      && roster.length === 0
+    ) {
+      try {
+        await api.people.syncFromUsers();
+        roster = await api.people.list({ linked_only: '1' });
+      } catch (syncErr) {
+        console.warn('Calendar people sync skipped', syncErr?.message || syncErr);
+      }
+    }
+    return Array.isArray(roster) ? roster : [];
+  }, [canSyncRoster]);
+
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
   const [dayListDay, setDayListDay] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
@@ -105,22 +123,12 @@ export default function Calendar() {
     let cancelled = false;
     (async () => {
       try {
-        let roster = await api.people.list({ linked_only: '1' });
-        if (
-          canSyncRoster
-          && Array.isArray(roster)
-          && roster.length === 0
-        ) {
-          try {
-            await api.people.syncFromUsers();
-            roster = await api.people.list({ linked_only: '1' });
-          } catch (syncErr) {
-            console.warn('Calendar people sync skipped', syncErr?.message || syncErr);
-          }
-        }
-        const pr = await api.projects.list();
+        const [roster, pr] = await Promise.all([
+          loadPeopleRoster({ syncIfEmpty: true }),
+          api.projects.list(),
+        ]);
         if (!cancelled) {
-          setPeople(Array.isArray(roster) ? roster : []);
+          setPeople(roster);
           setProjects(Array.isArray(pr) ? pr : []);
         }
       } catch (e) {
@@ -130,7 +138,7 @@ export default function Calendar() {
     return () => {
       cancelled = true;
     };
-  }, [canSyncRoster]);
+  }, [loadPeopleRoster]);
 
   useEffect(() => {
     const refreshSmtp = () => {
@@ -468,6 +476,9 @@ export default function Calendar() {
     }));
     setPersonSearch('');
     setShowForm(true);
+    loadPeopleRoster({ syncIfEmpty: true })
+      .then(setPeople)
+      .catch((e) => console.error(e));
   };
 
   const openCreateForDay = (day) => {
@@ -491,6 +502,9 @@ export default function Calendar() {
     }));
     setPersonSearch('');
     setShowForm(true);
+    loadPeopleRoster({ syncIfEmpty: true })
+      .then(setPeople)
+      .catch((e) => console.error(e));
   };
 
   const openEditActivity = (a) => {
@@ -518,6 +532,9 @@ export default function Calendar() {
     setDetailActivityId(null);
     setDayListDay(null);
     setShowForm(true);
+    loadPeopleRoster({ syncIfEmpty: true })
+      .then(setPeople)
+      .catch((e) => console.error(e));
   };
 
   const resendActivityEmail = async (a) => {
