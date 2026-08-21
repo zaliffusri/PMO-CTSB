@@ -188,6 +188,8 @@ export function createSettingsRepository(ctx, getStore) {
         summary: String(entry.summary || ''),
         detail: entry.detail !== undefined ? entry.detail : null,
       };
+      // Never send id — Postgres identity/serial must allocate it.
+      delete row.id;
       if (!isDbMode()) {
         const data = getData();
         if (!data.audit_log) data.audit_log = [];
@@ -198,8 +200,12 @@ export function createSettingsRepository(ctx, getStore) {
         save();
         return;
       }
-      await dbInsert('audit_log', row, { returning: false });
-      // Optional trim of old audit_log rows skipped for now in DB mode.
+      try {
+        await dbInsert('audit_log', row, { returning: false });
+      } catch (e) {
+        // Do not fail the parent mutation (e.g. activity create) on audit PK/sequence drift.
+        console.error('appendAuditLog failed:', e?.message || e);
+      }
     },
 
     async listAuditLog({ limit = 100, offset = 0, user_id: filterUserId } = {}) {
