@@ -15,7 +15,7 @@ import {
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import { useCalendarActivities } from '../hooks/useCalendarActivities';
 import { activityLogicalGroupKey } from '../../lib/activityLogicalGroup.js';
-import { canEditCalendarUser } from '../../lib/permissions.js';
+import { canEditCalendarUser, normalizeRole, PMO_ROLES } from '../../lib/permissions.js';
 import {
   DEFAULT_ACTIVITY_SITE_LOCATIONS,
   composeLocation,
@@ -45,7 +45,7 @@ export default function Calendar() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [users, setUsers] = useState([]);
+  const [people, setPeople] = useState([]);
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [activitySites, setActivitySites] = useState(DEFAULT_ACTIVITY_SITE_LOCATIONS);
@@ -79,9 +79,8 @@ export default function Calendar() {
     [importPreview],
   );
   const canEditCalendar = canEditCalendarUser(user);
-  const nonAdminUsers = useMemo(
-    () => users.filter((u) => u.role !== 'admin' && u.active !== false),
-    [users],
+  const canSyncRoster = Boolean(
+    user && (normalizeRole(user.role) === 'admin' || PMO_ROLES.has(normalizeRole(user.role))),
   );
 
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
@@ -106,10 +105,23 @@ export default function Calendar() {
     let cancelled = false;
     (async () => {
       try {
-        const [u, pr] = await Promise.all([api.users.list(), api.projects.list()]);
+        let roster = await api.people.list({ linked_only: '1' });
+        if (
+          canSyncRoster
+          && Array.isArray(roster)
+          && roster.length === 0
+        ) {
+          try {
+            await api.people.syncFromUsers();
+            roster = await api.people.list({ linked_only: '1' });
+          } catch (syncErr) {
+            console.warn('Calendar people sync skipped', syncErr?.message || syncErr);
+          }
+        }
+        const pr = await api.projects.list();
         if (!cancelled) {
-          setUsers(u);
-          setProjects(pr);
+          setPeople(Array.isArray(roster) ? roster : []);
+          setProjects(Array.isArray(pr) ? pr : []);
         }
       } catch (e) {
         console.error(e);
@@ -118,7 +130,7 @@ export default function Calendar() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canSyncRoster]);
 
   useEffect(() => {
     const refreshSmtp = () => {
@@ -400,11 +412,24 @@ export default function Calendar() {
     });
   };
 
-  const filteredUsers = nonAdminUsers.filter((u) => {
+  const filteredPeople = people.filter((p) => {
     const q = personSearch.trim().toLowerCase();
     if (!q) return true;
-    return String(u.name || '').toLowerCase().includes(q);
+    return (
+      String(p.name || '').toLowerCase().includes(q)
+      || String(p.email || '').toLowerCase().includes(q)
+    );
   });
+
+  /** Map stored activity person_id (people.id or legacy users_app.id) → people.id for the form. */
+  const toRosterPersonId = (storedId) => {
+    if (storedId == null || storedId === '') return null;
+    const n = Number(storedId);
+    if (!Number.isFinite(n)) return null;
+    if (people.some((p) => Number(p.id) === n)) return String(n);
+    const byUser = people.find((p) => Number(p.user_id) === n);
+    return byUser?.id != null ? String(byUser.id) : null;
+  };
 
   const togglePerson = (id) => {
     const sid = String(id);
@@ -470,9 +495,10 @@ export default function Calendar() {
 
   const openEditActivity = (a) => {
     if (!canEditCalendar) return;
-    const personIds = Array.isArray(a.person_ids) && a.person_ids.length
-      ? a.person_ids.map((x) => String(x))
-      : (a.person_id != null ? [String(a.person_id)] : []);
+    const rawIds = Array.isArray(a.person_ids) && a.person_ids.length
+      ? a.person_ids
+      : (a.person_id != null ? [a.person_id] : []);
+    const personIds = [...new Set(rawIds.map(toRosterPersonId).filter(Boolean))];
     const { preset, custom } = resolveLocationForForm(a.location, activitySites);
     setForm({
       person_ids: personIds,
@@ -585,8 +611,8 @@ export default function Calendar() {
   }, [activities, clientByProjectId, year, month]);
 
   const buildImportPreview = (editableRows, fileName = 'import-file') => {
-    const userByName = new Map(nonAdminUsers.map((u) => [String(u.name || '').trim().toLowerCase(), u]));
-    const userByEmail = new Map(nonAdminUsers.map((u) => [String(u.email || '').trim().toLowerCase(), u]));
+    const personByName = new Map(people.map((p) => [String(p.name || '').trim().toLowerCase(), p]));
+    const personByEmail = new Map(people.map((p) => [String(p.email || '').trim().toLowerCase(), p]));
     const projectByClient = new Map();
     projects.forEach((p) => {
       const names = (p.clients || []).map((c) => c.name).filter(Boolean);
@@ -643,30 +669,30 @@ export default function Calendar() {
       const guestLines = [];
       staffTokens.forEach((token) => {
         const key = token.toLowerCase();
-        const u = key.includes('@') ? userByEmail.get(key) : userByName.get(key);
-        if (u?.id != null) {
-          personIds.push(Number(u.id));
-          if (u.name) resolvedNames.push(String(u.name));
+        const pe = key.includes('@') ? personByEmail.get(key) : personByName.get(key);
+        if (pe?.id != null) {
+          personIds.push(Number(pe.id));
+          if (pe.name) resolvedNames.push(String(pe.name));
         } else {
           guestLines.push({ token: String(token).trim(), kind: key.includes('@') ? 'email_unknown' : 'name_unknown' });
         }
       });
       const externalDisplay = guestLines.map((g) => g.token).filter(Boolean).join(', ');
       if (personIds.length === 0 && !externalDisplay) {
-        rowsOut.push({ ...base, status: 'invalid', reason: `No matched user and no usable guest text in "${staffText}"` });
+        rowsOut.push({ ...base, status: 'invalid', reason: `No matched team member and no usable guest text in "${staffText}"` });
         return;
       }
       const assignee_status =
         guestLines.length === 0
           ? ''
           : [
-              personIds.length ? `${personIds.length} in system` : null,
-              guestLines.some((g) => g.kind === 'email_unknown') ? 'Some emails not in system' : null,
-              guestLines.some((g) => g.kind === 'name_unknown') ? 'Some names not in system' : null,
+              personIds.length ? `${personIds.length} on roster` : null,
+              guestLines.some((g) => g.kind === 'email_unknown') ? 'Some emails not on roster' : null,
+              guestLines.some((g) => g.kind === 'name_unknown') ? 'Some names not on roster' : null,
             ].filter(Boolean).join(' · ');
       const project = projectByClient.get(String(client).trim().toLowerCase());
       const descParts = [];
-      if (resolvedNames.length) descParts.push(`Imported (accounts): ${[...new Set(resolvedNames)].join(', ')}`);
+      if (resolvedNames.length) descParts.push(`Imported (roster): ${[...new Set(resolvedNames)].join(', ')}`);
       if (externalDisplay) descParts.push(`Guests: ${externalDisplay}`);
       rowsOut.push({
         ...base,
@@ -1224,7 +1250,8 @@ export default function Calendar() {
         editingActivityId={editingActivityId}
         form={form}
         setForm={setForm}
-        filteredUsers={filteredUsers}
+        filteredPeople={filteredPeople}
+        canSyncRoster={canSyncRoster}
         projects={projects}
         activitySites={activitySites}
         personSearch={personSearch}

@@ -3,7 +3,82 @@
  * Table: projects (+ project_clients on delete / client link)
  */
 import { nextId, projectRowForDb } from '../runtime/helpers.js';
-import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere } from '../runtime/query.js';
+import { formatClientNames } from '../../lib/projectClients.js';
+import {
+  isDbMode,
+  dbSelect,
+  dbInsert,
+  dbUpdate,
+  dbDelete,
+  dbDeleteWhere,
+  requireSupabase,
+} from '../runtime/query.js';
+
+const DEFAULT_PROJECTS_LIMIT = 500;
+const MAX_PROJECTS_LIMIT = 2000;
+
+function stripProjectTags(project) {
+  if (!project || typeof project !== 'object') return project;
+  const { tags: _tags, ...rest } = project;
+  return rest;
+}
+
+/**
+ * Enrich projects with clients + member_count using a few batched queries (no per-project N+1).
+ * DB mode only.
+ */
+async function enrichProjectsBatched(projects) {
+  const list = Array.isArray(projects) ? projects : [];
+  if (!list.length) return [];
+
+  const projectIds = list.map((p) => Number(p.id)).filter((id) => Number.isFinite(id));
+  const links = projectIds.length
+    ? await dbSelect('project_clients', { inFilters: { project_id: projectIds } })
+    : [];
+  const clientIds = [...new Set(links.map((l) => Number(l.client_id)).filter(Number.isFinite))];
+  const clients = clientIds.length
+    ? await dbSelect('clients', { inFilters: { id: clientIds } })
+    : [];
+  const assignmentRows = projectIds.length
+    ? await dbSelect('project_assignments', {
+      columns: 'id,project_id',
+      inFilters: { project_id: projectIds },
+    })
+    : [];
+
+  const clientById = new Map((clients || []).map((c) => [Number(c.id), c]));
+  const clientsByProject = new Map();
+  for (const link of links || []) {
+    const pid = Number(link.project_id);
+    const client = clientById.get(Number(link.client_id));
+    if (!client) continue;
+    if (!clientsByProject.has(pid)) clientsByProject.set(pid, []);
+    clientsByProject.get(pid).push(client);
+  }
+  for (const [, arr] of clientsByProject) {
+    arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }
+
+  const memberCountByProject = new Map();
+  for (const a of assignmentRows || []) {
+    const pid = Number(a.project_id);
+    memberCountByProject.set(pid, (memberCountByProject.get(pid) || 0) + 1);
+  }
+
+  return list.map((p) => {
+    const pid = Number(p.id);
+    const projectClients = clientsByProject.get(pid) || [];
+    const client_ids = projectClients.map((c) => c.id);
+    return {
+      ...stripProjectTags(p),
+      clients: projectClients,
+      client_ids,
+      client_name: formatClientNames(projectClients),
+      client_id: client_ids[0] ?? null,
+      member_count: memberCountByProject.get(pid) || 0,
+    };
+  });
+}
 
 export function createProjectsRepository(ctx, getStore) {
   const { getData, save } = ctx;
@@ -13,6 +88,81 @@ export function createProjectsRepository(ctx, getStore) {
     return dbSelect('projects', { order: 'id' });
   }
 
+  /**
+   * Fast list for GET /api/projects — RPC when available, else batched selects.
+   * @param {{ limit?: number, offset?: number }} opts
+   */
+  async function listProjectsEnriched({ limit = DEFAULT_PROJECTS_LIMIT, offset = 0 } = {}) {
+    const lim = Math.max(1, Math.min(Number(limit) || DEFAULT_PROJECTS_LIMIT, MAX_PROJECTS_LIMIT));
+    const off = Math.max(0, Number(offset) || 0);
+
+    if (!isDbMode()) {
+      const projects = [...getData().projects]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(off, off + lim);
+      const links = (getData().project_clients || []).filter((pc) =>
+        projects.some((p) => Number(p.id) === Number(pc.project_id)),
+      );
+      const clients = getData().clients || [];
+      const clientById = new Map(clients.map((c) => [Number(c.id), c]));
+      const clientsByProject = new Map();
+      for (const link of links) {
+        const pid = Number(link.project_id);
+        const client = clientById.get(Number(link.client_id));
+        if (!client) continue;
+        if (!clientsByProject.has(pid)) clientsByProject.set(pid, []);
+        clientsByProject.get(pid).push(client);
+      }
+      for (const [, arr] of clientsByProject) {
+        arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      }
+      const assignments = getData().project_assignments || [];
+      const memberCountByProject = new Map();
+      for (const a of assignments) {
+        const pid = Number(a.project_id);
+        memberCountByProject.set(pid, (memberCountByProject.get(pid) || 0) + 1);
+      }
+      return projects.map((p) => {
+        const pid = Number(p.id);
+        const projectClients = clientsByProject.get(pid) || [];
+        const client_ids = projectClients.map((c) => c.id);
+        return {
+          ...stripProjectTags(p),
+          clients: projectClients,
+          client_ids,
+          client_name: formatClientNames(projectClients),
+          client_id: client_ids[0] ?? null,
+          member_count: memberCountByProject.get(pid) || 0,
+        };
+      });
+    }
+
+    try {
+      const sb = requireSupabase();
+      const { data, error } = await sb.rpc('list_projects_enriched', {
+        p_limit: lim,
+        p_offset: off,
+      });
+      if (error) throw error;
+      if (Array.isArray(data)) return data.map(stripProjectTags);
+      return [];
+    } catch (e) {
+      console.warn(
+        'list_projects_enriched RPC unavailable, using batched select:',
+        e?.message || e,
+      );
+      const sb = requireSupabase();
+      const { data: projects, error } = await sb
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(off, off + lim - 1);
+      if (error) throw error;
+      return enrichProjectsBatched(projects || []);
+    }
+  }
+
   return {
     /** @deprecated Prefer listProjects() — sync getter is local-only. */
     get projects() {
@@ -20,6 +170,7 @@ export function createProjectsRepository(ctx, getStore) {
     },
 
     listProjects,
+    listProjectsEnriched,
 
     async addProject(row) {
       const created_at = new Date().toISOString();

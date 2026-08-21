@@ -34,16 +34,35 @@ async function taskSummaryForPerson(personId, { assignments, projects, tasks } =
   };
 }
 
-/** Map team person id → user id (email match, then name match). */
+/** Map team person id → users_app.id (prefer hard FK people.user_id). */
 function userIdByPersonId(users, people) {
   const map = new Map();
-  users.forEach((u) => {
-    const pe =
-      people.find((p) => String(p.email || '').toLowerCase() === String(u.email || '').toLowerCase()) ||
-      people.find((p) => String(p.name || '').trim().toLowerCase() === String(u.name || '').trim().toLowerCase());
-    if (pe) map.set(pe.id, u.id);
+  const userIds = new Set((users || []).map((u) => Number(u.id)));
+  (people || []).forEach((pe) => {
+    const uid = Number(pe.user_id);
+    if (Number.isFinite(uid) && userIds.has(uid)) {
+      map.set(pe.id, uid);
+      return;
+    }
+    const byEmail = users.find(
+      (u) => String(u.email || '').toLowerCase() === String(pe.email || '').toLowerCase(),
+    );
+    const byName = users.find(
+      (u) => String(u.name || '').trim().toLowerCase() === String(pe.name || '').trim().toLowerCase(),
+    );
+    const matched = byEmail || byName;
+    if (matched) map.set(pe.id, matched.id);
   });
   return map;
+}
+
+/** Match activities.person_id as people.id or legacy users_app.id. */
+function activityMatchesPerson(activityPersonId, personId, userId) {
+  const stored = Number(activityPersonId);
+  if (!Number.isFinite(stored)) return false;
+  if (Number(personId) === stored) return true;
+  if (userId != null && Number(userId) === stored) return true;
+  return false;
 }
 
 availabilityRouter.get('/workload', async (req, res) => {
@@ -87,12 +106,24 @@ availabilityRouter.get('/workload', async (req, res) => {
     byUser[uid].projects.push({ name: project?.name, allocation: a.allocation_percent });
     byUser[uid].totalAllocation += a.allocation_percent;
   });
+  const userIdToPersonId = new Map();
+  personToUser.forEach((uid, pid) => {
+    if (!userIdToPersonId.has(uid)) userIdToPersonId.set(uid, pid);
+  });
+
   activities.forEach((a) => {
-    if (!byUser[a.person_id]) return;
+    let uid = null;
+    if (byUser[a.person_id]) {
+      uid = a.person_id; // legacy: activities.person_id stored users_app.id
+    } else {
+      const linkedUid = personToUser.get(a.person_id);
+      if (linkedUid != null && byUser[linkedUid]) uid = linkedUid;
+    }
+    if (uid == null) return;
     const start = new Date(a.start_at).getTime();
     const end = new Date(a.end_at).getTime();
     const hours = (end - start) / (1000 * 60 * 60);
-    byUser[a.person_id].activities.push({
+    byUser[uid].activities.push({
       type: a.type,
       title: a.title,
       location: a.location ?? null,
@@ -100,12 +131,7 @@ availabilityRouter.get('/workload', async (req, res) => {
       end_at: a.end_at,
       hours,
     });
-    byUser[a.person_id].activityHours += hours;
-  });
-
-  const userIdToPersonId = new Map();
-  personToUser.forEach((uid, pid) => {
-    if (!userIdToPersonId.has(uid)) userIdToPersonId.set(uid, pid);
+    byUser[uid].activityHours += hours;
   });
 
   const workload = await Promise.all(Object.values(byUser).map(async (p) => ({
@@ -156,9 +182,9 @@ availabilityRouter.get('/check', async (req, res) => {
   const totalAllocation = personProjects.reduce((s, p) => s + (p.allocation_percent || 0), 0);
 
   let activities = [];
-  if (from && to && userId != null) {
+  if (from && to) {
     activities = activitiesAll
-      .filter((a) => a.person_id === userId && a.end_at >= from && a.start_at <= to)
+      .filter((a) => activityMatchesPerson(a.person_id, personId, userId) && a.end_at >= from && a.start_at <= to)
       .sort((a, b) => new Date(a.start_at) - new Date(b.start_at))
       .map((a) => {
         const proj = projects.find((p) => p.id === a.project_id);

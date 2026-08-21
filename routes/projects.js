@@ -32,19 +32,17 @@ async function enrichProject(project, extra = {}) {
 }
 
 projectsRouter.get('/', async (req, res) => {
+  const rawLimit = req.query.limit != null ? Number(req.query.limit) : 500;
+  const rawOffset = req.query.offset != null ? Number(req.query.offset) : 0;
+  const limit = Number.isFinite(rawLimit) ? rawLimit : 500;
+  const offset = Number.isFinite(rawOffset) ? rawOffset : 0;
   try {
-    await store.reloadFromSupabase();
+    const list = await store.listProjectsEnriched({ limit, offset });
+    res.json(Array.isArray(list) ? list : []);
   } catch (e) {
-    console.warn('projects GET: could not refresh from Supabase', e?.message || e);
+    console.error('projects GET failed', e);
+    res.status(500).json({ error: e.message || 'Failed to load projects' });
   }
-  const projects = await store.listProjects();
-  const assignments = await store.listAssignments();
-  let list = await Promise.all(projects.map(async (p) => {
-    const member_count = assignments.filter((a) => a.project_id === p.id).length;
-    return enrichProject(p, { member_count });
-  }));
-  list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  res.json(list);
 });
 
 projectsRouter.get('/:id', async (req, res) => {

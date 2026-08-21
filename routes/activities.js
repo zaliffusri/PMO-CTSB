@@ -39,26 +39,44 @@ function normalizeActivityType(type) {
   return 'other';
 }
 
-/** Activities store `person_id` as app user id (for workload). Accept user id or team `people` id and normalize. */
-async function resolveActivityUserId(raw) {
+/**
+ * Resolve form/API ids to people.id (roster). Never store users_app.id on activities.
+ * Accepts people.id or legacy users_app.id (mapped via people.user_id).
+ */
+async function resolveActivityPersonId(raw) {
   if (raw == null || raw === '') return null;
   const n = Number(raw);
   if (!Number.isFinite(n)) return null;
-  if (await store.findUserById(n)) return n;
-  const people = await store.listPeople();
-  const person = people.find((p) => Number(p.id) === n);
-  if (!person) return null;
-  const em = String(person.email || '').trim().toLowerCase();
-  if (em) {
-    const u = await store.findUserByEmail(em);
-    if (u) return u.id;
+  const [people, users] = await Promise.all([store.listPeople(), store.listUsers()]);
+  const activeUserIds = new Set(
+    (users || []).filter((u) => u.active !== false).map((u) => Number(u.id)),
+  );
+
+  const byPeopleId = people.find((p) => Number(p.id) === n);
+  if (byPeopleId) {
+    const uid = Number(byPeopleId.user_id);
+    if (Number.isFinite(uid) && activeUserIds.has(uid)) return byPeopleId.id;
+    return null;
   }
-  const nm = String(person.name || '').trim().toLowerCase();
-  if (nm) {
-    const users = await store.listUsers();
-    const u = users.find((x) => String(x.name || '').trim().toLowerCase() === nm);
-    if (u) return u.id;
+
+  const byUserLink = people.find((p) => Number(p.user_id) === n);
+  if (byUserLink && activeUserIds.has(n)) return byUserLink.id;
+
+  return null;
+}
+
+/** Map stored activities.person_id → users_app.id (supports legacy user-id storage). */
+async function userIdFromActivityPersonId(storedPersonId, { people, users } = {}) {
+  if (storedPersonId == null) return null;
+  const n = Number(storedPersonId);
+  if (!Number.isFinite(n)) return null;
+  const peopleList = people || await store.listPeople();
+  const usersList = users || await store.listUsers();
+  const person = peopleList.find((p) => Number(p.id) === n);
+  if (person?.user_id != null && Number.isFinite(Number(person.user_id))) {
+    return Number(person.user_id);
   }
+  if (usersList.some((u) => Number(u.id) === n)) return n;
   return null;
 }
 
@@ -66,14 +84,14 @@ async function activityPersonName(storedId, nameCache = null) {
   if (storedId == null) return null;
   const key = Number(storedId);
   if (nameCache && nameCache.has(key)) return nameCache.get(key);
-  const u = await store.findUserById(storedId);
-  if (u?.name) {
-    if (nameCache) nameCache.set(key, u.name);
-    return u.name;
-  }
   const people = await store.listPeople();
-  const person = people.find((p) => Number(p.id) === Number(storedId));
-  const name = person?.name ?? null;
+  const person = people.find((p) => Number(p.id) === key);
+  if (person?.name) {
+    if (nameCache) nameCache.set(key, person.name);
+    return person.name;
+  }
+  const u = await store.findUserById(storedId);
+  const name = u?.name ?? null;
   if (nameCache) nameCache.set(key, name);
   return name;
 }
@@ -87,11 +105,12 @@ function actorSnapshot(user) {
 async function buildPersonNameCache() {
   const cache = new Map();
   const [users, people] = await Promise.all([store.listUsers(), store.listPeople()]);
-  for (const u of users || []) {
-    if (u?.id != null) cache.set(Number(u.id), u.name || null);
-  }
   for (const p of people || []) {
-    if (p?.id != null && !cache.has(Number(p.id))) cache.set(Number(p.id), p.name || null);
+    if (p?.id != null) cache.set(Number(p.id), p.name || null);
+  }
+  for (const u of users || []) {
+    // Legacy activities may still store users_app.id in person_id
+    if (u?.id != null && !cache.has(Number(u.id))) cache.set(Number(u.id), u.name || null);
   }
   return cache;
 }
@@ -188,22 +207,19 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
 }
 
 /** Resolve assignee + guest emails for a multi-person meeting invite (Outlook/Teams). */
-async function resolveCalendarAttendees(assigneeUids, external_attendees) {
+async function resolveCalendarAttendees(assigneePersonIds, external_attendees) {
   const out = [];
   const seen = new Set();
-  const people = await store.listPeople();
-  for (const uid of [...new Set((assigneeUids || []).filter((x) => x != null))]) {
-    const assignee = await store.findUserById(uid);
-    let email = String(assignee?.email || '').trim().toLowerCase();
-    if (!email && assignee?.name) {
-      const pe = people.find(
-        (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
-      );
-      email = String(pe?.email || '').trim().toLowerCase();
-    }
+  const [people, users] = await Promise.all([store.listPeople(), store.listUsers()]);
+  for (const pid of [...new Set((assigneePersonIds || []).filter((x) => x != null))]) {
+    const uid = await userIdFromActivityPersonId(pid, { people, users });
+    const assignee = uid != null ? users.find((u) => Number(u.id) === Number(uid)) : null;
+    const person = people.find((p) => Number(p.id) === Number(pid));
+    let email = String(assignee?.email || person?.email || '').trim().toLowerCase();
+    const name = assignee?.name || person?.name || null;
     if (!email || !email.includes('@') || seen.has(email)) continue;
     seen.add(email);
-    out.push({ email, name: assignee?.name || email.split('@')[0] });
+    out.push({ email, name: name || email.split('@')[0] });
   }
   for (const to of extractEmailsFromText(external_attendees)) {
     const email = String(to || '').trim().toLowerCase();
@@ -214,20 +230,16 @@ async function resolveCalendarAttendees(assigneeUids, external_attendees) {
   return out;
 }
 
-async function resolveAssigneeEmail(uid) {
-  const assignee = await store.findUserById(uid);
-  let recipientEmail = String(assignee?.email || '').trim();
-  if (!recipientEmail && assignee?.name) {
-    const people = await store.listPeople();
-    const pe = people.find(
-      (p) => String(p.name || '').trim().toLowerCase() === String(assignee.name || '').trim().toLowerCase(),
-    );
-    recipientEmail = String(pe?.email || '').trim();
-  }
+async function resolveAssigneeEmail(storedPersonId) {
+  const [people, users] = await Promise.all([store.listPeople(), store.listUsers()]);
+  const uid = await userIdFromActivityPersonId(storedPersonId, { people, users });
+  const assignee = uid != null ? users.find((u) => Number(u.id) === Number(uid)) : null;
+  const person = people.find((p) => Number(p.id) === Number(storedPersonId));
+  const recipientEmail = String(assignee?.email || person?.email || '').trim();
   return {
-    assignee,
+    assignee: assignee || (person ? { id: person.user_id, name: person.name, email: person.email } : null),
     email: recipientEmail || null,
-    name: assignee?.name || null,
+    name: assignee?.name || person?.name || null,
   };
 }
 
@@ -771,18 +783,18 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     });
   }
 
-  const resolvedUsers = [];
+  const resolvedPeopleIds = [];
   for (const pid of uniquePersonIds) {
-    const uid = await resolveActivityUserId(pid);
-    if (!uid) {
+    const personId = await resolveActivityPersonId(pid);
+    if (!personId) {
       return res.status(400).json({
         error:
-          'Invalid person: use a system user id, or a team member id whose email matches a user account.',
+          'Invalid person: select a team roster member linked to an active login (Team → Sync from users).',
       });
     }
-    resolvedUsers.push(uid);
+    resolvedPeopleIds.push(personId);
   }
-  const uniqueResolved = [...new Set(resolvedUsers)];
+  const uniqueResolved = [...new Set(resolvedPeopleIds)];
 
   const normalizedType = normalizeActivityType(type);
   const activityGroupId = crypto.randomUUID();
@@ -815,10 +827,10 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     const id = await store.addActivity(row);
     createdIds.push(id);
   } else {
-    for (const uid of uniqueResolved) {
+    for (const personId of uniqueResolved) {
       const row = applyActorsToActivityRow({
         activity_group_id: activityGroupId,
-        person_id: uid,
+        person_id: personId,
         external_attendees: extForRow,
         project_id: project_id || null,
         type: normalizedType,
@@ -952,32 +964,34 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       ? normalizeExternalAttendees(externalRaw)
       : normalizeExternalAttendees(existing.external_attendees);
 
-  const resolvedUids = [];
+  const resolvedPeopleIds = [];
   if (Array.isArray(person_ids)) {
     for (const pid of person_ids) {
-      const uid = await resolveActivityUserId(pid);
-      if (uid) resolvedUids.push(uid);
+      const personId = await resolveActivityPersonId(pid);
+      if (personId) resolvedPeopleIds.push(personId);
     }
   } else if (person_id !== undefined) {
-    const resolved = await resolveActivityUserId(person_id);
+    const resolved = await resolveActivityPersonId(person_id);
     if (!resolved) {
       return res.status(400).json({
         error:
-          'Invalid person: use a system user id, or a team member id whose email matches a user account.',
+          'Invalid person: select a team roster member linked to an active login (Team → Sync from users).',
       });
     }
-    resolvedUids.push(resolved);
+    resolvedPeopleIds.push(resolved);
   } else {
     const peerRows = idsInSameLogicalGroup(activities, id)
       .map((pid) => activities.find((a) => a.id === pid))
       .filter(Boolean);
-    peerRows.forEach((row) => {
-      if (row.person_id != null) resolvedUids.push(row.person_id);
-    });
+    for (const row of peerRows) {
+      if (row.person_id == null) continue;
+      const personId = await resolveActivityPersonId(row.person_id);
+      if (personId) resolvedPeopleIds.push(personId);
+    }
   }
 
-  const uniqueUids = [...new Set(resolvedUids)];
-  if (uniqueUids.length === 0 && !nextExternal) {
+  const uniquePeopleIds = [...new Set(resolvedPeopleIds)];
+  if (uniquePeopleIds.length === 0 && !nextExternal) {
     return res.status(400).json({ error: 'Select at least one valid assignee or enter guest names.' });
   }
 
@@ -1012,10 +1026,10 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   // Client notes never include the embed marker (stripped on GET); rebuild embed on save.
   const cleanDescription = stripActorEmbedFromDescription(nextDescription) || null;
 
-  for (const uid of uniqueUids) {
+  for (const personId of uniquePeopleIds) {
     const prepared = applyActorsToActivityRow({
       activity_group_id: activityGroupId,
-      person_id: uid,
+      person_id: personId,
       external_attendees: extForRow,
       project_id: nextProjectId || null,
       type: nextType,
@@ -1029,7 +1043,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     createdIds.push(newId);
   }
 
-  if (uniqueUids.length === 0) {
+  if (uniquePeopleIds.length === 0) {
     const prepared = applyActorsToActivityRow({
       activity_group_id: activityGroupId,
       person_id: null,
@@ -1061,7 +1075,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   };
   if (shouldNotify) {
     emailNotify = await dispatchActivityNotifications({
-      assigneeUids: uniqueUids,
+      assigneeUids: uniquePeopleIds,
       title: nextTitle,
       typeKey: nextType,
       location: nextLocation,

@@ -3,9 +3,7 @@ import { store } from '../db/store.js';
 import { requirePmoOrAdmin } from '../middleware/requireRole.js';
 import {
   isPersonLinkedToUser,
-  syncAllUsersToTeamPeople,
-  pruneOrphanPeople,
-  findOrphanPeople,
+  syncPeopleRosterFromUsers,
 } from '../lib/teamUserSync.js';
 
 export const peopleRouter = Router();
@@ -29,30 +27,25 @@ peopleRouter.get('/', async (req, res) => {
 });
 
 peopleRouter.post('/sync-from-users', requirePmoOrAdmin, async (req, res) => {
-  const synced = await syncAllUsersToTeamPeople(store);
-  const pruned = await pruneOrphanPeople(store, { requireNoAssignments: true });
-  const orphans = await findOrphanPeople(store);
-  const assignments = await store.listAssignments();
-  const orphanRemaining = orphans.map((p) => ({
-    id: p.id,
-    name: p.name,
-    email: p.email || null,
-    project_count: assignments.filter((a) => a.person_id === p.id).length,
-  }));
-
-  await store.appendAuditLog(req.user, {
-    action: 'sync',
-    target_type: 'people',
-    target_id: null,
-    summary: `Synced ${synced} user(s) to team roster; removed ${pruned.length} orphan roster row(s)`,
-    detail: { pruned, orphanRemaining },
-  });
+  let result;
+  try {
+    result = await syncPeopleRosterFromUsers(store);
+  } catch (e) {
+    console.error('people sync-from-users failed', e);
+    return res.status(500).json({ error: e.message || 'Failed to sync team roster' });
+  }
+  const { synced, pruned, orphanRemaining } = result;
 
   try {
-    await store.persistToSupabase();
+    await store.appendAuditLog(req.user, {
+      action: 'sync',
+      target_type: 'people',
+      target_id: null,
+      summary: `Synced ${synced} user(s) to team roster; removed ${pruned.length} orphan roster row(s)`,
+      detail: { pruned, orphanRemaining },
+    });
   } catch (e) {
-    console.error('people sync-from-users persist failed', e);
-    return res.status(500).json({ error: e.message || 'Failed to save to database' });
+    console.warn('people sync-from-users audit log skipped', e?.message || e);
   }
 
   res.json({ synced, pruned, orphanRemaining });

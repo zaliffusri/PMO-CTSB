@@ -9,7 +9,8 @@ export default function CalendarActivityForm({
   editingActivityId,
   form,
   setForm,
-  filteredUsers,
+  filteredPeople,
+  canSyncRoster,
   projects,
   activitySites,
   personSearch,
@@ -41,27 +42,45 @@ export default function CalendarActivityForm({
         </div>
         <form onSubmit={onSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
           <label style={{ gridColumn: '1 / -1' }}>
-            People with accounts (multi-select, optional if guests are listed below)
+            Team roster (multi-select, optional if guests are listed below)
             <input
               type="text"
               value={personSearch}
               onChange={(e) => setPersonSearch(e.target.value)}
-              placeholder="Search person name..."
+              placeholder="Search name or email..."
               style={inputStyle}
             />
             <div style={{ marginTop: '0.5rem', maxHeight: 180, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem', background: 'var(--bg)' }}>
-              {filteredUsers.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No person found.</div>
+              {filteredPeople.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  {personSearch.trim()
+                    ? 'No matching team member.'
+                    : (
+                      <>
+                        No linked team members yet.
+                        {canSyncRoster ? (
+                          <>
+                            {' '}Open <Link to="/team">Team</Link> and use Sync from users, then reopen this form.
+                          </>
+                        ) : (
+                          <> Ask a PMO/admin to sync the Team roster from users.</>
+                        )}
+                      </>
+                    )}
+                </div>
               ) : (
-                filteredUsers.map((u) => (
-                  <label key={u.id} style={{ display: 'block', marginBottom: '0.35rem', cursor: 'pointer' }}>
+                filteredPeople.map((p) => (
+                  <label key={p.id} style={{ display: 'block', marginBottom: '0.35rem', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
-                      checked={form.person_ids.includes(String(u.id))}
-                      onChange={() => togglePerson(u.id)}
+                      checked={form.person_ids.includes(String(p.id))}
+                      onChange={() => togglePerson(p.id)}
                       style={{ marginRight: 8 }}
                     />
-                    {u.name}
+                    {p.name}
+                    {p.email ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}> · {p.email}</span>
+                    ) : null}
                   </label>
                 ))
               )}
