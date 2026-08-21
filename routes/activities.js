@@ -764,6 +764,7 @@ activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => 
 });
 
 activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySchema), async (req, res) => {
+  try {
   const {
     person_id,
     person_ids,
@@ -862,11 +863,17 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     }
   }
 
-  const [activities, projects] = await Promise.all([
-    store.listActivities(),
+  const [createdRows, projects] = await Promise.all([
+    store.listActivitiesByIds(createdIds),
     store.listProjects(),
   ]);
-  const created = createdIds.map((id) => activities.find((x) => x.id === id)).filter(Boolean);
+  const byId = new Map(createdRows.map((a) => [Number(a.id), a]));
+  const created = createdIds.map((id) => byId.get(Number(id))).filter(Boolean);
+  if (!created.length) {
+    return res.status(500).json({
+      error: 'Activity was created but could not be reloaded. Refresh the calendar and check the new entry.',
+    });
+  }
   const project = projects.find((p) => p.id === (project_id || null));
   const personNames = [];
   for (const a of created) {
@@ -913,22 +920,30 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     recipients: [],
   };
   if (shouldNotify) {
-    emailNotify = await dispatchActivityNotifications({
-      assigneeUids: created.map((a) => a.person_id),
-      title,
-      typeKey: normalizedType,
-      location: loc,
-      start_at,
-      end_at,
-      projectName: project?.name || null,
-      description: description || null,
-      loggedBy,
-      external_attendees,
-      calendarUid: activityGroupId,
-      sequence: nextCalendarSequence('create'),
-      activityId: created[0]?.id ?? null,
-      sendEmail: true,
-    });
+    try {
+      emailNotify = await dispatchActivityNotifications({
+        assigneeUids: created.map((a) => a.person_id),
+        title,
+        typeKey: normalizedType,
+        location: loc,
+        start_at,
+        end_at,
+        projectName: project?.name || null,
+        description: description || null,
+        loggedBy,
+        external_attendees,
+        calendarUid: activityGroupId,
+        sequence: nextCalendarSequence('create'),
+        activityId: created[0]?.id ?? null,
+        sendEmail: true,
+      });
+    } catch (notifyErr) {
+      console.error('activities POST notify failed', notifyErr);
+      emailNotify = {
+        ...emailNotify,
+        in_app_error: notifyErr?.message || String(notifyErr),
+      };
+    }
   }
 
   const responseRows = await Promise.all(created.map((a) => enrichActivityForClient(a, projects)));
@@ -938,6 +953,12 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
   };
   if (responseRows.length === 1) return res.status(201).json({ ...responseRows[0], ...meta });
   return res.status(201).json({ activities: responseRows, ...meta });
+  } catch (e) {
+    console.error('activities POST failed', e);
+    return res.status(500).json({
+      error: e?.message || 'Failed to save activity',
+    });
+  }
 });
 
 activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {

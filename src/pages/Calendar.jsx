@@ -332,8 +332,8 @@ export default function Calendar() {
       alert('Please select a location or enter a custom one under Others.');
       return;
     }
-    await runMutation(async () => {
-      try {
+    try {
+      await runMutation(async () => {
         let result;
         if (editingActivityId != null) {
           result = await api.activities.update(editingActivityId, {
@@ -387,8 +387,8 @@ export default function Calendar() {
             alert('Activity saved, but email notification could not be delivered. Check assignee emails and SMTP settings.');
           } else if (emailNotify && emailNotify.attempted === 0) {
             alert('Activity saved. No email recipients found (assignees need a user email, or add guest emails).');
-          } else if (!emailNotify) {
-            alert('Activity saved. Notification status was not returned by the server.');
+          } else {
+            alert(isEdit ? 'Activity updated.' : 'Activity saved.');
           }
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event('pmo:notifications-changed'));
@@ -396,6 +396,8 @@ export default function Calendar() {
           api.activities.mailStatus()
             .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
             .catch(() => {});
+        } else {
+          alert(isEdit ? 'Activity updated.' : 'Activity saved.');
         }
         setForm({
           person_ids: [],
@@ -414,10 +416,12 @@ export default function Calendar() {
         setShowForm(false);
         setEditingActivityId(null);
         loadActivities(rangeStartIso, rangeEndExclusiveIso);
-      } catch (err) {
-        alert(err.message);
-      }
-    });
+      });
+    } catch (err) {
+      const message = String(err?.message || err || '').trim()
+        || 'Failed to save activity. Check your connection and try again.';
+      alert(message);
+    }
   };
 
   const filteredPeople = people.filter((p) => {

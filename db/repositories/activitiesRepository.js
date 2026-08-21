@@ -112,8 +112,35 @@ export function createActivitiesRepository(ctx, getStore) {
         save();
         return id;
       }
-      const saved = await dbInsert('activities', payload);
-      return saved.id;
+      try {
+        const saved = await dbInsert('activities', payload);
+        return saved.id;
+      } catch (e) {
+        const msg = String(e?.message || e);
+        // Stale PostgREST cache / missing audit columns — keep actor embed in description.
+        if (/schema cache|Could not find the ['`].*['`] column/i.test(msg)) {
+          const {
+            created_by_user_id: _c,
+            created_by_name: _cn,
+            updated_by_user_id: _u,
+            updated_by_name: _un,
+            updated_at: _ua,
+            ...rest
+          } = payload;
+          const saved = await dbInsert('activities', rest);
+          return saved.id;
+        }
+        throw e;
+      }
+    },
+
+    async listActivitiesByIds(ids) {
+      const idList = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
+      if (!idList.length) return [];
+      if (!isDbMode()) {
+        return getData().activities.filter((a) => idList.includes(Number(a.id)));
+      }
+      return dbSelect('activities', { inFilters: { id: idList }, order: 'id' });
     },
 
     async updateActivity(id, row) {

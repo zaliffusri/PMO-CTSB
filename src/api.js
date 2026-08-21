@@ -77,7 +77,14 @@ async function request(path, options = {}) {
     }
   }
   if (!res.ok) {
-    const msg = data.error || res.statusText;
+    let msg = data.error || res.statusText || `Request failed (${res.status})`;
+    if (Array.isArray(data.details) && data.details.length) {
+      const detailText = data.details
+        .map((d) => d.message || [d.path, d.message].filter(Boolean).join(': '))
+        .filter(Boolean)
+        .join('; ');
+      if (detailText) msg = `${msg}: ${detailText}`;
+    }
     console.error('[PMO API] failed', method, path, res.status, msg);
     throw new Error(msg);
   }

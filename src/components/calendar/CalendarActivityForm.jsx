@@ -40,7 +40,11 @@ export default function CalendarActivityForm({
             ×
           </button>
         </div>
-        <form onSubmit={onSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}>
+        <form
+          noValidate
+          onSubmit={onSubmit}
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem' }}
+        >
           <label style={{ gridColumn: '1 / -1' }}>
             Team roster (multi-select, optional if guests are listed below)
             <input
