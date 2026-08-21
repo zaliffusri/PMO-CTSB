@@ -105,6 +105,8 @@ export function createActivitiesRepository(ctx, getStore) {
     async addActivity(row) {
       const created_at = row?.created_at || new Date().toISOString();
       const payload = { ...row, created_at };
+      // Never send id — Postgres identity/serial must allocate it.
+      delete payload.id;
       if (!isDbMode()) {
         const data = getData();
         const id = nextId(data.activities);
@@ -127,8 +129,17 @@ export function createActivitiesRepository(ctx, getStore) {
             updated_at: _ua,
             ...rest
           } = payload;
+          delete rest.id;
           const saved = await dbInsert('activities', rest);
           return saved.id;
+        }
+        // Sequence drift after imports/upserts with hardcoded ids.
+        if (/activities_pkey|duplicate key value/i.test(msg)) {
+          throw new Error(
+            'Activity id sequence is out of sync (duplicate primary key). '
+            + "Run in Supabase SQL: SELECT setval(pg_get_serial_sequence('public.activities','id'), "
+            + 'coalesce((SELECT max(id) FROM public.activities),0)+1, false);',
+          );
         }
         throw e;
       }
