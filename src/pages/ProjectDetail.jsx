@@ -369,16 +369,20 @@ function ProjectDetail() {
         }
       />
 
-      <ModuleTabs
-        tabs={workspaceTabs}
-        active={activeTab}
-        onChange={changeTab}
-        ariaLabel="Project workspace"
-      />
-      <div className="project-workspace-links">
-        <Link to="/calendar" className="btn btn-secondary btn-sm">Activities</Link>
+      <div className="project-workspace-nav">
+        <ModuleTabs
+          tabs={workspaceTabs}
+          active={activeTab}
+          onChange={changeTab}
+          ariaLabel="Project workspace"
+          badgeTone="count"
+        />
+        <div className="project-workspace-nav__actions">
+          <Link to="/calendar" className="btn btn-secondary btn-sm">Activities</Link>
+        </div>
       </div>
 
+      <div className="project-workspace-panels">
       {workPackages.length > 0 && activeTab !== 'packages' && activeTab !== 'overview' && (
         <div className="card section-card module-toolbar-card">
           <div className="module-toolbar">
@@ -742,6 +746,7 @@ function ProjectDetail() {
         />
       )}
 
+      </div>
     </div>
   );
 }
