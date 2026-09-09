@@ -49,11 +49,11 @@ export default function CalendarCancelModal({
               style={{ marginTop: '0.2rem' }}
             />
             <span>
-              <strong>Notify assignees</strong>
+              <strong>Also email cancellation</strong>
               <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                 {smtpConfigured
-                  ? 'Sends an in-app notification and a cancellation email (Outlook / Teams / Google). Untick to cancel quietly.'
-                  : 'Sends an in-app notification. Cancellation emails need SMTP configured in Settings → Email.'}
+                  ? 'Assignees always get an in-app cancellation notice. Tick to also send an Outlook / Teams cancellation email.'
+                  : 'Assignees always get an in-app cancellation notice. Cancellation emails need SMTP configured in Settings → Email.'}
               </span>
             </span>
           </label>

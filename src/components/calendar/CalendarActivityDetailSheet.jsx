@@ -41,7 +41,7 @@ export default function CalendarActivityDetailSheet({
         <dl className="calendar-detail-facts">
           <div>
             <dt>Team</dt>
-            <dd>{a.person_name || '—'}</dd>
+            <dd>{a.person_name || '\u2014'}</dd>
           </div>
           {a.project_name && (
             <div>
@@ -58,9 +58,9 @@ export default function CalendarActivityDetailSheet({
           <div>
             <dt>Created by</dt>
             <dd>
-              <strong>{a.created_by_name || '—'}</strong>
+              <strong>{a.created_by_name || '\u2014'}</strong>
               {a.created_at ? (
-                <span className="calendar-detail-facts__meta"> · {formatAuditWhen(a.created_at)}</span>
+                <span className="calendar-detail-facts__meta"> {'\u00B7'} {formatAuditWhen(a.created_at)}</span>
               ) : null}
             </dd>
           </div>
@@ -69,7 +69,7 @@ export default function CalendarActivityDetailSheet({
               <dt>Last edited by</dt>
               <dd>
                 <strong>{a.updated_by_name}</strong>
-                <span className="calendar-detail-facts__meta"> · {formatAuditWhen(a.updated_at)}</span>
+                <span className="calendar-detail-facts__meta"> {'\u00B7'} {formatAuditWhen(a.updated_at)}</span>
               </dd>
             </div>
           ) : null}

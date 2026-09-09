@@ -2,14 +2,12 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { store } from '../db/store.js';
 import { idsInSameLogicalGroup } from '../lib/activityLogicalGroup.js';
-import { isMailerConfigured, sendActivityLoggedEmail, sendActivityUpdatedEmail, sendActivityCancelledEmail, sendTeamScheduleEmail } from '../lib/mailer.js';
+import { isMailerConfigured, sendTeamScheduleEmail } from '../lib/mailer.js';
 import { publicSmtpStatus } from '../lib/smtpConfig.js';
 import { buildTeamScheduleEmail } from '../lib/emailTemplates.js';
 import {
   groupActivitiesForScheduleEmail,
   resolveScheduleRecipients,
-  formatEmailScheduleWhen,
-  extractEmailsFromText,
 } from '../lib/scheduleEmailUtils.js';
 import { canEditCalendarUser } from '../lib/permissions.js';
 import { normalizeEmail } from '../lib/teamUserSync.js';
@@ -19,7 +17,7 @@ import {
   stripActorEmbedFromDescription,
 } from '../lib/activityActorEmbed.js';
 import { nextCalendarSequence } from '../lib/calendarInvite.js';
-import { notifyInApp, resolveAppUserId } from '../lib/notifyUser.js';
+import { dispatchActivityNotifications } from '../lib/activityNotify.js';
 import { validateBody } from '../middleware/validate.js';
 import { createActivitySchema } from '../lib/validationSchemas.js';
 
@@ -79,21 +77,6 @@ async function resolveActivityPersonId(raw) {
     }
   }
 
-  return null;
-}
-
-/** Map stored activities.person_id → users_app.id (supports legacy user-id storage). */
-async function userIdFromActivityPersonId(storedPersonId, { people, users } = {}) {
-  if (storedPersonId == null) return null;
-  const n = Number(storedPersonId);
-  if (!Number.isFinite(n)) return null;
-  const peopleList = people || await store.listPeople();
-  const usersList = users || await store.listUsers();
-  const person = peopleList.find((p) => Number(p.id) === n);
-  if (person?.user_id != null && Number.isFinite(Number(person.user_id))) {
-    return Number(person.user_id);
-  }
-  if (usersList.some((u) => Number(u.id) === n)) return n;
   return null;
 }
 
@@ -221,306 +204,6 @@ function parseActivityRangeFilter(fromRaw, toRaw) {
   if (!Number.isFinite(fromMs) || !Number.isFinite(toExclusive)) return null;
   if (toExclusive <= fromMs) return null;
   return { fromMs, toExclusive };
-}
-
-/** Resolve assignee + guest emails for a multi-person meeting invite (Outlook/Teams). */
-async function resolveCalendarAttendees(assigneePersonIds, external_attendees) {
-  const out = [];
-  const seen = new Set();
-  const [people, users] = await Promise.all([store.listPeople(), store.listUsers()]);
-  for (const pid of [...new Set((assigneePersonIds || []).filter((x) => x != null))]) {
-    const uid = await userIdFromActivityPersonId(pid, { people, users });
-    const assignee = uid != null ? users.find((u) => Number(u.id) === Number(uid)) : null;
-    const person = people.find((p) => Number(p.id) === Number(pid));
-    let email = String(assignee?.email || person?.email || '').trim().toLowerCase();
-    const name = assignee?.name || person?.name || null;
-    if (!email || !email.includes('@') || seen.has(email)) continue;
-    seen.add(email);
-    out.push({ email, name: name || email.split('@')[0] });
-  }
-  for (const to of extractEmailsFromText(external_attendees)) {
-    const email = String(to || '').trim().toLowerCase();
-    if (!email || seen.has(email)) continue;
-    seen.add(email);
-    out.push({ email, name: email.split('@')[0] });
-  }
-  return out;
-}
-
-async function resolveAssigneeEmail(storedPersonId) {
-  const [people, users] = await Promise.all([store.listPeople(), store.listUsers()]);
-  const uid = await userIdFromActivityPersonId(storedPersonId, { people, users });
-  const assignee = uid != null ? users.find((u) => Number(u.id) === Number(uid)) : null;
-  const person = people.find((p) => Number(p.id) === Number(storedPersonId));
-  const recipientEmail = String(assignee?.email || person?.email || '').trim();
-  return {
-    assignee: assignee || (person ? { id: person.user_id, name: person.name, email: person.email } : null),
-    email: recipientEmail || null,
-    name: assignee?.name || person?.name || null,
-  };
-}
-
-async function notifyActivityAssignee(uid, {
-  title,
-  typeKey,
-  location,
-  start_at,
-  end_at,
-  projectName,
-  description,
-  loggedBy,
-  variant = 'scheduled',
-  calendarUid = null,
-  sequence = 0,
-  attendees = [],
-}) {
-  const { assignee, email: recipientEmail } = await resolveAssigneeEmail(uid);
-  if (!recipientEmail) {
-    return { sent: false, reason: 'no_email', to: null, name: assignee?.name || null };
-  }
-  if (!(await isMailerConfigured())) {
-    return { sent: false, reason: 'smtp_not_configured', to: recipientEmail, name: assignee?.name || null };
-  }
-  const whenLabel = formatEmailScheduleWhen(start_at, end_at);
-  const sendFn =
-    variant === 'cancelled'
-      ? sendActivityCancelledEmail
-      : variant === 'updated'
-        ? sendActivityUpdatedEmail
-        : sendActivityLoggedEmail;
-  try {
-    const result = await sendFn({
-      to: recipientEmail,
-      recipientName: assignee?.name,
-      title,
-      typeKey,
-      location,
-      startAt: whenLabel,
-      endAt: '',
-      whenLabel,
-      startAtIso: start_at,
-      endAtIso: end_at,
-      projectName,
-      description,
-      loggedBy,
-      cancelledBy: loggedBy,
-      updatedBy: loggedBy,
-      calendarUid,
-      sequence,
-      attendees,
-    });
-    return {
-      sent: Boolean(result?.sent),
-      reason: result?.reason || null,
-      to: recipientEmail,
-      name: assignee?.name || null,
-    };
-  } catch (e) {
-    console.warn(`activities: failed to send notification email (${e.message})`);
-    return { sent: false, reason: e.message || 'send_failed', to: recipientEmail, name: assignee?.name || null };
-  }
-}
-
-async function notifyActivityGuests(external_attendees, payload) {
-  if (!external_attendees) return [];
-  if (!(await isMailerConfigured())) {
-    return extractEmailsFromText(external_attendees).map((to) => ({
-      sent: false,
-      reason: 'smtp_not_configured',
-      to,
-      name: to.split('@')[0],
-    }));
-  }
-  const guestEmails = extractEmailsFromText(external_attendees);
-  const whenLabel = formatEmailScheduleWhen(payload.start_at, payload.end_at);
-  const variant = payload.variant || 'scheduled';
-  const sendFn =
-    variant === 'cancelled'
-      ? sendActivityCancelledEmail
-      : variant === 'updated'
-        ? sendActivityUpdatedEmail
-        : sendActivityLoggedEmail;
-  const results = [];
-  for (const to of guestEmails) {
-    try {
-      const result = await sendFn({
-        to,
-        recipientName: to.split('@')[0],
-        title: payload.title,
-        typeKey: payload.typeKey,
-        location: payload.location,
-        startAt: whenLabel,
-        endAt: '',
-        whenLabel,
-        startAtIso: payload.start_at,
-        endAtIso: payload.end_at,
-        projectName: payload.projectName,
-        description: payload.description,
-        loggedBy: payload.loggedBy,
-        cancelledBy: payload.loggedBy,
-        updatedBy: payload.loggedBy,
-        calendarUid: payload.calendarUid,
-        sequence: payload.sequence || 0,
-        attendees: payload.attendees || [],
-      });
-      results.push({
-        sent: Boolean(result?.sent),
-        reason: result?.reason || null,
-        to,
-        name: to.split('@')[0],
-      });
-    } catch (e) {
-      console.warn(`activities: failed to send guest email (${e.message})`);
-      results.push({ sent: false, reason: e.message || 'send_failed', to, name: to.split('@')[0] });
-    }
-  }
-  return results;
-}
-
-/** In-app bell notifications for calendar assignees (when notify is enabled). */
-async function dispatchActivityInAppNotifications({
-  assigneeUids,
-  title,
-  location,
-  start_at,
-  end_at,
-  projectName,
-  loggedBy,
-  variant = 'scheduled',
-  activityId = null,
-}) {
-  const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
-  const whenLabel = formatEmailScheduleWhen(start_at, end_at);
-  const link = activityId ? `/calendar?activity=${activityId}` : '/calendar';
-  let inApp = 0;
-  const notifiedUserIds = new Set();
-  const errors = [];
-
-  for (const uid of uniqueUids) {
-    const userId = await resolveAppUserId(uid);
-    if (!userId || notifiedUserIds.has(userId)) continue;
-    notifiedUserIds.add(userId);
-
-    const actor = String(loggedBy || '').trim();
-    let notifTitle;
-    let notifBody;
-    if (variant === 'cancelled') {
-      notifTitle = `Activity cancelled: ${title || 'Activity'}`;
-      notifBody = [whenLabel, location, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
-    } else if (variant === 'updated') {
-      notifTitle = `Activity updated: ${title || 'Activity'}`;
-      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
-    } else {
-      notifTitle = `Calendar assigned: ${title || 'Activity'}`;
-      notifBody = [whenLabel, location, projectName, actor ? `By ${actor}` : null].filter(Boolean).join(' · ');
-    }
-
-    try {
-      const id = await notifyInApp({
-        user_id: userId,
-        type: variant === 'cancelled' ? 'activity_cancelled' : variant === 'updated' ? 'activity_updated' : 'activity_assigned',
-        title: notifTitle,
-        body: notifBody || null,
-        link: variant === 'cancelled' ? '/calendar' : link,
-        entity_type: 'activity',
-        entity_id: activityId != null ? Number(activityId) : null,
-      });
-      if (id) inApp += 1;
-      else errors.push(`user ${userId}: insert returned null`);
-    } catch (e) {
-      errors.push(`user ${userId}: ${e?.message || e}`);
-    }
-  }
-  return { inApp, error: errors.length ? errors.join('; ') : null };
-}
-
-/**
- * Calendar notifications (in-app + email/ICS). Both follow the notify checkbox
- * unless skipInApp / sendEmail override. Await emails on Vercel or sends get killed.
- */
-async function dispatchActivityNotifications({
-  assigneeUids,
-  title,
-  typeKey,
-  location,
-  start_at,
-  end_at,
-  projectName,
-  description,
-  loggedBy,
-  external_attendees,
-  variant = 'scheduled',
-  calendarUid = null,
-  sequence = 0,
-  activityId = null,
-  skipInApp = false,
-  sendEmail = true,
-}) {
-  const uniqueUids = [...new Set((assigneeUids || []).filter((x) => x != null))];
-  const attendees = await resolveCalendarAttendees(uniqueUids, external_attendees);
-
-  let inApp = 0;
-  let inAppError = null;
-  if (!skipInApp) {
-    const result = await dispatchActivityInAppNotifications({
-      assigneeUids: uniqueUids,
-      title,
-      location,
-      start_at,
-      end_at,
-      projectName,
-      loggedBy,
-      variant,
-      activityId,
-    });
-    inApp = result.inApp;
-    inAppError = result.error;
-  }
-
-  if (!sendEmail) {
-    return {
-      smtp_configured: await isMailerConfigured(),
-      variant,
-      in_app: inApp,
-      in_app_error: inAppError,
-      attempted: 0,
-      sent: 0,
-      failed: 0,
-      recipients: [],
-    };
-  }
-
-  const payload = {
-    title,
-    typeKey,
-    location,
-    start_at,
-    end_at,
-    projectName,
-    description,
-    loggedBy,
-    variant,
-    calendarUid,
-    sequence,
-    attendees,
-  };
-  const assigneeResults = [];
-  for (const uid of uniqueUids) {
-    assigneeResults.push(await notifyActivityAssignee(uid, payload));
-  }
-  const guestResults = await notifyActivityGuests(external_attendees, payload);
-  const results = [...assigneeResults, ...guestResults];
-
-  return {
-    smtp_configured: await isMailerConfigured(),
-    variant,
-    in_app: inApp,
-    in_app_error: inAppError,
-    attempted: results.length,
-    sent: results.filter((r) => r.sent).length,
-    failed: results.filter((r) => !r.sent).length,
-    recipients: results,
-  };
 }
 
 activitiesRouter.get('/', async (req, res) => {
@@ -909,7 +592,7 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     || notifyEmailRaw === 0
     || notifyEmailRaw === '0'
   );
-  // In-app + email only when the notify checkbox is on.
+  // Always notify assignees in-app; email/ICS only when the checkbox is on.
   let emailNotify = {
     smtp_configured: await isMailerConfigured(),
     variant: 'scheduled',
@@ -919,31 +602,29 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     failed: 0,
     recipients: [],
   };
-  if (shouldNotify) {
-    try {
-      emailNotify = await dispatchActivityNotifications({
-        assigneeUids: created.map((a) => a.person_id),
-        title,
-        typeKey: normalizedType,
-        location: loc,
-        start_at,
-        end_at,
-        projectName: project?.name || null,
-        description: description || null,
-        loggedBy,
-        external_attendees,
-        calendarUid: activityGroupId,
-        sequence: nextCalendarSequence('create'),
-        activityId: created[0]?.id ?? null,
-        sendEmail: true,
-      });
-    } catch (notifyErr) {
-      console.error('activities POST notify failed', notifyErr);
-      emailNotify = {
-        ...emailNotify,
-        in_app_error: notifyErr?.message || String(notifyErr),
-      };
-    }
+  try {
+    emailNotify = await dispatchActivityNotifications({
+      assigneeUids: created.map((a) => a.person_id),
+      title,
+      typeKey: normalizedType,
+      location: loc,
+      start_at,
+      end_at,
+      projectName: project?.name || null,
+      description: description || null,
+      loggedBy,
+      external_attendees,
+      calendarUid: activityGroupId,
+      sequence: nextCalendarSequence('create'),
+      activityId: created[0]?.id ?? null,
+      sendEmail: shouldNotify,
+    });
+  } catch (notifyErr) {
+    console.error('activities POST notify failed', notifyErr);
+    emailNotify = {
+      ...emailNotify,
+      in_app_error: notifyErr?.message || String(notifyErr),
+    };
   }
 
   const responseRows = await Promise.all(created.map((a) => enrichActivityForClient(a, projects)));
@@ -1101,7 +782,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   activities = await store.listActivities();
   const createdRows = createdIds.map((newId) => activities.find((x) => x.id === newId)).filter(Boolean);
 
-  // In-app + email only when the notify checkbox is on.
+  // Always notify assignees in-app; email/ICS only when the checkbox is on.
   let emailNotify = {
     smtp_configured: await isMailerConfigured(),
     variant: 'updated',
@@ -1111,7 +792,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     failed: 0,
     recipients: [],
   };
-  if (shouldNotify) {
+  try {
     emailNotify = await dispatchActivityNotifications({
       assigneeUids: uniquePeopleIds,
       title: nextTitle,
@@ -1127,8 +808,14 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       calendarUid: activityGroupId,
       sequence: nextCalendarSequence('update'),
       activityId: createdRows[0]?.id ?? id,
-      sendEmail: true,
+      sendEmail: shouldNotify,
     });
+  } catch (notifyErr) {
+    console.error('activities PUT notify failed', notifyErr);
+    emailNotify = {
+      ...emailNotify,
+      in_app_error: notifyErr?.message || String(notifyErr),
+    };
   }
 
   const firstNewId = createdRows[0]?.id ?? id;
@@ -1239,7 +926,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     failed: 0,
     recipients: [],
   };
-  if (shouldNotify) {
+  try {
     emailNotify = await dispatchActivityNotifications({
       assigneeUids,
       title: cancelPayload.title,
@@ -1255,8 +942,14 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
       calendarUid,
       sequence: nextCalendarSequence('cancel'),
       activityId: id,
-      sendEmail: true,
+      sendEmail: shouldNotify,
     });
+  } catch (notifyErr) {
+    console.error('activities DELETE notify failed', notifyErr);
+    emailNotify = {
+      ...emailNotify,
+      in_app_error: notifyErr?.message || String(notifyErr),
+    };
   }
 
   const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';

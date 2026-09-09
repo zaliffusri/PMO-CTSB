@@ -113,7 +113,7 @@ export default function SettingsEmail() {
         <div className="settings-panel__header-text">
           <h2 className="settings-panel__title">Email notifications</h2>
           <p className="settings-panel__desc">
-            SMTP used for activity invites and cancellation emails (Outlook / Teams / Google).
+            SMTP used for activity invites and cancellation emails (Outlook / Teams).
             {form.smtp_pass_set ? ' A password is already saved on the server.' : ''}
           </p>
         </div>

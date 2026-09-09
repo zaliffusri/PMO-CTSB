@@ -71,7 +71,7 @@ export function isActivityOnDate(activity, year, month, day) {
  * One "Log activity" with several people creates one DB row per person. For the calendar,
  * merge those rows into a single chip with all assignee names grouped together.
  *
- * Group key is shared with the API (delete whole logical activity) â€” see lib/activityLogicalGroup.js.
+ * Group key is shared with the API (delete whole logical activity) — see lib/activityLogicalGroup.js.
  */
 export function groupActivitiesForCalendar(activities) {
   const map = new Map();
@@ -199,6 +199,10 @@ export function toDatetimeLocalValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** En-dash / middle-dot via escapes so the source stays ASCII-safe (avoids Â· / â€“ mojibake). */
+const RANGE_DASH = '\u2013';
+const RANGE_DOT = '\u00B7';
+
 export function formatActivityTimeRange(a) {
   const schedule = interpretActivitySchedule(a.start_at, a.end_at);
   if (schedule.mode === 'daily' && schedule.dayCount > 1) {
@@ -207,12 +211,12 @@ export function formatActivityTimeRange(a) {
     const endClock = new Date(schedule.firstEndIso);
     const dateOpts = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
     const timeOpts = { hour: '2-digit', minute: '2-digit' };
-    return `${first.toLocaleTimeString(undefined, timeOpts)} â€“ ${endClock.toLocaleTimeString(undefined, timeOpts)} each day Â· ${first.toLocaleDateString(undefined, dateOpts)} â€“ ${last.toLocaleDateString(undefined, dateOpts)}`;
+    return `${first.toLocaleTimeString(undefined, timeOpts)} ${RANGE_DASH} ${endClock.toLocaleTimeString(undefined, timeOpts)} each day ${RANGE_DOT} ${first.toLocaleDateString(undefined, dateOpts)} ${RANGE_DASH} ${last.toLocaleDateString(undefined, dateOpts)}`;
   }
   const start = new Date(a.start_at);
   const end = new Date(a.end_at);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
-    return `${a.start_at ?? ''} â€“ ${a.end_at ?? ''}`;
+    return `${a.start_at ?? ''} ${RANGE_DASH} ${a.end_at ?? ''}`;
   }
   const sameDay =
     start.getFullYear() === end.getFullYear() &&
@@ -221,10 +225,10 @@ export function formatActivityTimeRange(a) {
   const dateOpts = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
   const timeOpts = { hour: '2-digit', minute: '2-digit' };
   if (sameDay) {
-    return `${start.toLocaleDateString(undefined, dateOpts)} Â· ${start.toLocaleTimeString(undefined, timeOpts)} â€“ ${end.toLocaleTimeString(undefined, timeOpts)}`;
+    return `${start.toLocaleDateString(undefined, dateOpts)} ${RANGE_DOT} ${start.toLocaleTimeString(undefined, timeOpts)} ${RANGE_DASH} ${end.toLocaleTimeString(undefined, timeOpts)}`;
   }
   const fullOpts = { ...dateOpts, ...timeOpts };
-  return `${start.toLocaleString(undefined, fullOpts)} â€“ ${end.toLocaleString(undefined, fullOpts)}`;
+  return `${start.toLocaleString(undefined, fullOpts)} ${RANGE_DASH} ${end.toLocaleString(undefined, fullOpts)}`;
 }
 
 export function formatAuditWhen(iso) {
@@ -389,7 +393,7 @@ export function parseReportDateValue(dateLike) {
   return d;
 }
 
-/** Key for rows that describe the same meeting (import uses fixed 9:00â€“17:00 local per date). */
+/** Key for rows that describe the same meeting (import uses fixed 9:00-17:00 local per date). */
 export function importMeetingDedupeKey(row) {
   const t = row?.task;
   if (!t) return '';

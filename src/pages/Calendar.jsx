@@ -364,8 +364,8 @@ export default function Calendar() {
         }
         const emailNotify = result?.email_notify;
         const isEdit = editingActivityId != null;
+        const inApp = Number(emailNotify?.in_app) || 0;
         if (form.notify_email) {
-          const inApp = Number(emailNotify?.in_app) || 0;
           // Trust the API response only — client smtpConfigured can be stale after Settings save.
           if (emailNotify && emailNotify.smtp_configured === false && inApp === 0) {
             alert('Activity saved. Email was not sent because SMTP is not configured on the server.');
@@ -386,18 +386,30 @@ export default function Calendar() {
           } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
             alert('Activity saved, but email notification could not be delivered. Check assignee emails and SMTP settings.');
           } else if (emailNotify && emailNotify.attempted === 0) {
-            alert('Activity saved. No email recipients found (assignees need a user email, or add guest emails).');
+            alert(
+              inApp > 0
+                ? `Activity saved. Notified ${inApp} assignee(s) in-app. No email recipients found.`
+                : 'Activity saved. No email recipients found (assignees need a user email, or add guest emails).',
+            );
           } else {
             alert(isEdit ? 'Activity updated.' : 'Activity saved.');
-          }
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new Event('pmo:notifications-changed'));
           }
           api.activities.mailStatus()
             .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
             .catch(() => {});
+        } else if (inApp > 0) {
+          alert(
+            isEdit
+              ? `Activity updated. In-app notification sent to ${inApp} assignee(s).`
+              : `Activity saved. In-app notification sent to ${inApp} assignee(s).`,
+          );
+        } else if (emailNotify?.in_app_error) {
+          alert(`Activity saved, but in-app notification could not be stored: ${emailNotify.in_app_error}`);
         } else {
           alert(isEdit ? 'Activity updated.' : 'Activity saved.');
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('pmo:notifications-changed'));
         }
         setForm({
           person_ids: [],

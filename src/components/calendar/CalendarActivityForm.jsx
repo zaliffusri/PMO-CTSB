@@ -168,19 +168,19 @@ export default function CalendarActivityForm({
               style={{ marginTop: '0.2rem' }}
             />
             <span>
-              <strong>{editingActivityId != null ? 'Notify assignees of this update' : 'Notify assignees'}</strong>
+              <strong>{editingActivityId != null ? 'Also email calendar invite' : 'Also email calendar invite'}</strong>
               <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                 {smtpConfigured
                   ? (editingActivityId != null
-                    ? 'Sends an in-app notification and a calendar update email (Outlook / Teams / Google). Untick to save quietly.'
-                    : 'Sends an in-app notification and a calendar invite email so the event is added to each assignee’s Outlook / Teams / Google calendar. Untick to save quietly.')
+                    ? 'Assignees always get an in-app notification. Tick to also send an Outlook / Teams calendar update email.'
+                    : 'Assignees always get an in-app notification when assigned. Tick to also send an Outlook / Teams calendar invite email.')
                   : (
                     <>
-                      Sends an in-app notification. Calendar invite emails need SMTP.{' '}
+                      Assignees always get an in-app notification. Calendar invite emails need SMTP.{' '}
                       {userRole === 'admin' ? (
                         <Link to="/settings/email">Open Settings → Email</Link>
                       ) : (
-                        'Ask an admin to open Settings → Email and save Gmail SMTP.'
+                        'Ask an admin to open Settings → Email and save SMTP.'
                       )}
                     </>
                   )}
