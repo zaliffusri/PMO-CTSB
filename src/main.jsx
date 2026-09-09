@@ -35,6 +35,14 @@ class ErrorBoundary extends React.Component {
           <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>
             Check the browser console (F12) for more. Make sure the backend is running on port 3001.
           </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: '1rem' }}
+            onClick={() => window.location.reload()}
+          >
+            Reload page
+          </button>
         </div>
       );
     }

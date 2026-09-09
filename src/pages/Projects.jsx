@@ -63,6 +63,8 @@ function ProjectProgress({ progress, health }) {
 
 function ProjectCard({ project: p, highlight = false }) {
   const deadline = deadlineSummary(p.end_date, p.status);
+  const title = String(p?.name || 'Untitled project');
+  const initial = title.charAt(0).toUpperCase() || '?';
 
   return (
     <article
@@ -76,14 +78,14 @@ function ProjectCard({ project: p, highlight = false }) {
           </div>
         ) : (
           <div className="project-card__cover project-card__cover--placeholder">
-            <span className="project-card__initial">{p.name.charAt(0).toUpperCase()}</span>
+            <span className="project-card__initial">{initial}</span>
             <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
           </div>
         )}
       </Link>
       <div className="project-card__body">
         <div className="project-card__head">
-          <Link to={`/projects/${p.id}`} className="project-card__title">{p.name}</Link>
+          <Link to={`/projects/${p.id}`} className="project-card__title">{title}</Link>
           <span className={`dashboard-badge dashboard-badge-${p.status}`}>{p.status}</span>
         </div>
         {(p.engagement_type || p.classification) && (
@@ -151,16 +153,22 @@ export default function Projects() {
     Promise.all([api.projects.list(), api.projectTasks.list()])
       .then(([pr, tk]) => {
         const deletedId = location.state?.projectDeleted;
+        const projectRows = Array.isArray(pr) ? pr : [];
+        const taskRows = Array.isArray(tk) ? tk : [];
         const nextProjects = deletedId
-          ? (pr || []).filter((p) => Number(p.id) !== Number(deletedId))
-          : pr;
+          ? projectRows.filter((p) => Number(p.id) !== Number(deletedId))
+          : projectRows;
         const nextTasks = deletedId
-          ? (tk || []).filter((t) => Number(t.project_id) !== Number(deletedId))
-          : tk;
+          ? taskRows.filter((t) => Number(t.project_id) !== Number(deletedId))
+          : taskRows;
         setProjects(nextProjects);
         setTasks(nextTasks);
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err);
+        setProjects([]);
+        setTasks([]);
+      })
       .finally(() => setLoading(false));
   }, [location.state?.projectDeleted]);
 
@@ -178,12 +186,13 @@ export default function Projects() {
     let list = enriched;
     const q = search.trim().toLowerCase();
     if (q) {
-      list = list.filter((p) =>
-        p.name.toLowerCase().includes(q)
-        || (p.client_name || '').toLowerCase().includes(q)
-        || engagementTypeLabel(p.engagement_type).toLowerCase().includes(q)
-        || (p.classification || '').toLowerCase().includes(q),
-      );
+      list = list.filter((p) => {
+        const name = String(p.name || '').toLowerCase();
+        const client = String(p.client_name || '').toLowerCase();
+        const engagement = engagementTypeLabel(p.engagement_type).toLowerCase();
+        const classification = String(p.classification || '').toLowerCase();
+        return name.includes(q) || client.includes(q) || engagement.includes(q) || classification.includes(q);
+      });
     }
     if (statusFilter === 'active') list = list.filter((p) => p.status === 'active');
     else if (statusFilter !== 'all') list = list.filter((p) => p.status === statusFilter);
