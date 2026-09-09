@@ -187,13 +187,29 @@ export function createProjectsRepository(ctx, getStore) {
     listProjects,
     listProjectsEnriched,
 
-    async findProjectById(id) {
+    async findProjectById(id, { includeCover = true } = {}) {
       const pid = Number(id);
       if (!Number.isFinite(pid)) return null;
       if (!isDbMode()) {
         return getData().projects.find((p) => Number(p.id) === pid) || null;
       }
-      return dbSelect('projects', { filters: { id: pid }, maybeSingle: true });
+      const columns = includeCover
+        ? '*'
+        : 'id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at';
+      try {
+        return await dbSelect('projects', { columns, filters: { id: pid }, maybeSingle: true });
+      } catch (e) {
+        // Older DBs may lack engagement_type — fall back to a minimal column set.
+        const msg = String(e?.message || e || '');
+        if (/engagement_type|schema cache|PGRST204|does not exist/i.test(msg) && !includeCover) {
+          return dbSelect('projects', {
+            columns: 'id,name,description,classification,status,start_date,end_date,tags,created_at',
+            filters: { id: pid },
+            maybeSingle: true,
+          });
+        }
+        throw e;
+      }
     },
 
     async addProject(row) {
@@ -256,7 +272,7 @@ export function createProjectsRepository(ctx, getStore) {
 
       if (!isDbMode()) {
         const data = getData();
-        const i = data.projects.findIndex((p) => p.id === id);
+        const i = data.projects.findIndex((p) => Number(p.id) === Number(id));
         if (i === -1) return false;
         data.projects[i] = { ...data.projects[i], ...patch };
         if (client_ids !== undefined) {
@@ -272,7 +288,11 @@ export function createProjectsRepository(ctx, getStore) {
         return true;
       }
 
-      const existing = await dbSelect('projects', { filters: { id }, maybeSingle: true });
+      const existing = await dbSelect('projects', {
+        columns: 'id',
+        filters: { id: Number(id) },
+        maybeSingle: true,
+      });
       if (!existing) return false;
 
       // Partial update only — never rewrite the full row (avoids re-uploading large cover_image_url).
@@ -293,8 +313,26 @@ export function createProjectsRepository(ctx, getStore) {
         return true;
       }
       if (Object.keys(forDb).length) {
-        const saved = await dbUpdate('projects', id, forDb);
-        if (!saved) return false;
+        try {
+          // returning:false — do not pull cover_image_url back over the wire after every save.
+          await dbUpdate('projects', Number(id), forDb, { returning: false });
+        } catch (e) {
+          const msg = String(e?.message || e || '');
+          // Retry without optional columns if schema is behind.
+          if (/engagement_type|schema cache|PGRST204|does not exist/i.test(msg) && forDb.engagement_type !== undefined) {
+            const { engagement_type: _et, ...rest } = forDb;
+            if (Object.keys(rest).length) {
+              await dbUpdate('projects', Number(id), rest, { returning: false });
+            }
+          } else if (/cover_image_url|schema cache|PGRST204|does not exist/i.test(msg) && forDb.cover_image_url !== undefined) {
+            const { cover_image_url: _c, ...rest } = forDb;
+            if (Object.keys(rest).length) {
+              await dbUpdate('projects', Number(id), rest, { returning: false });
+            }
+          } else {
+            throw e;
+          }
+        }
       }
       if (client_ids !== undefined) {
         await getStore().setProjectClients(id, client_ids);

@@ -208,8 +208,9 @@ function ProjectDetail() {
         });
         setProject((prev) => ({
           ...updated,
-          // Keep team already loaded on the workspace — update payload is details-only.
+          // Keep workspace-only fields the lightweight update response omits.
           members: updated.members ?? prev?.members,
+          cover_image_url: updated.cover_image_url ?? prev?.cover_image_url,
         }));
         setEditForm({
           name: updated?.name || '',

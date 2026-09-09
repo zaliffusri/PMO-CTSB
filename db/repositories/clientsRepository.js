@@ -108,9 +108,15 @@ export function createClientsRepository(ctx, getStore) {
       if (!isDbMode()) {
         const data = getData();
         if (!data.project_clients) data.project_clients = [];
-        data.project_clients = data.project_clients.filter((pc) => pc.project_id !== pid);
+        const prev = (data.project_clients || [])
+          .filter((pc) => Number(pc.project_id) === pid)
+          .map((pc) => Number(pc.client_id))
+          .sort((a, b) => a - b);
+        const next = [...ids].sort((a, b) => a - b);
+        if (prev.length === next.length && prev.every((v, i) => v === next[i])) return;
+        data.project_clients = data.project_clients.filter((pc) => Number(pc.project_id) !== pid);
         ids.forEach((cid) => {
-          if (data.clients.some((c) => c.id === cid)) {
+          if (data.clients.some((c) => Number(c.id) === cid)) {
             data.project_clients.push({
               id: nextId(data.project_clients),
               project_id: pid,
@@ -122,6 +128,11 @@ export function createClientsRepository(ctx, getStore) {
         save();
         return;
       }
+      const existingLinks = await dbSelect('project_clients', { filters: { project_id: pid } });
+      const prev = (existingLinks || []).map((pc) => Number(pc.client_id)).sort((a, b) => a - b);
+      const next = [...ids].sort((a, b) => a - b);
+      if (prev.length === next.length && prev.every((v, i) => v === next[i])) return;
+
       await dbDeleteWhere('project_clients', { project_id: pid });
       if (!ids.length) return;
       const rows = ids.map((cid) => ({
