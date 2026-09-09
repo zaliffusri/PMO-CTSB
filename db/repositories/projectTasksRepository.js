@@ -4,9 +4,28 @@ import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete } from '../runtime/que
 export function createProjectTasksRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
-  async function listProjectTasks() {
-    if (!isDbMode()) return [...getData().project_tasks];
-    return dbSelect('project_tasks', { order: 'id' });
+  async function listProjectTasks(filters = {}) {
+    const projectId = filters.project_id != null && filters.project_id !== ''
+      ? Number(filters.project_id)
+      : null;
+    const workPackageId = filters.work_package_id != null && filters.work_package_id !== ''
+      ? Number(filters.work_package_id)
+      : null;
+
+    if (!isDbMode()) {
+      let rows = [...getData().project_tasks];
+      if (Number.isFinite(projectId)) rows = rows.filter((t) => Number(t.project_id) === projectId);
+      if (Number.isFinite(workPackageId)) rows = rows.filter((t) => Number(t.work_package_id) === workPackageId);
+      return rows;
+    }
+
+    const dbFilters = {};
+    if (Number.isFinite(projectId)) dbFilters.project_id = projectId;
+    if (Number.isFinite(workPackageId)) dbFilters.work_package_id = workPackageId;
+    return dbSelect('project_tasks', {
+      filters: dbFilters,
+      order: 'id',
+    });
   }
 
   return {

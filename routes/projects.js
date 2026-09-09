@@ -47,7 +47,12 @@ projectsRouter.get('/', async (req, res) => {
 
 projectsRouter.get('/:id', async (req, res) => {
   const id = +req.params.id;
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid project id' });
+
   const findProject = async () => {
+    if (typeof store.findProjectById === 'function') {
+      return store.findProjectById(id);
+    }
     const projects = await store.listProjects();
     return projects.find((p) => Number(p.id) === id);
   };

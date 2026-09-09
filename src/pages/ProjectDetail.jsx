@@ -75,16 +75,19 @@ function ProjectDetail() {
     setLoading(true);
     Promise.all([
       api.projects.get(id),
-      api.clients.list(),
-      api.people.list(),
-      api.projectTasks.list({ project_id: id }),
-      api.backlogs.list({ project_id: id }),
-      api.projectPhases.list({ project_id: id }),
-      api.workPackages.list({ project_id: id }),
+      api.clients.list().catch(() => []),
+      api.people.list().catch(() => []),
+      api.projectTasks.list({ project_id: id }).catch(() => []),
+      api.backlogs.list({ project_id: id }).catch(() => []),
+      api.projectPhases.list({ project_id: id }).catch(() => []),
+      api.workPackages.list({ project_id: id }).catch(() => []),
     ])
       .then(([p, clientsList, peopleList, taskList, backlogList, phaseList, packageList]) => {
+        if (!p || p.error) {
+          throw new Error(p?.error || 'Project not found');
+        }
         setProject(p);
-        setClients(clientsList);
+        setClients(Array.isArray(clientsList) ? clientsList : []);
         setEditForm({
           name: p?.name || '',
           description: p?.description || '',
@@ -92,14 +95,18 @@ function ProjectDetail() {
           engagement_type: p?.engagement_type || '',
           client_ids: Array.isArray(p?.client_ids) ? [...p.client_ids] : p?.client_id ? [p.client_id] : [],
         });
-        setAllPeople(peopleList);
-        setPeople(peopleList.filter(pe => !p.members?.some(m => m.person_id === pe.id)));
-        setTasks(taskList);
-        setBacklogItems(backlogList);
-        setPhases(phaseList);
-        setWorkPackages(packageList);
+        const peopleRows = Array.isArray(peopleList) ? peopleList : [];
+        setAllPeople(peopleRows);
+        setPeople(peopleRows.filter((pe) => !p.members?.some((m) => m.person_id === pe.id)));
+        setTasks(Array.isArray(taskList) ? taskList : []);
+        setBacklogItems(Array.isArray(backlogList) ? backlogList : []);
+        setPhases(Array.isArray(phaseList) ? phaseList : []);
+        setWorkPackages(Array.isArray(packageList) ? packageList : []);
       })
-      .catch((err) => setLoadError(err.message || 'Failed to load project'))
+      .catch((err) => {
+        setProject(null);
+        setLoadError(err.message || 'Failed to load project');
+      })
       .finally(() => setLoading(false));
   };
 

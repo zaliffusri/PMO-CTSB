@@ -9,6 +9,7 @@ import ProjectCreateModal from '../components/ProjectCreateModal';
 import ProjectsPortfolioCharts from '../components/ProjectsPortfolioCharts';
 import UiEmptyState from '../components/UiEmptyState';
 import PageLoadingState from '../components/PageLoadingState';
+import PageLoadError from '../components/PageLoadError';
 import DataPanel from '../components/DataPanel';
 import {
   PROJECT_ENGAGEMENT_TYPES,
@@ -138,6 +139,7 @@ export default function Projects() {
   const [tasks, setTasks] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -150,26 +152,39 @@ export default function Projects() {
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([api.projects.list(), api.projectTasks.list()])
-      .then(([pr, tk]) => {
-        const deletedId = location.state?.projectDeleted;
+    setLoadError(null);
+    const deletedId = location.state?.projectDeleted;
+
+    // Show portfolio as soon as projects arrive — do not block on the full tasks table.
+    api.projects.list()
+      .then((pr) => {
         const projectRows = Array.isArray(pr) ? pr : [];
-        const taskRows = Array.isArray(tk) ? tk : [];
-        const nextProjects = deletedId
-          ? projectRows.filter((p) => Number(p.id) !== Number(deletedId))
-          : projectRows;
-        const nextTasks = deletedId
-          ? taskRows.filter((t) => Number(t.project_id) !== Number(deletedId))
-          : taskRows;
-        setProjects(nextProjects);
-        setTasks(nextTasks);
+        setProjects(
+          deletedId
+            ? projectRows.filter((p) => Number(p.id) !== Number(deletedId))
+            : projectRows,
+        );
       })
       .catch((err) => {
         console.error(err);
         setProjects([]);
-        setTasks([]);
+        setLoadError(err?.message || 'Failed to load projects');
       })
       .finally(() => setLoading(false));
+
+    api.projectTasks.list()
+      .then((tk) => {
+        const taskRows = Array.isArray(tk) ? tk : [];
+        setTasks(
+          deletedId
+            ? taskRows.filter((t) => Number(t.project_id) !== Number(deletedId))
+            : taskRows,
+        );
+      })
+      .catch((err) => {
+        console.error(err);
+        setTasks([]);
+      });
   }, [location.state?.projectDeleted]);
 
   useEffect(() => { load(); }, [load]);
@@ -281,6 +296,10 @@ export default function Projects() {
 
   if (loading) {
     return <PageLoadingState message="Loading portfolio…" />;
+  }
+
+  if (loadError && projects.length === 0) {
+    return <PageLoadError message={loadError} onRetry={load} />;
   }
 
   return (

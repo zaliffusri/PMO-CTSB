@@ -32,19 +32,34 @@ async function enrichProjectsBatched(projects) {
   if (!list.length) return [];
 
   const projectIds = list.map((p) => Number(p.id)).filter((id) => Number.isFinite(id));
-  const links = projectIds.length
-    ? await dbSelect('project_clients', { inFilters: { project_id: projectIds } })
-    : [];
-  const clientIds = [...new Set(links.map((l) => Number(l.client_id)).filter(Number.isFinite))];
-  const clients = clientIds.length
-    ? await dbSelect('clients', { inFilters: { id: clientIds } })
-    : [];
-  const assignmentRows = projectIds.length
-    ? await dbSelect('project_assignments', {
-      columns: 'id,project_id',
-      inFilters: { project_id: projectIds },
-    })
-    : [];
+  let links = [];
+  let clients = [];
+  let assignmentRows = [];
+  try {
+    links = projectIds.length
+      ? await dbSelect('project_clients', { inFilters: { project_id: projectIds } })
+      : [];
+  } catch (e) {
+    console.warn('enrichProjectsBatched: project_clients unavailable', e?.message || e);
+  }
+  try {
+    const clientIds = [...new Set(links.map((l) => Number(l.client_id)).filter(Number.isFinite))];
+    clients = clientIds.length
+      ? await dbSelect('clients', { inFilters: { id: clientIds } })
+      : [];
+  } catch (e) {
+    console.warn('enrichProjectsBatched: clients unavailable', e?.message || e);
+  }
+  try {
+    assignmentRows = projectIds.length
+      ? await dbSelect('project_assignments', {
+        columns: 'id,project_id',
+        inFilters: { project_id: projectIds },
+      })
+      : [];
+  } catch (e) {
+    console.warn('enrichProjectsBatched: project_assignments unavailable', e?.message || e);
+  }
 
   const clientById = new Map((clients || []).map((c) => [Number(c.id), c]));
   const clientsByProject = new Map();
@@ -171,6 +186,15 @@ export function createProjectsRepository(ctx, getStore) {
 
     listProjects,
     listProjectsEnriched,
+
+    async findProjectById(id) {
+      const pid = Number(id);
+      if (!Number.isFinite(pid)) return null;
+      if (!isDbMode()) {
+        return getData().projects.find((p) => Number(p.id) === pid) || null;
+      }
+      return dbSelect('projects', { filters: { id: pid }, maybeSingle: true });
+    },
 
     async addProject(row) {
       const created_at = new Date().toISOString();

@@ -77,11 +77,11 @@ function applySort(tasks) {
   return hierarchicalTaskSort(tasks);
 }
 
-async function loadTaskMetaContext() {
+async function loadTaskMetaContext(filters = {}) {
   const [projects, people, tasks, workPackages] = await Promise.all([
     store.listProjects(),
     store.listPeople(),
-    store.listProjectTasks(),
+    store.listProjectTasks(filters),
     store.listWorkPackages(),
   ]);
   return { projects, people, tasks, workPackages };
@@ -91,10 +91,11 @@ projectTasksRouter.get('/', async (req, res) => {
   await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  const ctx = await loadTaskMetaContext();
+  const filters = {};
+  if (Number.isFinite(projectId)) filters.project_id = projectId;
+  if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
+  const ctx = await loadTaskMetaContext(filters);
   let tasks = await Promise.all(ctx.tasks.map((t) => withTaskMeta(t, ctx)));
-  if (projectId) tasks = tasks.filter(t => t.project_id === projectId);
-  if (workPackageId) tasks = tasks.filter((t) => t.work_package_id === workPackageId);
   tasks = applySort(tasks);
   res.json(tasks);
 });
