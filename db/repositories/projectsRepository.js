@@ -17,6 +17,41 @@ import {
 const DEFAULT_PROJECTS_LIMIT = 500;
 const MAX_PROJECTS_LIMIT = 2000;
 
+/** Prefer richer columns; fall back when production schema is behind migrations. */
+const PROJECT_LITE_COLUMN_CANDIDATES = [
+  'id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at',
+  'id,name,description,engagement_type,status,start_date,end_date,tags,created_at',
+  'id,name,description,classification,status,start_date,end_date,tags,created_at',
+  'id,name,description,status,start_date,end_date,tags,created_at',
+  'id,name,description,status,start_date,end_date,created_at',
+  'id,name,description,status,created_at',
+  'id,name,status,created_at',
+];
+
+function isMissingColumnError(err) {
+  const msg = String(err?.message || err || '');
+  return /schema cache|PGRST204|does not exist|column .* does not exist/i.test(msg);
+}
+
+async function selectProjectsLite({ filters = undefined, maybeSingle = false, order = 'id' } = {}) {
+  let lastError;
+  for (const columns of PROJECT_LITE_COLUMN_CANDIDATES) {
+    try {
+      return await dbSelect('projects', {
+        columns,
+        filters,
+        maybeSingle,
+        order: maybeSingle ? null : order,
+      });
+    } catch (e) {
+      lastError = e;
+      if (isMissingColumnError(e)) continue;
+      throw e;
+    }
+  }
+  throw lastError;
+}
+
 function stripProjectTags(project) {
   if (!project || typeof project !== 'object') return project;
   const { tags: _tags, ...rest } = project;
@@ -101,21 +136,7 @@ export function createProjectsRepository(ctx, getStore) {
   async function listProjects() {
     if (!isDbMode()) return [...getData().projects];
     // Never SELECT * — cover_image_url data URLs blow up Vercel timeouts on list/enrich paths.
-    try {
-      return await dbSelect('projects', {
-        columns: 'id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at',
-        order: 'id',
-      });
-    } catch (e) {
-      const msg = String(e?.message || e || '');
-      if (/engagement_type|schema cache|PGRST204|does not exist/i.test(msg)) {
-        return dbSelect('projects', {
-          columns: 'id,name,description,classification,status,start_date,end_date,tags,created_at',
-          order: 'id',
-        });
-      }
-      throw e;
-    }
+    return selectProjectsLite({ order: 'id' });
   }
 
   /**
@@ -182,13 +203,23 @@ export function createProjectsRepository(ctx, getStore) {
         e?.message || e,
       );
       const sb = requireSupabase();
-      const { data: projects, error } = await sb
-        .from('projects')
-        .select('id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at')
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(off, off + lim - 1);
-      if (error) throw error;
+      let projects;
+      let error;
+      try {
+        ({ data: projects, error } = await sb
+          .from('projects')
+          .select('id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(off, off + lim - 1));
+        if (error) throw error;
+      } catch (selectErr) {
+        if (!isMissingColumnError(selectErr) && !isMissingColumnError(error)) throw selectErr || error;
+        projects = await selectProjectsLite({ order: 'id' });
+        projects = [...(projects || [])]
+          .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+          .slice(off, off + lim);
+      }
       return enrichProjectsBatched(projects || []);
     }
   }
@@ -208,23 +239,15 @@ export function createProjectsRepository(ctx, getStore) {
       if (!isDbMode()) {
         return getData().projects.find((p) => Number(p.id) === pid) || null;
       }
-      const columns = includeCover
-        ? '*'
-        : 'id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at';
-      try {
-        return await dbSelect('projects', { columns, filters: { id: pid }, maybeSingle: true });
-      } catch (e) {
-        // Older DBs may lack engagement_type — fall back to a minimal column set.
-        const msg = String(e?.message || e || '');
-        if (/engagement_type|schema cache|PGRST204|does not exist/i.test(msg) && !includeCover) {
-          return dbSelect('projects', {
-            columns: 'id,name,description,classification,status,start_date,end_date,tags,created_at',
-            filters: { id: pid },
-            maybeSingle: true,
-          });
+      if (includeCover) {
+        try {
+          return await dbSelect('projects', { columns: '*', filters: { id: pid }, maybeSingle: true });
+        } catch (e) {
+          // Fall back to lite columns if * fails for any reason.
+          if (!isMissingColumnError(e)) throw e;
         }
-        throw e;
       }
+      return selectProjectsLite({ filters: { id: pid }, maybeSingle: true });
     },
 
     async addProject(row) {
@@ -328,24 +351,32 @@ export function createProjectsRepository(ctx, getStore) {
         return true;
       }
       if (Object.keys(forDb).length) {
-        try {
-          // returning:false — do not pull cover_image_url back over the wire after every save.
-          await dbUpdate('projects', Number(id), forDb, { returning: false });
-        } catch (e) {
-          const msg = String(e?.message || e || '');
-          // Retry without optional columns if schema is behind.
-          if (/engagement_type|schema cache|PGRST204|does not exist/i.test(msg) && forDb.engagement_type !== undefined) {
-            const { engagement_type: _et, ...rest } = forDb;
-            if (Object.keys(rest).length) {
-              await dbUpdate('projects', Number(id), rest, { returning: false });
+        // Retry while stripping optional columns missing from older production schemas.
+        let pending = { ...forDb };
+        const optionalKeys = ['classification', 'engagement_type', 'cover_image_url', 'tags'];
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          try {
+            await dbUpdate('projects', Number(id), pending, { returning: false });
+            break;
+          } catch (e) {
+            if (!isMissingColumnError(e)) throw e;
+            const msg = String(e?.message || e || '');
+            const dropKey = optionalKeys.find((key) => pending[key] !== undefined && msg.includes(key));
+            if (!dropKey) {
+              // Unknown missing column — drop all optional keys and retry once more.
+              let changed = false;
+              for (const key of optionalKeys) {
+                if (pending[key] !== undefined) {
+                  delete pending[key];
+                  changed = true;
+                }
+              }
+              if (!changed || !Object.keys(pending).length) throw e;
+              continue;
             }
-          } else if (/cover_image_url|schema cache|PGRST204|does not exist/i.test(msg) && forDb.cover_image_url !== undefined) {
-            const { cover_image_url: _c, ...rest } = forDb;
-            if (Object.keys(rest).length) {
-              await dbUpdate('projects', Number(id), rest, { returning: false });
-            }
-          } else {
-            throw e;
+            console.warn(`projects.update: omitting missing column ${dropKey}`);
+            delete pending[dropKey];
+            if (!Object.keys(pending).length) break;
           }
         }
       }
