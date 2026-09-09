@@ -606,91 +606,152 @@ function ProjectDetail() {
       )}
 
       {activeTab === 'people' && assignOpen && (
-        <div className="ui-card section-card" style={{ marginBottom: '1rem' }}>
-          <h3 style={{ margin: '0 0 1rem' }}>Assign team member</h3>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-            Pick someone from the list. You can manage the full team on <Link to="/team">Team</Link>.
-          </p>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-            Email notify: add an email on Team for this person, or use the same full name as their system user account so we can resolve their login email.
-          </p>
-          <form onSubmit={addAssignment} style={{ display: 'grid', gap: '0.75rem', maxWidth: 400 }}>
-            <label>
-              Person
-              <select value={assignForm.person_id} onChange={e => setAssignForm(f => ({ ...f, person_id: e.target.value }))} required className="ui-input form-field__input">
-                <option value="">Select...</option>
-                {people.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} {p.project_count > 0 ? `(${p.project_count} projects)` : ''}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Role in project
-              <input type="text" value={assignForm.role_in_project} onChange={e => setAssignForm(f => ({ ...f, role_in_project: e.target.value }))} placeholder="e.g. Developer, Lead" className="ui-input form-field__input" />
-            </label>
-            <label>
-              Allocation %
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={assignForm.allocation_percent}
-                onChange={(e) => setAssignForm((f) => ({ ...f, allocation_percent: +e.target.value || 100 }))}
-                className="ui-input form-field__input"
-              />
-            </label>
-            <div className="form-actions">
-              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Assigning…' : 'Assign'}</button>
+        <div className="ui-card section-card project-people-assign">
+          <div className="section-card__header section-card__header--compact">
+            <div>
+              <h3 className="section-card__title">Assign team member</h3>
+              <p className="section-card__desc">
+                Pick someone from the roster. Manage the full directory on <Link to="/team">Team</Link>.
+              </p>
             </div>
-          </form>
+            <div className="card-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAssignOpen(false)} disabled={busy}>
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="project-people-body">
+            <p className="project-people-hint">
+              Email notify: add an email on Team for this person, or use the same full name as their system user account.
+            </p>
+            <form onSubmit={addAssignment} className="project-people-form">
+              <label className="form-field">
+                <span className="form-field__label">Person</span>
+                <select
+                  value={assignForm.person_id}
+                  onChange={(e) => setAssignForm((f) => ({ ...f, person_id: e.target.value }))}
+                  required
+                  className="ui-input form-field__input"
+                >
+                  <option value="">Select...</option>
+                  {people.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.project_count > 0 ? ` (${p.project_count} projects)` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <span className="form-field__label">Role in project</span>
+                <input
+                  type="text"
+                  value={assignForm.role_in_project}
+                  onChange={(e) => setAssignForm((f) => ({ ...f, role_in_project: e.target.value }))}
+                  placeholder="e.g. Developer, Lead"
+                  className="ui-input form-field__input"
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-field__label">Allocation %</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={assignForm.allocation_percent}
+                  onChange={(e) => setAssignForm((f) => ({ ...f, allocation_percent: +e.target.value || 100 }))}
+                  className="ui-input form-field__input"
+                />
+              </label>
+              <div className="form-actions">
+                <button type="submit" className="btn btn-primary" disabled={busy}>
+                  {busy ? 'Assigning…' : 'Assign'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
       {activeTab === 'people' && (
-      <div className="ui-card section-card">
-        <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem' }}>Team assigned to this project</h2>
-        {!project.members?.length ? (
-          <p style={{ color: 'var(--text-muted)' }}>No one assigned yet. Use &quot;Assign team member&quot; to add people.</p>
-        ) : (
-          <div className="table-wrap pmo-data-list-wrap pmo-data-list-wrap--sticky pmo-data-list-wrap--comfortable">
-          <table className="pmo-data-list pmo-portfolio-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Allocation %</th>
-                <th className="table-actions-col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {project.members.map(m => (
-                <tr key={m.id}>
-                  <td>
-                    <Link to="/team" className="pmo-link-strong">{m.name}</Link>
-                  </td>
-                  <td>{m.role_in_project || '–'}</td>
-                  <td>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      defaultValue={m.allocation_percent ?? 100}
-                      onBlur={(e) => updateAllocation(m.id, e.target.value)}
-                      className="ui-input"
-                      style={{ width: '5rem', padding: '0.35rem 0.5rem' }}
-                      aria-label={`Allocation for ${m.name}`}
-                    />
-                  </td>
-                  <td className="table-actions-col pmo-row-actions">
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeAssignment(m.id)} disabled={busy}>Remove</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="ui-card section-card project-people-panel">
+          <div className="section-card__header section-card__header--compact">
+            <div>
+              <h2 className="section-card__title">Team assigned to this project</h2>
+              <p className="section-card__desc">
+                {project.members?.length
+                  ? `${project.members.length} member${project.members.length === 1 ? '' : 's'} on this delivery team`
+                  : 'No one assigned yet — add people to track ownership and capacity.'}
+              </p>
+            </div>
+            <div className="card-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => setAssignOpen(true)}
+                disabled={busy}
+              >
+                + Assign member
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+          {!project.members?.length ? (
+            <div className="project-people-empty">
+              <p>No team members on this project yet.</p>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => setAssignOpen(true)}
+                disabled={busy}
+              >
+                Assign team member
+              </button>
+            </div>
+          ) : (
+            <div className="table-wrap pmo-data-list-wrap pmo-data-list-wrap--sticky pmo-data-list-wrap--comfortable project-people-table">
+              <table className="pmo-data-list pmo-portfolio-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Allocation %</th>
+                    <th className="table-actions-col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {project.members.map((m) => (
+                    <tr key={m.id}>
+                      <td>
+                        <Link to="/team" className="pmo-link-strong">{m.name}</Link>
+                      </td>
+                      <td>{m.role_in_project || '–'}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          defaultValue={m.allocation_percent ?? 100}
+                          onBlur={(e) => updateAllocation(m.id, e.target.value)}
+                          className="ui-input project-people-alloc"
+                          aria-label={`Allocation for ${m.name}`}
+                        />
+                      </td>
+                      <td className="table-actions-col pmo-row-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => removeAssignment(m.id)}
+                          disabled={busy}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'backlog' && (
