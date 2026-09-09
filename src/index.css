@@ -3437,6 +3437,69 @@
 .project-workspace-kpis { margin-bottom: 1.25rem; }
 .project-workspace-progress { margin-top: 0.5rem; height: 6px; }
 .pmo-overview-kpi--warn .pmo-overview-kpi-value { color: var(--warning); }
+
+.project-details-card {
+  margin: 0;
+}
+
+.project-details-grid {
+  margin: 0;
+  padding: 0.35rem 1.25rem 1.35rem;
+  display: grid;
+  gap: 1rem 1.5rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .project-details-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .project-details-item--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.project-details-item {
+  min-width: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.project-details-item dt {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.project-details-item dd {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.project-details-item__muted {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.project-details-clients {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.85rem;
+}
+
+.project-details-clients li {
+  margin: 0;
+}
+
 .project-overview-grid {
   display: grid;
   gap: 1rem;

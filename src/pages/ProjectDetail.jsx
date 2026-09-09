@@ -268,6 +268,33 @@ function ProjectDetail() {
     [project],
   );
 
+  const projectClientNames = useMemo(() => {
+    if (!project) return [];
+    if (Array.isArray(project.clients) && project.clients.length) {
+      return project.clients.map((c) => c.name).filter(Boolean);
+    }
+    if (project.client_name) {
+      return String(project.client_name)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    const ids = new Set(
+      (Array.isArray(project.client_ids) ? project.client_ids : [])
+        .map((cid) => Number(cid))
+        .filter((cid) => Number.isFinite(cid)),
+    );
+    if (!ids.size) return [];
+    return clients.filter((c) => ids.has(Number(c.id))).map((c) => c.name).filter(Boolean);
+  }, [project, clients]);
+
+  const statusLabel = (status) => {
+    if (status === 'on-hold') return 'On hold';
+    if (status === 'completed') return 'Completed';
+    if (status === 'active') return 'Active';
+    return status || '—';
+  };
+
   const tabCounts = useMemo(() => ({
     packages: workPackages.length || null,
     tasks: leafTasks.length,
@@ -431,6 +458,76 @@ function ProjectDetail() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'overview' && (
+        <div className="ui-card section-card project-details-card">
+          <div className="section-card__header section-card__header--compact">
+            <div>
+              <h2 className="section-card__title">Project details</h2>
+              <p className="section-card__desc">Core identity for this workspace — quick reference while you work</p>
+            </div>
+            {canManage && (
+              <div className="card-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setEditOpen(true);
+                    if (!clients.length || clientsError) loadClients();
+                  }}
+                  disabled={busy}
+                >
+                  Edit details
+                </button>
+              </div>
+            )}
+          </div>
+          <dl className="project-details-grid">
+            <div className="project-details-item">
+              <dt>Name</dt>
+              <dd>{project.name || '—'}</dd>
+            </div>
+            <div className="project-details-item project-details-item--wide">
+              <dt>Description</dt>
+              <dd className={project.description ? '' : 'project-details-item__muted'}>
+                {project.description?.trim() || 'No description provided'}
+              </dd>
+            </div>
+            <div className="project-details-item">
+              <dt>Engagement type</dt>
+              <dd>
+                {project.engagement_type
+                  ? engagementTypeLabel(project.engagement_type)
+                  : <span className="project-details-item__muted">Not set</span>}
+              </dd>
+            </div>
+            <div className="project-details-item">
+              <dt>Status</dt>
+              <dd>
+                <span className={`dashboard-badge dashboard-badge-${project.status}`}>
+                  {statusLabel(project.status)}
+                </span>
+              </dd>
+            </div>
+            <div className="project-details-item project-details-item--wide">
+              <dt>Clients</dt>
+              <dd>
+                {projectClientNames.length ? (
+                  <ul className="project-details-clients">
+                    {projectClientNames.map((name) => (
+                      <li key={name}>
+                        <Link to="/clients" className="pmo-link-strong">{name}</Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="project-details-item__muted">No companies linked</span>
+                )}
+              </dd>
+            </div>
+          </dl>
         </div>
       )}
 
