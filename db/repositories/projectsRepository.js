@@ -274,10 +274,28 @@ export function createProjectsRepository(ctx, getStore) {
 
       const existing = await dbSelect('projects', { filters: { id }, maybeSingle: true });
       if (!existing) return false;
-      const forDb = projectRowForDb({ ...existing, ...patch, id });
-      delete forDb.id;
-      const saved = await dbUpdate('projects', id, forDb);
-      if (!saved) return false;
+
+      // Partial update only — never rewrite the full row (avoids re-uploading large cover_image_url).
+      const forDb = {};
+      for (const key of [
+        'name',
+        'description',
+        'status',
+        'start_date',
+        'end_date',
+        'classification',
+        'engagement_type',
+        'cover_image_url',
+      ]) {
+        if (patch[key] !== undefined) forDb[key] = patch[key];
+      }
+      if (!Object.keys(forDb).length && client_ids === undefined && client_id === undefined) {
+        return true;
+      }
+      if (Object.keys(forDb).length) {
+        const saved = await dbUpdate('projects', id, forDb);
+        if (!saved) return false;
+      }
       if (client_ids !== undefined) {
         await getStore().setProjectClients(id, client_ids);
       } else if (client_id !== undefined) {

@@ -139,53 +139,59 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
 projectsRouter.put('/:id', async (req, res) => {
   const { name, description, status, start_date, end_date, classification, engagement_type } = req.body;
   const id = +req.params.id;
-  const projects = await store.listProjects();
-  const existing = projects.find((p) => Number(p.id) === id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid project id' });
+
+  const existing = typeof store.findProjectById === 'function'
+    ? await store.findProjectById(id)
+    : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
   if (!existing) return res.status(404).json({ error: 'Project not found' });
+
   const clientIds = parseClientIds(req.body);
   const nextEngagementType = engagement_type !== undefined
     ? normalizeEngagementType(engagement_type)
-    : existing.engagement_type ?? null;
+    : undefined;
   if (engagement_type !== undefined && engagement_type != null && String(engagement_type).trim() && !nextEngagementType) {
     return res.status(400).json({ error: 'Invalid engagement type' });
   }
   const nextClassification = classification !== undefined
     ? normalizeDeliveryScope(classification)
-    : existing.classification ?? null;
+    : undefined;
   if (classification !== undefined && classification != null && String(classification).trim() && !nextClassification) {
     return res.status(400).json({ error: 'Invalid delivery scope value' });
   }
-  const patch = {
-    name: name ?? existing.name,
-    description,
-    status,
-    start_date,
-    end_date,
-    engagement_type: nextEngagementType,
-    classification: nextClassification,
-  };
+
+  // Only include fields the client actually sent — avoids wiping / rewriting heavy columns.
+  const patch = {};
+  if (name !== undefined) patch.name = name || existing.name;
+  if (description !== undefined) patch.description = description;
+  if (status !== undefined) patch.status = status;
+  if (start_date !== undefined) patch.start_date = start_date;
+  if (end_date !== undefined) patch.end_date = end_date;
+  if (engagement_type !== undefined) patch.engagement_type = nextEngagementType;
+  if (classification !== undefined) patch.classification = nextClassification;
   if (clientIds !== null) patch.client_ids = clientIds;
   if (req.body.cover_image_url !== undefined) {
     patch.cover_image_url = req.body.cover_image_url === null || req.body.cover_image_url === ''
       ? null
       : validateImageDataUrl(req.body.cover_image_url, { maxBytes: 240_000, field: 'cover_image_url' });
   }
+
   await store.updateProject(id, patch);
-  const updatedProjects = await store.listProjects();
-  const updatedName = updatedProjects.find((p) => Number(p.id) === id)?.name || id;
+  const updatedName = patch.name || existing.name || id;
   await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'project',
     target_id: id,
     summary: `Updated project "${updatedName}"`,
   });
-  try {
-    await store.persistToSupabase();
-  } catch (e) {
-    console.warn('persist:', e.message);
-    return res.status(500).json({ error: 'Failed to save project changes', detail: e.message });
-  }
-  const project = updatedProjects.find((p) => Number(p.id) === id);
+
+  // Writes are already durable in DB mode; never block the response on a full snapshot sync.
+  store.persistToSupabase().catch((e) => console.warn('persist:', e?.message || e));
+
+  const project = typeof store.findProjectById === 'function'
+    ? await store.findProjectById(id)
+    : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
+  if (!project) return res.status(404).json({ error: 'Project not found after update' });
   res.json(await enrichProject(project));
 });
 

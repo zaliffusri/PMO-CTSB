@@ -206,7 +206,11 @@ function ProjectDetail() {
           engagement_type: editForm.engagement_type || null,
           client_ids: editForm.client_ids,
         });
-        setProject(updated);
+        setProject((prev) => ({
+          ...updated,
+          // Keep team already loaded on the workspace — update payload is details-only.
+          members: updated.members ?? prev?.members,
+        }));
         setEditForm({
           name: updated?.name || '',
           description: updated?.description || '',
