@@ -207,10 +207,51 @@ function ProjectDetail() {
           client_ids: editForm.client_ids,
         });
         setProject(updated);
+        setEditForm({
+          name: updated?.name || '',
+          description: updated?.description || '',
+          status: updated?.status || 'active',
+          engagement_type: updated?.engagement_type || '',
+          client_ids: Array.isArray(updated?.client_ids)
+            ? updated.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+            : [],
+        });
         setEditOpen(false);
       } catch (err) {
         alert(err.message);
       }
+    });
+  };
+
+  const startProjectEdit = () => {
+    changeTab('overview');
+    setEditForm({
+      name: project?.name || '',
+      description: project?.description || '',
+      status: project?.status || 'active',
+      engagement_type: project?.engagement_type || '',
+      client_ids: Array.isArray(project?.client_ids)
+        ? project.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+        : project?.client_id
+          ? [Number(project.client_id)]
+          : [],
+    });
+    setEditOpen(true);
+    if (!clients.length || clientsError) loadClients();
+  };
+
+  const cancelProjectEdit = () => {
+    setEditOpen(false);
+    setEditForm({
+      name: project?.name || '',
+      description: project?.description || '',
+      status: project?.status || 'active',
+      engagement_type: project?.engagement_type || '',
+      client_ids: Array.isArray(project?.client_ids)
+        ? project.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+        : project?.client_id
+          ? [Number(project.client_id)]
+          : [],
     });
   };
 
@@ -402,19 +443,6 @@ function ProjectDetail() {
             <button type="button" className="btn btn-primary" onClick={() => { changeTab('people'); setAssignOpen(true); }} disabled={busy}>
               + Assign team
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => {
-                const next = !editOpen;
-                changeTab('overview');
-                setEditOpen(next);
-                if (next && (!clients.length || clientsError)) loadClients();
-              }}
-              disabled={busy}
-            >
-              {editOpen ? 'Cancel edit' : 'Edit'}
-            </button>
             {canRemoveProject && (
               <button
                 type="button"
@@ -462,21 +490,22 @@ function ProjectDetail() {
       )}
 
       {activeTab === 'overview' && (
-        <div className="ui-card section-card project-details-card">
+        <div className={`ui-card section-card project-details-card${editOpen ? ' project-details-card--editing' : ''}`}>
           <div className="section-card__header section-card__header--compact">
             <div>
               <h2 className="section-card__title">Project details</h2>
-              <p className="section-card__desc">Core identity for this workspace — quick reference while you work</p>
+              <p className="section-card__desc">
+                {editOpen
+                  ? 'Update name, description, engagement, status, and clients'
+                  : 'Core identity for this workspace — quick reference while you work'}
+              </p>
             </div>
-            {canManage && (
+            {canManage && !editOpen && (
               <div className="card-actions">
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setEditOpen(true);
-                    if (!clients.length || clientsError) loadClients();
-                  }}
+                  className="btn btn-primary btn-sm"
+                  onClick={startProjectEdit}
                   disabled={busy}
                 >
                   Edit details
@@ -484,50 +513,124 @@ function ProjectDetail() {
               </div>
             )}
           </div>
-          <dl className="project-details-grid">
-            <div className="project-details-item">
-              <dt>Name</dt>
-              <dd>{project.name || '—'}</dd>
-            </div>
-            <div className="project-details-item project-details-item--wide">
-              <dt>Description</dt>
-              <dd className={project.description ? '' : 'project-details-item__muted'}>
-                {project.description?.trim() || 'No description provided'}
-              </dd>
-            </div>
-            <div className="project-details-item">
-              <dt>Engagement type</dt>
-              <dd>
-                {project.engagement_type
-                  ? engagementTypeLabel(project.engagement_type)
-                  : <span className="project-details-item__muted">Not set</span>}
-              </dd>
-            </div>
-            <div className="project-details-item">
-              <dt>Status</dt>
-              <dd>
-                <span className={`dashboard-badge dashboard-badge-${project.status}`}>
-                  {statusLabel(project.status)}
-                </span>
-              </dd>
-            </div>
-            <div className="project-details-item project-details-item--wide">
-              <dt>Clients</dt>
-              <dd>
-                {projectClientNames.length ? (
-                  <ul className="project-details-clients">
-                    {projectClientNames.map((name) => (
-                      <li key={name}>
-                        <Link to="/clients" className="pmo-link-strong">{name}</Link>
-                      </li>
+
+          {editOpen ? (
+            <form onSubmit={saveProjectEdit} className="project-details-edit">
+              <div className="project-details-grid project-details-grid--edit">
+                <label className="project-details-item">
+                  <span className="project-details-item__label">
+                    Name <span className="project-details-item__req">*</span>
+                  </span>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                    required
+                    className="ui-input form-field__input"
+                  />
+                </label>
+                <label className="project-details-item project-details-item--wide">
+                  <span className="project-details-item__label">Description</span>
+                  <textarea
+                    value={editForm.description}
+                    onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                    rows={3}
+                    className="ui-input form-field__input"
+                  />
+                </label>
+                <label className="project-details-item">
+                  <span className="project-details-item__label">Engagement type</span>
+                  <select
+                    value={editForm.engagement_type}
+                    onChange={(e) => setEditForm((f) => ({ ...f, engagement_type: e.target.value }))}
+                    className="ui-input form-field__input"
+                  >
+                    <option value="">Not set</option>
+                    {PROJECT_ENGAGEMENT_TYPES.map((t) => (
+                      <option key={t.id} value={t.id}>{t.label}</option>
                     ))}
-                  </ul>
-                ) : (
-                  <span className="project-details-item__muted">No companies linked</span>
-                )}
-              </dd>
-            </div>
-          </dl>
+                  </select>
+                </label>
+                <label className="project-details-item">
+                  <span className="project-details-item__label">Status</span>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
+                    className="ui-input form-field__input"
+                  >
+                    <option value="active">Active</option>
+                    <option value="on-hold">On hold</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </label>
+                <div className="project-details-item project-details-item--wide">
+                  <span className="project-details-item__label">Clients</span>
+                  <ClientMultiSelect
+                    clients={clients}
+                    value={editForm.client_ids}
+                    onChange={(client_ids) => setEditForm((f) => ({ ...f, client_ids }))}
+                    idPrefix="project-edit-client"
+                    loading={clientsLoading}
+                    error={clientsError}
+                    onRetry={loadClients}
+                  />
+                </div>
+              </div>
+              <div className="project-details-edit__actions form-actions">
+                <button type="submit" className="btn btn-primary" disabled={busy}>
+                  {busy ? 'Saving…' : 'Save changes'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={cancelProjectEdit} disabled={busy}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <dl className="project-details-grid">
+              <div className="project-details-item">
+                <dt>Name</dt>
+                <dd>{project.name || '—'}</dd>
+              </div>
+              <div className="project-details-item project-details-item--wide">
+                <dt>Description</dt>
+                <dd className={project.description ? '' : 'project-details-item__muted'}>
+                  {project.description?.trim() || 'No description provided'}
+                </dd>
+              </div>
+              <div className="project-details-item">
+                <dt>Engagement type</dt>
+                <dd>
+                  {project.engagement_type
+                    ? engagementTypeLabel(project.engagement_type)
+                    : <span className="project-details-item__muted">Not set</span>}
+                </dd>
+              </div>
+              <div className="project-details-item">
+                <dt>Status</dt>
+                <dd>
+                  <span className={`dashboard-badge dashboard-badge-${project.status}`}>
+                    {statusLabel(project.status)}
+                  </span>
+                </dd>
+              </div>
+              <div className="project-details-item project-details-item--wide">
+                <dt>Clients</dt>
+                <dd>
+                  {projectClientNames.length ? (
+                    <ul className="project-details-clients">
+                      {projectClientNames.map((name) => (
+                        <li key={name}>
+                          <Link to="/clients" className="pmo-link-strong">{name}</Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="project-details-item__muted">No companies linked</span>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          )}
         </div>
       )}
 
@@ -667,74 +770,6 @@ function ProjectDetail() {
               />
             </div>
           </div>
-        </div>
-      )}
-
-      {activeTab === 'overview' && editOpen && (
-        <div className="ui-card section-card">
-          <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem' }}>Edit project</h2>
-          <form onSubmit={saveProjectEdit} style={{ display: 'grid', gap: '0.75rem', maxWidth: 520 }}>
-            <label>
-              Name <span style={{ color: 'var(--danger)' }}>*</span>
-              <input
-                type="text"
-                value={editForm.name}
-                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                required
-                className="ui-input form-field__input"
-              />
-            </label>
-            <label>
-              Description
-              <textarea
-                value={editForm.description}
-                onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                rows={2}
-                className="ui-input form-field__input"
-              />
-            </label>
-            <label>
-              Engagement type
-              <select
-                value={editForm.engagement_type}
-                onChange={e => setEditForm(f => ({ ...f, engagement_type: e.target.value }))}
-                className="ui-input form-field__input"
-              >
-                <option value="">Not set</option>
-                {PROJECT_ENGAGEMENT_TYPES.map((t) => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Status
-              <select
-                value={editForm.status}
-                onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
-                className="ui-input form-field__input"
-              >
-                <option value="active">Active</option>
-                <option value="on-hold">On hold</option>
-                <option value="completed">Completed</option>
-              </select>
-            </label>
-            <label>
-              Clients (companies involved)
-              <ClientMultiSelect
-                clients={clients}
-                value={editForm.client_ids}
-                onChange={(client_ids) => setEditForm((f) => ({ ...f, client_ids }))}
-                idPrefix="project-edit-client"
-                loading={clientsLoading}
-                error={clientsError}
-                onRetry={loadClients}
-              />
-            </label>
-            <div className="form-actions">
-              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
-              <button type="button" className="btn btn-secondary" onClick={() => setEditOpen(false)} disabled={busy}>Cancel</button>
-            </div>
-          </form>
         </div>
       )}
 

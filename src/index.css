@@ -3500,6 +3500,39 @@
   margin: 0;
 }
 
+.project-details-card--editing {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.project-details-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.project-details-grid--edit .project-details-item {
+  gap: 0.4rem;
+}
+
+.project-details-item__label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.project-details-item__req {
+  color: var(--danger);
+  text-transform: none;
+}
+
+.project-details-edit__actions {
+  padding: 0.85rem 1.25rem 1.25rem;
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+
 .project-overview-grid {
   display: grid;
   gap: 1rem;
