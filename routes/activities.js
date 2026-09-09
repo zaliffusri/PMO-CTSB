@@ -459,7 +459,6 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     start_at,
     end_at,
     external_attendees: externalRaw,
-    notify_email: notifyEmailRaw,
   } = req.body;
   const external_attendees = normalizeExternalAttendees(externalRaw);
 
@@ -586,13 +585,7 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
-  const shouldNotify = !(
-    notifyEmailRaw === false
-    || notifyEmailRaw === 'false'
-    || notifyEmailRaw === 0
-    || notifyEmailRaw === '0'
-  );
-  // Always notify assignees in-app; email/ICS only when the checkbox is on.
+  // In-app only on save — calendar invite emails are sent via detail "Resend invite", not the log form.
   let emailNotify = {
     smtp_configured: await isMailerConfigured(),
     variant: 'scheduled',
@@ -617,7 +610,7 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
       calendarUid: activityGroupId,
       sequence: nextCalendarSequence('create'),
       activityId: created[0]?.id ?? null,
-      sendEmail: shouldNotify,
+      sendEmail: false,
     });
   } catch (notifyErr) {
     console.error('activities POST notify failed', notifyErr);
@@ -630,7 +623,7 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
   const responseRows = await Promise.all(created.map((a) => enrichActivityForClient(a, projects)));
   const meta = {
     email_notify: emailNotify,
-    notify_email_requested: shouldNotify,
+    notify_email_requested: false,
   };
   if (responseRows.length === 1) return res.status(201).json({ ...responseRows[0], ...meta });
   return res.status(201).json({ activities: responseRows, ...meta });
@@ -659,7 +652,6 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     start_at,
     end_at,
     external_attendees: externalRaw,
-    notify_email: notifyEmailRaw,
   } = req.body;
   const id = +req.params.id;
   let activities = await store.listActivities();
@@ -715,12 +707,6 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   }
 
   const loggedBy = req.user?.name || req.user?.email || '';
-  const shouldNotify = !(
-    notifyEmailRaw === false
-    || notifyEmailRaw === 'false'
-    || notifyEmailRaw === 0
-    || notifyEmailRaw === '0'
-  );
   const activityGroupId = existing.activity_group_id || crypto.randomUUID();
   const previousGroupIds = idsInSameLogicalGroup(activities, id);
   const previousRows = previousGroupIds
@@ -782,7 +768,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
   activities = await store.listActivities();
   const createdRows = createdIds.map((newId) => activities.find((x) => x.id === newId)).filter(Boolean);
 
-  // Always notify assignees in-app; email/ICS only when the checkbox is on.
+  // In-app only on save — calendar invite emails are sent via detail "Resend invite", not the log form.
   let emailNotify = {
     smtp_configured: await isMailerConfigured(),
     variant: 'updated',
@@ -808,7 +794,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       calendarUid: activityGroupId,
       sequence: nextCalendarSequence('update'),
       activityId: createdRows[0]?.id ?? id,
-      sendEmail: shouldNotify,
+      sendEmail: false,
     });
   } catch (notifyErr) {
     console.error('activities PUT notify failed', notifyErr);
@@ -858,7 +844,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
     split_into: splitInto,
     replaced_id: id,
     email_notify: emailNotify,
-    notify_email_requested: shouldNotify,
+    notify_email_requested: false,
   });
 });
 

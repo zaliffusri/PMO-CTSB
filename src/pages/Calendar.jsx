@@ -60,7 +60,6 @@ export default function Calendar() {
     locationOther: '',
     start_at: '',
     end_at: '',
-    notify_email: true,
   });
   const [personSearch, setPersonSearch] = useState('');
   const [editingActivityId, setEditingActivityId] = useState(null);
@@ -346,7 +345,7 @@ export default function Calendar() {
             location,
             start_at: toApiDateTimeValue(form.start_at),
             end_at: toApiDateTimeValue(form.end_at),
-            notify_email: form.notify_email,
+            notify_email: false,
           });
         } else {
           result = await api.activities.create({
@@ -359,45 +358,13 @@ export default function Calendar() {
             location,
             start_at: toApiDateTimeValue(form.start_at),
             end_at: toApiDateTimeValue(form.end_at),
-            notify_email: form.notify_email,
+            notify_email: false,
           });
         }
         const emailNotify = result?.email_notify;
         const isEdit = editingActivityId != null;
         const inApp = Number(emailNotify?.in_app) || 0;
-        if (form.notify_email) {
-          // Trust the API response only — client smtpConfigured can be stale after Settings save.
-          if (emailNotify && emailNotify.smtp_configured === false && inApp === 0) {
-            alert('Activity saved. Email was not sent because SMTP is not configured on the server.');
-          } else if (emailNotify && emailNotify.sent > 0) {
-            alert(
-              isEdit
-                ? `Activity updated. Notified ${inApp || emailNotify.sent} assignee(s) in-app; email sent to ${emailNotify.sent}.`
-                : `Activity saved. Notified ${inApp || emailNotify.sent} assignee(s) in-app; email sent to ${emailNotify.sent}.`,
-            );
-          } else if (inApp > 0) {
-            alert(
-              isEdit
-                ? `Activity updated. In-app notification sent to ${inApp} assignee(s).`
-                : `Activity saved. In-app notification sent to ${inApp} assignee(s).`,
-            );
-          } else if (emailNotify?.in_app_error) {
-            alert(`Activity saved, but in-app notification could not be stored: ${emailNotify.in_app_error}`);
-          } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
-            alert('Activity saved, but email notification could not be delivered. Check assignee emails and SMTP settings.');
-          } else if (emailNotify && emailNotify.attempted === 0) {
-            alert(
-              inApp > 0
-                ? `Activity saved. Notified ${inApp} assignee(s) in-app. No email recipients found.`
-                : 'Activity saved. No email recipients found (assignees need a user email, or add guest emails).',
-            );
-          } else {
-            alert(isEdit ? 'Activity updated.' : 'Activity saved.');
-          }
-          api.activities.mailStatus()
-            .then((r) => setSmtpConfigured(Boolean(r?.smtp_configured)))
-            .catch(() => {});
-        } else if (inApp > 0) {
+        if (inApp > 0) {
           alert(
             isEdit
               ? `Activity updated. In-app notification sent to ${inApp} assignee(s).`
@@ -422,7 +389,6 @@ export default function Calendar() {
           locationOther: '',
           start_at: '',
           end_at: '',
-          notify_email: true,
         });
         setPersonSearch('');
         setShowForm(false);
@@ -488,7 +454,6 @@ export default function Calendar() {
       locationOther: '',
       start_at: '',
       end_at: '',
-      notify_email: true,
     }));
     setPersonSearch('');
     setShowForm(true);
@@ -514,7 +479,6 @@ export default function Calendar() {
       locationOther: '',
       start_at: `${dateStr}T09:00`,
       end_at: `${dateStr}T17:00`,
-      notify_email: true,
     }));
     setPersonSearch('');
     setShowForm(true);
@@ -541,7 +505,6 @@ export default function Calendar() {
       locationOther: custom,
       start_at: toDatetimeLocalValue(a.start_at),
       end_at: toDatetimeLocalValue(a.end_at),
-      notify_email: true,
     });
     setPersonSearch('');
     setEditingActivityId(a.id);
@@ -1293,8 +1256,6 @@ export default function Calendar() {
         onSubmit={submit}
         onClose={() => { setShowForm(false); setEditingActivityId(null); }}
         mutating={mutating}
-        smtpConfigured={smtpConfigured}
-        userRole={user?.role}
       />
       <CalendarMonthGrid
         year={year}

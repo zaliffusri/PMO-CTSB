@@ -19,8 +19,6 @@ export default function CalendarActivityForm({
   onSubmit,
   onClose,
   mutating,
-  smtpConfigured,
-  userRole,
 }) {
   if (!open) return null;
 
@@ -160,33 +158,6 @@ export default function CalendarActivityForm({
             Multi-day tip: Start = first day + daily start time, End = last day + daily end time.
             Example: Mon 9:00 → Tue 11:00 means <strong>9:00–11:00 on both days</strong> (not one long overnight block).
           </p>
-          <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={form.notify_email}
-              onChange={(e) => setForm((f) => ({ ...f, notify_email: e.target.checked }))}
-              style={{ marginTop: '0.2rem' }}
-            />
-            <span>
-              <strong>{editingActivityId != null ? 'Also email calendar invite' : 'Also email calendar invite'}</strong>
-              <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                {smtpConfigured
-                  ? (editingActivityId != null
-                    ? 'Assignees always get an in-app notification. Tick to also send an Outlook / Teams calendar update email.'
-                    : 'Assignees always get an in-app notification when assigned. Tick to also send an Outlook / Teams calendar invite email.')
-                  : (
-                    <>
-                      Assignees always get an in-app notification. Calendar invite emails need SMTP.{' '}
-                      {userRole === 'admin' ? (
-                        <Link to="/settings/email">Open Settings → Email</Link>
-                      ) : (
-                        'Ask an admin to open Settings → Email and save SMTP.'
-                      )}
-                    </>
-                  )}
-              </span>
-            </span>
-          </label>
           <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
             <button type="submit" className="btn btn-primary" disabled={mutating}>
               {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}
