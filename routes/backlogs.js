@@ -99,18 +99,58 @@ async function enrichBacklog(item, preloaded = null) {
 
 async function loadBacklogListContext(projectId = null, backlogRows = []) {
   const filters = Number.isFinite(projectId) ? { project_id: projectId } : {};
-  const needsIssues = backlogRows.some((b) => b.issue_id != null);
+  const issueIds = [
+    ...new Set(
+      (backlogRows || [])
+        .map((b) => Number(b.issue_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  const clientIds = [
+    ...new Set(
+      (backlogRows || [])
+        .map((b) => Number(b.client_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  const assigneeIds = [
+    ...new Set(
+      (backlogRows || [])
+        .map((b) => Number(b.assignee_person_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  const creatorIds = [
+    ...new Set(
+      (backlogRows || [])
+        .map((b) => Number(b.created_by_user_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+
   const [projects, clients, people, issues, tasks, phases, workPackages, users] = await Promise.all([
     Number.isFinite(projectId) && typeof store.findProjectById === 'function'
-      ? store.findProjectById(projectId).then((p) => (p ? [p] : [])).catch(() => [])
+      ? store.findProjectById(projectId, { includeCover: false }).then((p) => (p ? [p] : [])).catch(() => [])
       : store.listProjects().catch(() => []),
-    store.listClients().catch(() => []),
-    store.listPeople().catch(() => []),
-    needsIssues ? store.listIssues().catch(() => []) : Promise.resolve([]),
+    clientIds.length
+      ? store.listClients().then((rows) => rows.filter((c) => clientIds.includes(Number(c.id)))).catch(() => [])
+      : Promise.resolve([]),
+    assigneeIds.length || !Number.isFinite(projectId)
+      ? store.listPeople().then((rows) => (
+          assigneeIds.length
+            ? rows.filter((p) => assigneeIds.includes(Number(p.id)))
+            : rows
+        )).catch(() => [])
+      : Promise.resolve([]),
+    issueIds.length && typeof store.listIssues === 'function'
+      ? store.listIssues().then((rows) => rows.filter((i) => issueIds.includes(Number(i.id)))).catch(() => [])
+      : Promise.resolve([]),
     store.listProjectTasks(filters).catch(() => []),
     store.listProjectPhases(projectId ?? undefined).catch(() => []),
     store.listWorkPackages(projectId ?? undefined).catch(() => []),
-    store.listUsers().catch(() => []),
+    creatorIds.length
+      ? store.listUsers().then((rows) => rows.filter((u) => creatorIds.includes(Number(u.id)))).catch(() => [])
+      : Promise.resolve([]),
   ]);
   return {
     projects,

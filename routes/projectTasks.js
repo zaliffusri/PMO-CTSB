@@ -81,7 +81,7 @@ async function loadTaskMetaContext(filters = {}) {
   const projectId = filters.project_id != null ? Number(filters.project_id) : null;
   const [projects, people, tasks, workPackages] = await Promise.all([
     Number.isFinite(projectId) && typeof store.findProjectById === 'function'
-      ? store.findProjectById(projectId).then((p) => (p ? [p] : []))
+      ? store.findProjectById(projectId, { includeCover: false }).then((p) => (p ? [p] : []))
       : store.listProjects(),
     store.listPeople(),
     store.listProjectTasks(filters),

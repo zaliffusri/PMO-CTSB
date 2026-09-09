@@ -12,12 +12,17 @@ export const workPackagesRouter = Router();
 const CLASSIFICATION_SET = new Set(PROJECT_CLASSIFICATIONS.map((c) => c.id));
 
 async function enrichWorkPackage(wp, preloaded = null) {
-  const tasks = preloaded?.tasks ?? await store.listProjectTasks();
-  const phases = preloaded?.phases ?? await store.listProjectPhases(wp.project_id);
-  const backlogs = preloaded?.backlogs ?? await store.listBacklogs();
-  const wpTasks = tasks.filter((t) => t.work_package_id === wp.id);
-  const wpPhases = phases.filter((p) => p.work_package_id === wp.id);
-  const wpBacklogs = backlogs.filter((b) => b.work_package_id === wp.id);
+  const pid = wp.project_id;
+  const tasks = preloaded?.tasks ?? await store.listProjectTasks(
+    pid != null ? { project_id: pid } : {},
+  );
+  const phases = preloaded?.phases ?? await store.listProjectPhases(pid);
+  const backlogs = preloaded?.backlogs ?? await store.listBacklogs(
+    pid != null ? { project_id: pid } : {},
+  );
+  const wpTasks = tasks.filter((t) => Number(t.work_package_id) === Number(wp.id));
+  const wpPhases = phases.filter((p) => Number(p.work_package_id) === Number(wp.id));
+  const wpBacklogs = backlogs.filter((b) => Number(b.work_package_id) === Number(wp.id));
   const currentPhase = wpPhases.find((p) => p.status === 'in_progress')
     || wpPhases.find((p) => p.status === 'pending');
   const totalContract = wpPhases.reduce((s, p) => s + (+p.payment_amount || 0), 0);

@@ -113,22 +113,40 @@ function ProjectDetail() {
         // Clients are needed for Edit project — load independently (do not bury failures).
         loadClients();
 
-        // Secondary data: fill tabs without blocking the workspace shell.
-        return Promise.all([
-          api.people.list().catch(() => []),
-          api.projectTasks.list({ project_id: id }).catch(() => []),
-          api.backlogs.list({ project_id: id }).catch(() => []),
-          api.projectPhases.list({ project_id: id }).catch(() => []),
-          api.workPackages.list({ project_id: id }).catch(() => []),
-        ]).then(([peopleList, taskList, backlogList, phaseList, packageList]) => {
-          const peopleRows = Array.isArray(peopleList) ? peopleList : [];
-          setAllPeople(peopleRows);
-          setPeople(peopleRows.filter((pe) => !p.members?.some((m) => Number(m.person_id) === Number(pe.id))));
-          setTasks(Array.isArray(taskList) ? taskList : []);
-          setBacklogItems(Array.isArray(backlogList) ? backlogList : []);
-          setPhases(Array.isArray(phaseList) ? phaseList : []);
-          setWorkPackages(Array.isArray(packageList) ? packageList : []);
-        });
+        // Stagger secondary loads — parallel fan-out was causing Vercel 504s (auth + heavy enrich).
+        const loadWorkspaceSecondary = async () => {
+          try {
+            const [taskList, packageList] = await Promise.all([
+              api.projectTasks.list({ project_id: id }).catch(() => []),
+              api.workPackages.list({ project_id: id }).catch(() => []),
+            ]);
+            setTasks(Array.isArray(taskList) ? taskList : []);
+            setWorkPackages(Array.isArray(packageList) ? packageList : []);
+          } catch (e) {
+            console.warn('workspace tasks/packages:', e?.message || e);
+          }
+
+          try {
+            const [backlogList, phaseList] = await Promise.all([
+              api.backlogs.list({ project_id: id }).catch(() => []),
+              api.projectPhases.list({ project_id: id }).catch(() => []),
+            ]);
+            setBacklogItems(Array.isArray(backlogList) ? backlogList : []);
+            setPhases(Array.isArray(phaseList) ? phaseList : []);
+          } catch (e) {
+            console.warn('workspace backlog/phases:', e?.message || e);
+          }
+
+          try {
+            const peopleList = await api.people.list().catch(() => []);
+            const peopleRows = Array.isArray(peopleList) ? peopleList : [];
+            setAllPeople(peopleRows);
+            setPeople(peopleRows.filter((pe) => !p.members?.some((m) => Number(m.person_id) === Number(pe.id))));
+          } catch (e) {
+            console.warn('workspace people:', e?.message || e);
+          }
+        };
+        return loadWorkspaceSecondary();
       })
       .catch((err) => {
         setProject(null);

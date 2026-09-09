@@ -13,13 +13,21 @@ export const projectPhasesRouter = Router();
 
 async function enrichPhase(phase, preloaded = null) {
   const projects = preloaded?.projects ?? await store.listProjects();
-  const workPackages = preloaded?.workPackages ?? await store.listWorkPackages();
-  const backlogs = preloaded?.backlogs ?? await store.listBacklogs();
-  const project = projects.find((p) => p.id === phase.project_id);
+  const workPackages = preloaded?.workPackages ?? (
+    phase.project_id != null
+      ? await store.listWorkPackages(phase.project_id)
+      : await store.listWorkPackages()
+  );
+  const backlogs = preloaded?.backlogs ?? (
+    phase.project_id != null
+      ? await store.listBacklogs({ project_id: phase.project_id })
+      : await store.listBacklogs()
+  );
+  const project = projects.find((p) => Number(p.id) === Number(phase.project_id));
   const wp = phase.work_package_id
-    ? workPackages.find((w) => w.id === phase.work_package_id)
+    ? workPackages.find((w) => Number(w.id) === Number(phase.work_package_id))
     : null;
-  const backlogCount = backlogs.filter((b) => b.phase_id === phase.id).length;
+  const backlogCount = backlogs.filter((b) => Number(b.phase_id) === Number(phase.id)).length;
   return {
     ...phase,
     project_name: project?.name ?? null,
@@ -31,11 +39,14 @@ async function enrichPhase(phase, preloaded = null) {
   };
 }
 
-async function loadPhaseMetaContext() {
+async function loadPhaseMetaContext(projectId = null) {
+  const pid = Number.isFinite(projectId) ? projectId : null;
   const [projects, workPackages, backlogs] = await Promise.all([
-    store.listProjects(),
-    store.listWorkPackages(),
-    store.listBacklogs(),
+    pid != null && typeof store.findProjectById === 'function'
+      ? store.findProjectById(pid, { includeCover: false }).then((p) => (p ? [p] : [])).catch(() => [])
+      : store.listProjects(),
+    store.listWorkPackages(pid ?? undefined),
+    store.listBacklogs(pid != null ? { project_id: pid } : {}),
   ]);
   return { projects, workPackages, backlogs };
 }
@@ -152,7 +163,7 @@ projectPhasesRouter.get('/', async (req, res) => {
   await reloadStore();
   const projectId = req.query.project_id ? +req.query.project_id : null;
   const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  const ctx = await loadPhaseMetaContext();
+  const ctx = await loadPhaseMetaContext(Number.isFinite(projectId) ? projectId : null);
   let phaseRows = projectId
     ? await store.listProjectPhases(projectId)
     : await store.listProjectPhases();

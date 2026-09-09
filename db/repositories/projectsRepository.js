@@ -100,7 +100,22 @@ export function createProjectsRepository(ctx, getStore) {
 
   async function listProjects() {
     if (!isDbMode()) return [...getData().projects];
-    return dbSelect('projects', { order: 'id' });
+    // Never SELECT * — cover_image_url data URLs blow up Vercel timeouts on list/enrich paths.
+    try {
+      return await dbSelect('projects', {
+        columns: 'id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at',
+        order: 'id',
+      });
+    } catch (e) {
+      const msg = String(e?.message || e || '');
+      if (/engagement_type|schema cache|PGRST204|does not exist/i.test(msg)) {
+        return dbSelect('projects', {
+          columns: 'id,name,description,classification,status,start_date,end_date,tags,created_at',
+          order: 'id',
+        });
+      }
+      throw e;
+    }
   }
 
   /**
@@ -169,7 +184,7 @@ export function createProjectsRepository(ctx, getStore) {
       const sb = requireSupabase();
       const { data: projects, error } = await sb
         .from('projects')
-        .select('*')
+        .select('id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at')
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
         .range(off, off + lim - 1);
