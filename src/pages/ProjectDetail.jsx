@@ -44,6 +44,8 @@ function ProjectDetail() {
   const [people, setPeople] = useState([]);
   const [allPeople, setAllPeople] = useState([]);
   const [clients, setClients] = useState([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [clientsError, setClientsError] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [assignOpen, setAssignOpen] = useState(false);
@@ -69,6 +71,22 @@ function ProjectDetail() {
     client_ids: [],
   });
 
+  const loadClients = useCallback(() => {
+    setClientsLoading(true);
+    setClientsError('');
+    return api.clients
+      .list()
+      .then((rows) => {
+        setClients(Array.isArray(rows) ? rows : []);
+      })
+      .catch((err) => {
+        console.error(err);
+        setClients([]);
+        setClientsError(err?.message || 'Could not load companies');
+      })
+      .finally(() => setClientsLoading(false));
+  }, []);
+
   const load = () => {
     if (!id) return;
     setLoadError(null);
@@ -84,20 +102,25 @@ function ProjectDetail() {
           description: p?.description || '',
           status: p?.status || 'active',
           engagement_type: p?.engagement_type || '',
-          client_ids: Array.isArray(p?.client_ids) ? [...p.client_ids] : p?.client_id ? [p.client_id] : [],
+          client_ids: Array.isArray(p?.client_ids)
+            ? p.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+            : p?.client_id
+              ? [Number(p.client_id)]
+              : [],
         });
         setLoading(false);
 
+        // Clients are needed for Edit project — load independently (do not bury failures).
+        loadClients();
+
         // Secondary data: fill tabs without blocking the workspace shell.
         return Promise.all([
-          api.clients.list().catch(() => []),
           api.people.list().catch(() => []),
           api.projectTasks.list({ project_id: id }).catch(() => []),
           api.backlogs.list({ project_id: id }).catch(() => []),
           api.projectPhases.list({ project_id: id }).catch(() => []),
           api.workPackages.list({ project_id: id }).catch(() => []),
-        ]).then(([clientsList, peopleList, taskList, backlogList, phaseList, packageList]) => {
-          setClients(Array.isArray(clientsList) ? clientsList : []);
+        ]).then(([peopleList, taskList, backlogList, phaseList, packageList]) => {
           const peopleRows = Array.isArray(peopleList) ? peopleList : [];
           setAllPeople(peopleRows);
           setPeople(peopleRows.filter((pe) => !p.members?.some((m) => Number(m.person_id) === Number(pe.id))));
@@ -352,7 +375,17 @@ function ProjectDetail() {
             <button type="button" className="btn btn-primary" onClick={() => { changeTab('people'); setAssignOpen(true); }} disabled={busy}>
               + Assign team
             </button>
-            <button type="button" className="btn btn-secondary" onClick={() => { changeTab('overview'); setEditOpen(!editOpen); }} disabled={busy}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                const next = !editOpen;
+                changeTab('overview');
+                setEditOpen(next);
+                if (next && (!clients.length || clientsError)) loadClients();
+              }}
+              disabled={busy}
+            >
               {editOpen ? 'Cancel edit' : 'Edit'}
             </button>
             {canRemoveProject && (
@@ -595,6 +628,9 @@ function ProjectDetail() {
                 value={editForm.client_ids}
                 onChange={(client_ids) => setEditForm((f) => ({ ...f, client_ids }))}
                 idPrefix="project-edit-client"
+                loading={clientsLoading}
+                error={clientsError}
+                onRetry={loadClients}
               />
             </label>
             <div className="form-actions">

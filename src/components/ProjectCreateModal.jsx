@@ -29,7 +29,16 @@ function formatPreviewDate(str) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export default function ProjectCreateModal({ open, clients, saving, onClose, onSubmit }) {
+export default function ProjectCreateModal({
+  open,
+  clients,
+  clientsLoading = false,
+  clientsError = '',
+  onRetryClients,
+  saving,
+  onClose,
+  onSubmit,
+}) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(EMPTY_FORM);
   const [touched, setTouched] = useState({});
@@ -237,6 +246,9 @@ export default function ProjectCreateModal({ open, clients, saving, onClose, onS
                   onChange={(client_ids) => setForm((f) => ({ ...f, client_ids }))}
                   idPrefix="project-create-client"
                   variant="picker"
+                  loading={clientsLoading}
+                  error={clientsError}
+                  onRetry={onRetryClients}
                 />
               </div>
 

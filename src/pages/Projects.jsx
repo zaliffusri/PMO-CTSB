@@ -138,6 +138,8 @@ export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [clients, setClients] = useState([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [clientsError, setClientsError] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -193,7 +195,19 @@ export default function Projects() {
     // Clear one-shot navigation state so refresh does not keep filtering forever.
     navigate(location.pathname, { replace: true, state: null });
   }, [location.state?.projectDeleted, location.pathname, navigate]);
-  useEffect(() => { api.clients.list().then(setClients).catch(console.error); }, []);
+  useEffect(() => {
+    setClientsLoading(true);
+    setClientsError('');
+    api.clients
+      .list()
+      .then((rows) => setClients(Array.isArray(rows) ? rows : []))
+      .catch((err) => {
+        console.error(err);
+        setClients([]);
+        setClientsError(err?.message || 'Could not load companies');
+      })
+      .finally(() => setClientsLoading(false));
+  }, []);
   const enriched = useMemo(() => enrichProjectsWithHealth(projects, tasks), [projects, tasks]);
   const summary = useMemo(() => portfolioSummary(enriched), [enriched]);
 
@@ -457,6 +471,21 @@ export default function Projects() {
       <ProjectCreateModal
         open={showForm}
         clients={clients}
+        clientsLoading={clientsLoading}
+        clientsError={clientsError}
+        onRetryClients={() => {
+          setClientsLoading(true);
+          setClientsError('');
+          api.clients
+            .list()
+            .then((rows) => setClients(Array.isArray(rows) ? rows : []))
+            .catch((err) => {
+              console.error(err);
+              setClients([]);
+              setClientsError(err?.message || 'Could not load companies');
+            })
+            .finally(() => setClientsLoading(false));
+        }}
         saving={saving}
         onClose={() => setShowForm(false)}
         onSubmit={submit}
