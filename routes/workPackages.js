@@ -37,10 +37,12 @@ async function enrichWorkPackage(wp, preloaded = null) {
 }
 
 async function loadWorkPackageMetaContext(projectId = null) {
+  const taskFilters = Number.isFinite(Number(projectId)) ? { project_id: Number(projectId) } : {};
+  const backlogFilters = Number.isFinite(Number(projectId)) ? { project_id: Number(projectId) } : {};
   const [tasks, phases, backlogs] = await Promise.all([
-    store.listProjectTasks(),
+    store.listProjectTasks(taskFilters),
     store.listProjectPhases(projectId ?? undefined),
-    store.listBacklogs(),
+    store.listBacklogs(backlogFilters),
   ]);
   return { tasks, phases, backlogs };
 }

@@ -55,11 +55,16 @@ export function createClientsRepository(ctx, getStore) {
           .filter(Boolean)
           .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       }
-      const links = await dbSelect('project_clients', { filters: { project_id: pid } });
-      if (!links.length) return [];
-      const ids = links.map((l) => l.client_id);
-      const clients = await dbSelect('clients', { inFilters: { id: ids } });
-      return clients.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      try {
+        const links = await dbSelect('project_clients', { filters: { project_id: pid } });
+        if (!links.length) return [];
+        const ids = links.map((l) => l.client_id);
+        const clients = await dbSelect('clients', { inFilters: { id: ids } });
+        return clients.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      } catch (e) {
+        console.warn('getClientsForProject failed:', e?.message || e);
+        return [];
+      }
     },
 
     async getClientIdsForProject(projectId) {
@@ -130,7 +135,12 @@ export function createClientsRepository(ctx, getStore) {
 
     async projectWithClients(project) {
       if (!project) return project;
-      const clients = await getStore().getClientsForProject(project.id);
+      let clients = [];
+      try {
+        clients = await getStore().getClientsForProject(project.id);
+      } catch (e) {
+        console.warn('projectWithClients failed:', e?.message || e);
+      }
       const client_ids = clients.map((c) => c.id);
       const client_name = formatClientNames(clients);
       const { client_id: _legacy, ...rest } = project;

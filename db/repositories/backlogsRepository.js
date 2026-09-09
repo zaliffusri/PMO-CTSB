@@ -7,9 +7,27 @@ import { isDbMode, dbSelect, dbInsert, dbUpdate } from '../runtime/query.js';
 export function createBacklogsRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
-  async function listBacklogs() {
-    if (!isDbMode()) return [...(getData().backlogs || [])];
-    return dbSelect('backlogs_app', { order: 'id' });
+  async function listBacklogs(filters = {}) {
+    const projectId = filters.project_id != null && filters.project_id !== ''
+      ? Number(filters.project_id)
+      : null;
+    const workPackageId = filters.work_package_id != null && filters.work_package_id !== ''
+      ? Number(filters.work_package_id)
+      : null;
+
+    if (!isDbMode()) {
+      let rows = [...(getData().backlogs || [])];
+      if (Number.isFinite(projectId)) rows = rows.filter((b) => Number(b.project_id) === projectId);
+      if (Number.isFinite(workPackageId)) {
+        rows = rows.filter((b) => Number(b.work_package_id) === workPackageId);
+      }
+      return rows;
+    }
+
+    const dbFilters = {};
+    if (Number.isFinite(projectId)) dbFilters.project_id = projectId;
+    if (Number.isFinite(workPackageId)) dbFilters.work_package_id = workPackageId;
+    return dbSelect('backlogs_app', { filters: dbFilters, order: 'id' });
   }
 
   return {

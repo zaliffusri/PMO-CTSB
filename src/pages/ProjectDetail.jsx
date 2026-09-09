@@ -73,21 +73,12 @@ function ProjectDetail() {
     if (!id) return;
     setLoadError(null);
     setLoading(true);
-    Promise.all([
-      api.projects.get(id),
-      api.clients.list().catch(() => []),
-      api.people.list().catch(() => []),
-      api.projectTasks.list({ project_id: id }).catch(() => []),
-      api.backlogs.list({ project_id: id }).catch(() => []),
-      api.projectPhases.list({ project_id: id }).catch(() => []),
-      api.workPackages.list({ project_id: id }).catch(() => []),
-    ])
-      .then(([p, clientsList, peopleList, taskList, backlogList, phaseList, packageList]) => {
-        if (!p || p.error) {
-          throw new Error(p?.error || 'Project not found');
-        }
+
+    // Critical path: open workspace as soon as the project shell is available.
+    api.projects.get(id)
+      .then((p) => {
+        if (!p || p.error) throw new Error(p?.error || 'Project not found');
         setProject(p);
-        setClients(Array.isArray(clientsList) ? clientsList : []);
         setEditForm({
           name: p?.name || '',
           description: p?.description || '',
@@ -95,19 +86,32 @@ function ProjectDetail() {
           engagement_type: p?.engagement_type || '',
           client_ids: Array.isArray(p?.client_ids) ? [...p.client_ids] : p?.client_id ? [p.client_id] : [],
         });
-        const peopleRows = Array.isArray(peopleList) ? peopleList : [];
-        setAllPeople(peopleRows);
-        setPeople(peopleRows.filter((pe) => !p.members?.some((m) => m.person_id === pe.id)));
-        setTasks(Array.isArray(taskList) ? taskList : []);
-        setBacklogItems(Array.isArray(backlogList) ? backlogList : []);
-        setPhases(Array.isArray(phaseList) ? phaseList : []);
-        setWorkPackages(Array.isArray(packageList) ? packageList : []);
+        setLoading(false);
+
+        // Secondary data: fill tabs without blocking the workspace shell.
+        return Promise.all([
+          api.clients.list().catch(() => []),
+          api.people.list().catch(() => []),
+          api.projectTasks.list({ project_id: id }).catch(() => []),
+          api.backlogs.list({ project_id: id }).catch(() => []),
+          api.projectPhases.list({ project_id: id }).catch(() => []),
+          api.workPackages.list({ project_id: id }).catch(() => []),
+        ]).then(([clientsList, peopleList, taskList, backlogList, phaseList, packageList]) => {
+          setClients(Array.isArray(clientsList) ? clientsList : []);
+          const peopleRows = Array.isArray(peopleList) ? peopleList : [];
+          setAllPeople(peopleRows);
+          setPeople(peopleRows.filter((pe) => !p.members?.some((m) => Number(m.person_id) === Number(pe.id))));
+          setTasks(Array.isArray(taskList) ? taskList : []);
+          setBacklogItems(Array.isArray(backlogList) ? backlogList : []);
+          setPhases(Array.isArray(phaseList) ? phaseList : []);
+          setWorkPackages(Array.isArray(packageList) ? packageList : []);
+        });
       })
       .catch((err) => {
         setProject(null);
         setLoadError(err.message || 'Failed to load project');
-      })
-      .finally(() => setLoading(false));
+        setLoading(false);
+      });
   };
 
   useEffect(() => { load(); }, [id]);

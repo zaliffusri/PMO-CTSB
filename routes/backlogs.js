@@ -39,32 +39,45 @@ import { notifyPersonInApp } from '../lib/notifyUser.js';
 
 export const backlogsRouter = Router();
 
-async function enrichBacklog(item) {
-  const [projects, clients, people, issues, tasks, phases, workPackages, users, comments] = await Promise.all([
-    store.listProjects(),
-    store.listClients(),
-    store.listPeople(),
-    store.listIssues(),
-    store.listProjectTasks(),
-    store.listProjectPhases(),
-    store.listWorkPackages(),
-    store.listUsers(),
-    store.listBacklogComments(item.id),
-  ]);
-  const project = projects.find((p) => p.id === item.project_id);
-  const client = item.client_id ? clients.find((c) => c.id === item.client_id) : null;
-  const assignee = item.assignee_person_id
-    ? people.find((p) => p.id === item.assignee_person_id)
+async function enrichBacklog(item, preloaded = null) {
+  const ctx = preloaded || {
+    projects: await store.listProjects(),
+    clients: await store.listClients(),
+    people: await store.listPeople(),
+    issues: await store.listIssues(),
+    tasks: await store.listProjectTasks(
+      item.project_id != null ? { project_id: item.project_id } : {},
+    ),
+    phases: await store.listProjectPhases(item.project_id ?? undefined),
+    workPackages: await store.listWorkPackages(item.project_id ?? undefined),
+    users: await store.listUsers(),
+    commentCountByBacklog: new Map(),
+  };
+  const project = ctx.projects.find((p) => Number(p.id) === Number(item.project_id));
+  const client = item.client_id
+    ? ctx.clients.find((c) => Number(c.id) === Number(item.client_id))
     : null;
-  const issue = item.issue_id ? issues.find((i) => i.id === item.issue_id) : null;
-  const task = item.task_id ? tasks.find((t) => t.id === item.task_id) : null;
-  const phase = item.phase_id ? phases.find((ph) => ph.id === item.phase_id) : null;
+  const assignee = item.assignee_person_id
+    ? ctx.people.find((p) => Number(p.id) === Number(item.assignee_person_id))
+    : null;
+  const issue = item.issue_id
+    ? ctx.issues.find((i) => Number(i.id) === Number(item.issue_id))
+    : null;
+  const task = item.task_id
+    ? ctx.tasks.find((t) => Number(t.id) === Number(item.task_id))
+    : null;
+  const phase = item.phase_id
+    ? ctx.phases.find((ph) => Number(ph.id) === Number(item.phase_id))
+    : null;
   const wp = item.work_package_id
-    ? workPackages.find((w) => w.id === item.work_package_id)
+    ? ctx.workPackages.find((w) => Number(w.id) === Number(item.work_package_id))
     : null;
   const creator = item.created_by_user_id
-    ? users.find((u) => u.id === item.created_by_user_id)
+    ? ctx.users.find((u) => Number(u.id) === Number(item.created_by_user_id))
     : null;
+  const commentCount = ctx.commentCountByBacklog?.has(Number(item.id))
+    ? ctx.commentCountByBacklog.get(Number(item.id))
+    : (await store.listBacklogComments(item.id)).length;
 
   return {
     ...item,
@@ -80,9 +93,62 @@ async function enrichBacklog(item) {
     phase_name: phase?.name ?? null,
     work_package_name: wp?.name ?? null,
     work_package_classification: wp?.classification ?? null,
-    comment_count: comments.length,
+    comment_count: commentCount,
   };
 }
+
+async function loadBacklogListContext(projectId = null, backlogRows = []) {
+  const filters = Number.isFinite(projectId) ? { project_id: projectId } : {};
+  const needsIssues = backlogRows.some((b) => b.issue_id != null);
+  const [projects, clients, people, issues, tasks, phases, workPackages, users] = await Promise.all([
+    Number.isFinite(projectId) && typeof store.findProjectById === 'function'
+      ? store.findProjectById(projectId).then((p) => (p ? [p] : [])).catch(() => [])
+      : store.listProjects().catch(() => []),
+    store.listClients().catch(() => []),
+    store.listPeople().catch(() => []),
+    needsIssues ? store.listIssues().catch(() => []) : Promise.resolve([]),
+    store.listProjectTasks(filters).catch(() => []),
+    store.listProjectPhases(projectId ?? undefined).catch(() => []),
+    store.listWorkPackages(projectId ?? undefined).catch(() => []),
+    store.listUsers().catch(() => []),
+  ]);
+  return {
+    projects,
+    clients,
+    people,
+    issues,
+    tasks,
+    phases,
+    workPackages,
+    users,
+    commentCountByBacklog: new Map(),
+  };
+}
+
+backlogsRouter.get('/', async (req, res) => {
+  await reloadStore();
+  const projectId = req.query.project_id ? +req.query.project_id : null;
+  const status = req.query.status;
+  const itemType = req.query.item_type;
+  const source = req.query.source;
+  const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
+  const filters = {};
+  if (Number.isFinite(projectId)) filters.project_id = projectId;
+  if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
+  let backlogs = await store.listBacklogs(filters);
+  if (status && status !== 'all') backlogs = backlogs.filter((b) => b.status === status);
+  if (itemType && itemType !== 'all') backlogs = backlogs.filter((b) => b.item_type === itemType);
+  if (source && source !== 'all') backlogs = backlogs.filter((b) => b.source === source);
+  const ctx = await loadBacklogListContext(
+    Number.isFinite(projectId) ? projectId : null,
+    backlogs,
+  );
+  // Skip per-row comment fetches on list views — keep workspace opens fast.
+  ctx.commentCountByBacklog = new Map(backlogs.map((b) => [Number(b.id), 0]));
+  let list = await Promise.all(backlogs.map((b) => enrichBacklog(b, ctx)));
+  list.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+  res.json(list);
+});
 
 async function enrichComment(comment) {
   const [users, backlogs, people] = await Promise.all([
@@ -104,24 +170,6 @@ async function enrichComment(comment) {
     roster_people: roster.map((p) => ({ id: p.id, name: p.name, email: p.email })),
   };
 }
-
-backlogsRouter.get('/', async (req, res) => {
-  await reloadStore();
-  const projectId = req.query.project_id ? +req.query.project_id : null;
-  const status = req.query.status;
-  const itemType = req.query.item_type;
-  const source = req.query.source;
-  const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  const backlogs = await store.listBacklogs();
-  let list = await Promise.all(backlogs.map(enrichBacklog));
-  if (projectId) list = list.filter((b) => b.project_id === projectId);
-  if (workPackageId) list = list.filter((b) => b.work_package_id === workPackageId);
-  if (status && status !== 'all') list = list.filter((b) => b.status === status);
-  if (itemType && itemType !== 'all') list = list.filter((b) => b.item_type === itemType);
-  if (source && source !== 'all') list = list.filter((b) => b.source === source);
-  list.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
-  res.json(list);
-});
 
 backlogsRouter.get('/:id/comments', async (req, res) => {
   const backlogs = await store.listBacklogs();

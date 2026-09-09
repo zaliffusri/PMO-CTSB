@@ -49,33 +49,43 @@ projectsRouter.get('/:id', async (req, res) => {
   const id = +req.params.id;
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid project id' });
 
-  const findProject = async () => {
-    if (typeof store.findProjectById === 'function') {
-      return store.findProjectById(id);
+  try {
+    let project = typeof store.findProjectById === 'function'
+      ? await store.findProjectById(id)
+      : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
+
+    if (!project) {
+      try {
+        await store.reloadFromSupabase();
+      } catch (e) {
+        console.warn('reload:', e.message);
+      }
+      project = typeof store.findProjectById === 'function'
+        ? await store.findProjectById(id)
+        : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
     }
-    const projects = await store.listProjects();
-    return projects.find((p) => Number(p.id) === id);
-  };
-  let project = await findProject();
-  if (!project) {
-    // Warm serverless instances may still have a pre-create in-memory snapshot.
-    try {
-      await store.reloadFromSupabase();
-    } catch (e) {
-      console.warn('reload:', e.message);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const assignments = await store.listAssignments({ project_id: id });
+    const personIds = [...new Set(
+      assignments.map((a) => Number(a.person_id)).filter(Number.isFinite),
+    )];
+    let people = [];
+    if (personIds.length) {
+      const allPeople = await store.listPeople();
+      const wanted = new Set(personIds);
+      people = allPeople.filter((pe) => wanted.has(Number(pe.id)));
     }
-    project = await findProject();
-  }
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  const assignments = await store.listAssignments();
-  const people = await store.listPeople();
-  const members = assignments
-    .filter((a) => Number(a.project_id) === id)
-    .map((a) => {
-      const person = people.find((pe) => Number(pe.id) === Number(a.person_id));
+    const peopleById = new Map(people.map((pe) => [Number(pe.id), pe]));
+    const members = assignments.map((a) => {
+      const person = peopleById.get(Number(a.person_id));
       return { ...a, name: person?.name, email: person?.email, role: person?.role };
     });
-  res.json(await enrichProject(project, { members }));
+    res.json(await enrichProject(project, { members }));
+  } catch (e) {
+    console.error('projects GET/:id failed', e);
+    res.status(500).json({ error: e.message || 'Failed to load project' });
+  }
 });
 
 projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => {

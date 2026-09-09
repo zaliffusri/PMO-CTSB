@@ -8,9 +8,18 @@ import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete } from '../runtime/que
 export function createAssignmentsRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
-  async function listAssignments() {
-    if (!isDbMode()) return [...getData().project_assignments];
-    return dbSelect('project_assignments', { order: 'id' });
+  async function listAssignments(filters = {}) {
+    const projectId = filters.project_id != null && filters.project_id !== ''
+      ? Number(filters.project_id)
+      : null;
+    if (!isDbMode()) {
+      let rows = [...getData().project_assignments];
+      if (Number.isFinite(projectId)) rows = rows.filter((a) => Number(a.project_id) === projectId);
+      return rows;
+    }
+    const dbFilters = {};
+    if (Number.isFinite(projectId)) dbFilters.project_id = projectId;
+    return dbSelect('project_assignments', { filters: dbFilters, order: 'id' });
   }
 
   return {
