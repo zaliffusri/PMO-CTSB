@@ -1256,6 +1256,7 @@ export default function Calendar() {
         onSubmit={submit}
         onClose={() => { setShowForm(false); setEditingActivityId(null); }}
         mutating={mutating}
+        userRole={user?.role}
       />
       <CalendarMonthGrid
         year={year}

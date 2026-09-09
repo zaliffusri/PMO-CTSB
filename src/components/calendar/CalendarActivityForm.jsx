@@ -19,6 +19,7 @@ export default function CalendarActivityForm({
   onSubmit,
   onClose,
   mutating,
+  userRole,
 }) {
   if (!open) return null;
 
