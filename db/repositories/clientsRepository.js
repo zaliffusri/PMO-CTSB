@@ -308,10 +308,11 @@ export function createClientsRepository(ctx, getStore) {
     },
 
     async getClientContacts(clientId) {
+      const cid = Number(clientId);
       if (!isDbMode()) {
-        return (getData().client_contacts || []).filter((cc) => cc.client_id === clientId);
+        return (getData().client_contacts || []).filter((cc) => Number(cc.client_id) === cid);
       }
-      return dbSelect('client_contacts', { filters: { client_id: clientId }, order: 'id' });
+      return dbSelect('client_contacts', { filters: { client_id: cid }, order: 'id' });
     },
   };
 }

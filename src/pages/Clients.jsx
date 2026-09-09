@@ -9,6 +9,7 @@ import ImageUploadField from '../components/ImageUploadField';
 import UiEmptyState from '../components/UiEmptyState';
 import ModuleFilterBar from '../components/ModuleFilterBar';
 import PageLoadingState from '../components/PageLoadingState';
+import PageLoadError from '../components/PageLoadError';
 import { IMAGE_PRESETS } from '../lib/imageResize';
 
 function companyMatchesSearch(company, q) {
@@ -183,18 +184,28 @@ export default function Clients() {
   const { user } = useAuth();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingPic, setEditingPic] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState(emptyForm);
   const { pending: saving, run } = useSubmitLock();
 
-  const load = () =>
-    api.clients
+  const load = () => {
+    setLoading(true);
+    setLoadError('');
+    return api.clients
       .list()
-      .then(setCompanies)
-      .catch(console.error)
+      .then((rows) => {
+        setCompanies(Array.isArray(rows) ? rows : []);
+      })
+      .catch((err) => {
+        console.error(err);
+        setCompanies([]);
+        setLoadError(err?.message || 'Could not load clients');
+      })
       .finally(() => setLoading(false));
+  };
 
   const filteredCompanies = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -318,6 +329,15 @@ export default function Clients() {
   };
 
   if (loading) return <PageLoadingState message="Loading clients…" />;
+  if (loadError) {
+    return (
+      <PageLoadError
+        title="Could not load clients"
+        message={loadError}
+        onRetry={load}
+      />
+    );
+  }
 
   return (
     <div className="page-module clients-page">

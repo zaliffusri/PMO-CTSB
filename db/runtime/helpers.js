@@ -88,11 +88,14 @@ export function migrateLegacyProjectClients(snapshot) {
 }
 
 export function companyRowForDb(c) {
-  return {
+  const row = {
     id: c.id,
     name: c.name,
     created_at: c.created_at,
   };
+  if (c.short_code !== undefined) row.short_code = c.short_code;
+  if (c.logo_url !== undefined) row.logo_url = c.logo_url;
+  return row;
 }
 
 export function projectRowForDb(p) {

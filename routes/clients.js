@@ -6,33 +6,78 @@ import {
   repairAllLegacyClientContacts,
   isLegacyContactBlob,
 } from '../lib/clientContactLegacy.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const clientsRouter = Router();
 
-async function companyProjects(clientId) {
-  const projectClients = await store.listProjectClients();
-  const projects = await store.listProjects();
-  const projectIds = new Set(
-    (projectClients || [])
-      .filter((pc) => pc.client_id === clientId)
-      .map((pc) => pc.project_id),
-  );
-  return projects
-    .filter((p) => projectIds.has(p.id))
-    .map((p) => ({ id: p.id, name: p.name, status: p.status }))
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+function isMissingRelationError(err) {
+  const msg = String(err?.message || err || '');
+  return /schema cache|Could not find|does not exist|PGRST204|relation .* does not exist/i.test(msg);
 }
 
-async function buildCompanyResponse(client) {
-  const rawContacts = await store.getClientContacts(client.id);
-  const contacts = expandClientContacts(
-    rawContacts.sort((a, b) => (a.contact_name || '').localeCompare(b.contact_name || '')),
+async function safeList(label, fn, fallback = []) {
+  try {
+    const rows = await fn();
+    return Array.isArray(rows) ? rows : fallback;
+  } catch (e) {
+    if (isMissingRelationError(e)) {
+      console.warn(`clients: ${label} unavailable — ${e.message || e}`);
+      return fallback;
+    }
+    throw e;
+  }
+}
+
+function contactsByClientId(allContacts) {
+  const map = new Map();
+  for (const cc of allContacts || []) {
+    const cid = Number(cc.client_id);
+    if (!Number.isFinite(cid)) continue;
+    if (!map.has(cid)) map.set(cid, []);
+    map.get(cid).push(cc);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => (a.contact_name || '').localeCompare(b.contact_name || ''));
+  }
+  return map;
+}
+
+function projectsByClientId(projectClients, projects) {
+  const projectById = new Map(
+    (projects || [])
+      .filter((p) => p && p.id != null)
+      .map((p) => [Number(p.id), p]),
   );
-  const projects = await companyProjects(client.id);
+  const map = new Map();
+  for (const pc of projectClients || []) {
+    const cid = Number(pc.client_id);
+    const pid = Number(pc.project_id);
+    if (!Number.isFinite(cid) || !Number.isFinite(pid)) continue;
+    const project = projectById.get(pid);
+    if (!project) continue;
+    if (!map.has(cid)) map.set(cid, []);
+    map.get(cid).push({
+      id: project.id,
+      name: project.name,
+      status: project.status,
+    });
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }
+  return map;
+}
+
+function buildCompanyFromMaps(client, contactMap, projectMap) {
+  const cid = Number(client.id);
+  const rawContacts = contactMap.get(cid) || [];
+  const contacts = expandClientContacts(rawContacts);
+  const projects = projectMap.get(cid) || [];
   return {
     id: client.id,
     name: client.name,
     logo_url: client.logo_url || null,
+    short_code: client.short_code || null,
     created_at: client.created_at,
     contacts,
     project_count: projects.length,
@@ -40,39 +85,60 @@ async function buildCompanyResponse(client) {
   };
 }
 
-async function maybeRepairLegacyContacts() {
-  const { clientsTouched, contactsCreated } = await repairAllLegacyClientContacts(store);
-  if (contactsCreated > 0) {
-    try {
-      await store.persistToSupabase();
-    } catch (e) {
-      console.warn('clients: legacy contact repair persist failed', e.message);
-    }
-  }
-  return { clientsTouched, contactsCreated };
+async function loadCompanyMaps() {
+  const [allContacts, projectClients, projects] = await Promise.all([
+    safeList('client_contacts', () => store.listClientContacts()),
+    safeList('project_clients', () => store.listProjectClients()),
+    safeList('projects', () => store.listProjects()),
+  ]);
+  return {
+    contactMap: contactsByClientId(allContacts),
+    projectMap: projectsByClientId(projectClients, projects),
+  };
 }
 
-clientsRouter.get('/', async (req, res) => {
+async function buildCompanyResponse(client) {
+  const { contactMap, projectMap } = await loadCompanyMaps();
+  return buildCompanyFromMaps(client, contactMap, projectMap);
+}
+
+async function maybeRepairLegacyContacts() {
+  try {
+    const { contactsCreated } = await repairAllLegacyClientContacts(store);
+    if (contactsCreated > 0) {
+      try {
+        await store.persistToSupabase();
+      } catch (e) {
+        console.warn('clients: legacy contact repair persist failed', e.message);
+      }
+    }
+  } catch (e) {
+    // Never block the clients list on repair failures (missing table, etc.).
+    console.warn('clients: legacy contact repair skipped', e?.message || e);
+  }
+}
+
+clientsRouter.get('/', asyncHandler(async (req, res) => {
   await maybeRepairLegacyContacts();
   const clients = await store.listClients();
-  const sorted = clients.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  const rows = [];
-  for (const c of sorted) {
-    rows.push(await buildCompanyResponse(c));
-  }
-  res.json(rows);
-});
+  const sorted = [...(Array.isArray(clients) ? clients : [])].sort((a, b) =>
+    (a.name || '').localeCompare(b.name || ''),
+  );
+  const { contactMap, projectMap } = await loadCompanyMaps();
+  res.json(sorted.map((c) => buildCompanyFromMaps(c, contactMap, projectMap)));
+}));
 
-clientsRouter.get('/:id', async (req, res) => {
+clientsRouter.get('/:id', asyncHandler(async (req, res) => {
   await maybeRepairLegacyContacts();
   const id = +req.params.id;
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid client id' });
   const client = await store.getClientById(id);
   if (!client) return res.status(404).json({ error: 'Client not found' });
   res.json(await buildCompanyResponse(client));
-});
+}));
 
 /** Add a PIC to an existing company or create company + PIC */
-clientsRouter.post('/', async (req, res) => {
+clientsRouter.post('/', asyncHandler(async (req, res) => {
   const {
     company_id,
     company_name,
@@ -116,12 +182,12 @@ clientsRouter.post('/', async (req, res) => {
     summary: hasPic ? `Added PIC for company "${label}"` : `Created company "${label}"`,
   });
   res.status(201).json(await buildCompanyResponse(client));
-});
+}));
 
-clientsRouter.put('/contacts/:contactId', async (req, res) => {
+clientsRouter.put('/contacts/:contactId', asyncHandler(async (req, res) => {
   const contactId = +req.params.contactId;
   const contacts = await store.listClientContacts();
-  const existing = contacts.find((cc) => cc.id === contactId);
+  const existing = contacts.find((cc) => Number(cc.id) === contactId);
   if (!existing) return res.status(404).json({ error: 'Contact not found' });
   const { contact_name, email, phone } = req.body;
   await store.updateClientContact(contactId, {
@@ -137,12 +203,12 @@ clientsRouter.put('/contacts/:contactId', async (req, res) => {
     summary: `Updated PIC for company "${client?.name || existing.client_id}"`,
   });
   res.json(await buildCompanyResponse(client));
-});
+}));
 
-clientsRouter.delete('/contacts/:contactId', async (req, res) => {
+clientsRouter.delete('/contacts/:contactId', asyncHandler(async (req, res) => {
   const contactId = +req.params.contactId;
   const contacts = await store.listClientContacts();
-  const existing = contacts.find((cc) => cc.id === contactId);
+  const existing = contacts.find((cc) => Number(cc.id) === contactId);
   if (!existing) return res.status(404).json({ error: 'Contact not found' });
   const client = await store.getClientById(existing.client_id);
   await store.deleteClientContact(contactId);
@@ -153,9 +219,9 @@ clientsRouter.delete('/contacts/:contactId', async (req, res) => {
     summary: `Removed PIC from company "${client?.name || existing.client_id}"`,
   });
   res.status(204).send();
-});
+}));
 
-clientsRouter.put('/:id', async (req, res) => {
+clientsRouter.put('/:id', asyncHandler(async (req, res) => {
   const { name } = req.body;
   const id = +req.params.id;
   const existing = await store.getClientById(id);
@@ -166,7 +232,7 @@ clientsRouter.put('/:id', async (req, res) => {
   const trimmedName = name !== undefined ? (name || '').trim() : existing.name;
   const clients = await store.listClients();
   const duplicate = clients.find(
-    (c) => c.id !== id && (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase(),
+    (c) => Number(c.id) !== id && (c.name || '').trim().toLowerCase() === trimmedName.toLowerCase(),
   );
   if (duplicate) return res.status(400).json({ error: 'A company with this name already exists' });
   const patch = { name: trimmedName };
@@ -175,7 +241,18 @@ clientsRouter.put('/:id', async (req, res) => {
       ? null
       : validateImageDataUrl(req.body.logo_url, { maxBytes: 120_000, field: 'logo_url' });
   }
-  await store.updateClient(id, patch);
+  try {
+    await store.updateClient(id, patch);
+  } catch (e) {
+    // Older DBs may not have logo_url — still allow name-only updates.
+    if (patch.logo_url !== undefined && isMissingRelationError(e)) {
+      console.warn('clients: logo_url column missing — saving name only');
+      const { logo_url: _logo, ...nameOnly } = patch;
+      await store.updateClient(id, nameOnly);
+    } else {
+      throw e;
+    }
+  }
   await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'client',
@@ -184,9 +261,9 @@ clientsRouter.put('/:id', async (req, res) => {
   });
   const client = await store.getClientById(id);
   res.json(await buildCompanyResponse(client));
-});
+}));
 
-clientsRouter.delete('/:id', async (req, res) => {
+clientsRouter.delete('/:id', asyncHandler(async (req, res) => {
   const id = +req.params.id;
   const existing = await store.getClientById(id);
   if (!existing) return res.status(404).json({ error: 'Client not found' });
@@ -198,4 +275,4 @@ clientsRouter.delete('/:id', async (req, res) => {
     summary: `Deleted company "${existing.name}"`,
   });
   res.status(204).send();
-});
+}));
