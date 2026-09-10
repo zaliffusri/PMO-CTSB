@@ -20,6 +20,7 @@ import {
   formatDueDate,
   formatActivityTime,
 } from '../../lib/myWorkUtils.js';
+import { formatActivityDisplayTitle } from '../utils/calendarUtils.js';
 
 const OPEN_ISSUE_STATUSES = new Set(['open', 'in_progress', 'waiting_agency']);
 
@@ -225,7 +226,7 @@ function ScheduleRow({ activity, isLast }) {
           <span className="my-work-timeline-item__sep">–</span>
           {end}
         </div>
-        <strong className="my-work-timeline-item__title">{activity.title}</strong>
+        <strong className="my-work-timeline-item__title">{formatActivityDisplayTitle(activity)}</strong>
         <p className="my-work-timeline-item__meta">
           {activity.project_name && <span>{activity.project_name}</span>}
           {activity.location && activity.location !== '—' && <span>{activity.location}</span>}
@@ -728,7 +729,7 @@ export default function MyWork() {
                   {sortedActivities.slice(0, 5).map((a) => (
                     <li key={a.id} className="my-work-aside-timeline__item">
                       <span className="my-work-aside-timeline__time">{formatActivityTime(a.start_at)}</span>
-                      <span className="my-work-aside-timeline__title">{a.title}</span>
+                      <span className="my-work-aside-timeline__title">{formatActivityDisplayTitle(a)}</span>
                     </li>
                   ))}
                 </ol>

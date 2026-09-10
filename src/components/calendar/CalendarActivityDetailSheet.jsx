@@ -3,6 +3,7 @@ import {
   activityDescriptionForCalendarDisplay,
   activityTypeLabel,
   activityWasEditedAfterCreate,
+  formatActivityDisplayTitle,
   formatActivityTimeRange,
   formatAuditWhen,
 } from '../../utils/calendarUtils.js';
@@ -19,6 +20,7 @@ export default function CalendarActivityDetailSheet({
 }) {
   if (!a) return null;
   const rangeLabel = formatActivityTimeRange(a);
+  const displayTitle = formatActivityDisplayTitle(a);
   const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
   const typeClass = activityCssClass(a.type);
   return (
@@ -35,7 +37,7 @@ export default function CalendarActivityDetailSheet({
           <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
             {activityTypeLabel(a.type)}
           </span>
-          <h3 id="calendar-detail-heading" className="calendar-detail-sheet-title">{a.title}</h3>
+          <h3 id="calendar-detail-heading" className="calendar-detail-sheet-title">{displayTitle}</h3>
           <p className="calendar-detail-sheet-line calendar-detail-sheet-muted">{rangeLabel}</p>
         </div>
         <dl className="calendar-detail-facts">

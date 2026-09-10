@@ -115,9 +115,26 @@ async function buildPersonNameCache() {
   return cache;
 }
 
-async function enrichActivityForClient(a, projects = null, nameCache = null) {
+/** Map project_id → client short_code (one client per project). */
+async function buildClientShortCodeByProjectId(projectIds) {
+  const map = new Map();
+  const ids = [...new Set((projectIds || []).map(Number).filter(Number.isFinite))];
+  if (!ids.length) return map;
+  await Promise.all(ids.map(async (pid) => {
+    try {
+      const clients = await store.getClientsForProject(pid);
+      const code = String(clients?.[0]?.short_code || '').trim();
+      if (code) map.set(pid, code);
+    } catch (e) {
+      console.warn('buildClientShortCodeByProjectId failed', pid, e?.message || e);
+    }
+  }));
+  return map;
+}
+
+async function enrichActivityForClient(a, projects = null, nameCache = null, shortCodeByProject = null) {
   const projectList = projects || await store.listProjects();
-  const project = projectList.find((p) => p.id === a.project_id);
+  const project = projectList.find((p) => Number(p.id) === Number(a.project_id));
   const actors = resolveActivityActors(a);
   const createdByName =
     actors.created_by_name
@@ -128,12 +145,29 @@ async function enrichActivityForClient(a, projects = null, nameCache = null) {
     || await activityPersonName(actors.updated_by_user_id, nameCache)
     || null;
 
+  let client_short_code = null;
+  if (a.project_id != null) {
+    const pid = Number(a.project_id);
+    if (shortCodeByProject?.has(pid)) {
+      client_short_code = shortCodeByProject.get(pid) || null;
+    } else if (shortCodeByProject == null) {
+      try {
+        const clients = await store.getClientsForProject(pid);
+        const code = String(clients?.[0]?.short_code || '').trim();
+        client_short_code = code || null;
+      } catch {
+        client_short_code = null;
+      }
+    }
+  }
+
   return {
     ...a,
     type: normalizeActivityType(a.type),
     person_name: await activityPersonName(a.person_id, nameCache),
     external_attendees: a.external_attendees != null ? String(a.external_attendees) : null,
     project_name: project?.name,
+    client_short_code,
     // Never expose embed marker to clients as "notes".
     description: stripActorEmbedFromDescription(a.description) || null,
     created_by_name: createdByName,
@@ -225,8 +259,11 @@ activitiesRouter.get('/', async (req, res) => {
     buildPersonNameCache(),
   ]);
 
+  const shortCodeByProject = await buildClientShortCodeByProjectId(
+    activities.map((a) => a.project_id),
+  );
   const rows = await Promise.all(
-    activities.map((a) => enrichActivityForClient(a, projects, nameCache)),
+    activities.map((a) => enrichActivityForClient(a, projects, nameCache, shortCodeByProject)),
   );
   res.json(rows);
 });
@@ -241,7 +278,12 @@ async function listActivitiesInRange(from, to) {
     store.listProjects(),
     buildPersonNameCache(),
   ]);
-  return Promise.all(activities.map((a) => enrichActivityForClient(a, projects, nameCache)));
+  const shortCodeByProject = await buildClientShortCodeByProjectId(
+    activities.map((a) => a.project_id),
+  );
+  return Promise.all(
+    activities.map((a) => enrichActivityForClient(a, projects, nameCache, shortCodeByProject)),
+  );
 }
 
 function periodLabelFromRange(fromRaw, toRaw) {

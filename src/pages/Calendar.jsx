@@ -28,6 +28,7 @@ import {
   activityCssClass,
   escapeHtml,
   firstNonEmpty,
+  formatActivityDisplayTitle,
   getCalendarGrid,
   getMonthRange,
   groupActivitiesForCalendar,
@@ -581,7 +582,7 @@ export default function Calendar() {
           date: new Date(year, month - 1, day).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
           staff_name: [a.person_name, a.external_attendees].filter(Boolean).join(', ') || '-',
           client: a.project_id != null ? clientByProjectId[String(a.project_id)] || '-' : '-',
-          title: a.title || '-',
+          title: formatActivityDisplayTitle(a) || '-',
           location: a.location || '-',
         });
       }

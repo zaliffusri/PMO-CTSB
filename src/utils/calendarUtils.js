@@ -167,6 +167,24 @@ export function activityTypeLabel(type) {
   return ACTIVITY_TYPE_LABELS[type] || String(type || 'Other').toUpperCase();
 }
 
+/** Display title with project client short_code first when present (stored title stays plain). */
+export function formatActivityDisplayTitle(activity) {
+  const title = String(activity?.title || '').trim();
+  const code = String(activity?.client_short_code || '').trim();
+  if (!code) return title;
+  const upper = title.toUpperCase();
+  const codeUpper = code.toUpperCase();
+  if (
+    upper === codeUpper
+    || upper.startsWith(`${codeUpper} `)
+    || upper.startsWith(`${codeUpper}\u00B7`)
+    || upper.startsWith(`${codeUpper} \u00B7`)
+  ) {
+    return title;
+  }
+  return title ? `${code} \u00B7 ${title}` : code;
+}
+
 export const DAY_NAMES_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 /** Max activity chips shown per calendar day before "See more". */
 export const CALENDAR_DAY_MAX_VISIBLE = 3;

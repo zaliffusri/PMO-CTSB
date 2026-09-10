@@ -2,16 +2,18 @@ import {
   activityCssClass,
   activityDescriptionForCalendarDisplay,
   activityTypeLabel,
+  formatActivityDisplayTitle,
   formatActivityShortTime,
   formatActivityTimeRange,
 } from '../../utils/calendarUtils.js';
 
 export default function CalendarActivityChip({ activity: a, detailOpen, onToggleDetail }) {
   const rangeLabel = formatActivityTimeRange(a);
+  const displayTitle = formatActivityDisplayTitle(a);
   const descForCalendar = activityDescriptionForCalendarDisplay(a.description);
   const shortTime = formatActivityShortTime(a);
   const typeClass = activityCssClass(a.type);
-  const label = `${activityTypeLabel(a.type)}: ${a.title}. ${a.location ? `${a.location}. ` : ''}${a.person_name ?? ''}. ${rangeLabel}`;
+  const label = `${activityTypeLabel(a.type)}: ${displayTitle}. ${a.location ? `${a.location}. ` : ''}${a.person_name ?? ''}. ${rangeLabel}`;
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -34,7 +36,7 @@ export default function CalendarActivityChip({ activity: a, detailOpen, onToggle
             {activityTypeLabel(a.type)}
           </span>
         </span>
-        <span className="calendar-activity-chip__title">{a.title}</span>
+        <span className="calendar-activity-chip__title">{displayTitle}</span>
         {(a.project_name || a.person_name) && (
           <span className="calendar-activity-chip__meta">
             {[a.project_name, a.person_name].filter(Boolean).join(' · ')}
@@ -42,7 +44,7 @@ export default function CalendarActivityChip({ activity: a, detailOpen, onToggle
         )}
       </button>
       <div className="calendar-activity-popover" role="tooltip">
-        <div className="calendar-activity-popover-title">{a.title}</div>
+        <div className="calendar-activity-popover-title">{displayTitle}</div>
         <div className="calendar-activity-popover-meta">
           <span className={`calendar-activity-chip__type calendar-activity-chip__type--${typeClass}`}>
             {activityTypeLabel(a.type)}

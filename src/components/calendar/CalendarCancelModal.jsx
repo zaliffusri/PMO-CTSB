@@ -1,3 +1,5 @@
+import { formatActivityDisplayTitle } from '../../utils/calendarUtils.js';
+
 export default function CalendarCancelModal({
   activity,
   mutating,
@@ -5,6 +7,7 @@ export default function CalendarCancelModal({
   onClose,
 }) {
   if (!activity) return null;
+  const displayTitle = formatActivityDisplayTitle(activity);
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={() => !mutating && onClose()}>
@@ -31,7 +34,7 @@ export default function CalendarCancelModal({
         </div>
         <div className="modal-dialog-body" style={{ display: 'grid', gap: '0.85rem' }}>
           <p style={{ margin: 0 }}>
-            Cancel <strong>{activity.title}</strong>? This removes it from the calendar
+            Cancel <strong>{displayTitle}</strong>? This removes it from the calendar
             {Array.isArray(activity.person_ids) && activity.person_ids.length > 1
               ? ` (including all ${activity.person_ids.length} assignee records)`
               : ''}
