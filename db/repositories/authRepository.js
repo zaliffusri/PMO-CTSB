@@ -22,6 +22,22 @@ export function createAuthRepository(ctx, getStore) {
     return rows.map(normalizeUserRow);
   }
 
+  async function listUsersByIds(ids = []) {
+    const want = [...new Set((ids || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (!want.length) return [];
+    if (!isDbMode()) {
+      return getData().users
+        .filter((u) => want.includes(Number(u.id)))
+        .map(normalizeUserRow);
+    }
+    const rows = await dbSelect('users_app', {
+      columns: 'id,name,email,role',
+      inFilters: { id: want },
+      order: 'id',
+    });
+    return rows.map(normalizeUserRow);
+  }
+
   async function listSessions() {
     if (!isDbMode()) return [...getData().sessions];
     return dbSelect('sessions_app', { order: 'id' });
@@ -75,6 +91,7 @@ export function createAuthRepository(ctx, getStore) {
     },
 
     listUsers,
+    listUsersByIds,
     listSessions,
     findUserById,
     findUserByEmail,

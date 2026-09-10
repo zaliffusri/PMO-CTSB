@@ -127,14 +127,17 @@ function ProjectDetail() {
           }
 
           try {
-            const [backlogList, phaseList] = await Promise.all([
-              api.backlogs.list({ project_id: id }).catch(() => []),
-              api.projectPhases.list({ project_id: id }).catch(() => []),
-            ]);
+            const backlogList = await api.backlogs.list({ project_id: id }).catch(() => []);
             setBacklogItems(Array.isArray(backlogList) ? backlogList : []);
+          } catch (e) {
+            console.warn('workspace backlog:', e?.message || e);
+          }
+
+          try {
+            const phaseList = await api.projectPhases.list({ project_id: id }).catch(() => []);
             setPhases(Array.isArray(phaseList) ? phaseList : []);
           } catch (e) {
-            console.warn('workspace backlog/phases:', e?.message || e);
+            console.warn('workspace phases:', e?.message || e);
           }
 
           try {

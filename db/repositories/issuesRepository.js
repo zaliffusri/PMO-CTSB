@@ -19,6 +19,19 @@ export function createIssuesRepository(ctx, getStore) {
     return dbSelect('issues_app', { order: 'id' });
   }
 
+  async function listIssuesByIds(ids = []) {
+    const want = [...new Set((ids || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (!want.length) return [];
+    if (!isDbMode()) {
+      return (getData().issues || []).filter((i) => want.includes(Number(i.id)));
+    }
+    return dbSelect('issues_app', {
+      columns: 'id,ticket_no,external_ticket_ref',
+      inFilters: { id: want },
+      order: 'id',
+    });
+  }
+
   return {
     /** @deprecated Prefer listIssues() — sync getter is local-only. */
     get issues() {
@@ -26,6 +39,7 @@ export function createIssuesRepository(ctx, getStore) {
     },
 
     listIssues,
+    listIssuesByIds,
 
     async nextIssueTicketNo(moduleCode = 'XXX') {
       if (!isDbMode()) {

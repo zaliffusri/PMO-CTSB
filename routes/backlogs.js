@@ -98,7 +98,27 @@ async function enrichBacklog(item, preloaded = null) {
 }
 
 async function loadBacklogListContext(projectId = null, backlogRows = []) {
-  const filters = Number.isFinite(projectId) ? { project_id: projectId } : {};
+  const taskIds = [
+    ...new Set(
+      (backlogRows || [])
+        .map((b) => Number(b.task_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  const phaseIds = [
+    ...new Set(
+      (backlogRows || [])
+        .map((b) => Number(b.phase_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  const wpIds = [
+    ...new Set(
+      (backlogRows || [])
+        .map((b) => Number(b.work_package_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
   const issueIds = [
     ...new Set(
       (backlogRows || [])
@@ -128,29 +148,55 @@ async function loadBacklogListContext(projectId = null, backlogRows = []) {
     ),
   ];
 
+  const taskFilters = Number.isFinite(projectId)
+    ? { project_id: projectId, columns: 'id,name' }
+    : { columns: 'id,name,project_id' };
+
   const [projects, clients, people, issues, tasks, phases, workPackages, users] = await Promise.all([
     Number.isFinite(projectId) && typeof store.findProjectById === 'function'
       ? store.findProjectById(projectId, { includeCover: false }).then((p) => (p ? [p] : [])).catch(() => [])
       : store.listProjects().catch(() => []),
-    clientIds.length
-      ? store.listClients().then((rows) => rows.filter((c) => clientIds.includes(Number(c.id)))).catch(() => [])
+    clientIds.length && typeof store.listClientsByIds === 'function'
+      ? store.listClientsByIds(clientIds).catch(() => [])
+      : clientIds.length
+        ? store.listClients().then((rows) => rows.filter((c) => clientIds.includes(Number(c.id)))).catch(() => [])
+        : Promise.resolve([]),
+    assigneeIds.length && typeof store.listPeopleByIds === 'function'
+      ? store.listPeopleByIds(assigneeIds).catch(() => [])
+      : assigneeIds.length
+        ? store.listPeople().then((rows) => rows.filter((p) => assigneeIds.includes(Number(p.id)))).catch(() => [])
+        : Promise.resolve([]),
+    issueIds.length && typeof store.listIssuesByIds === 'function'
+      ? store.listIssuesByIds(issueIds).catch(() => [])
+      : issueIds.length
+        ? store.listIssues().then((rows) => rows.filter((i) => issueIds.includes(Number(i.id)))).catch(() => [])
+        : Promise.resolve([]),
+    taskIds.length
+      ? store.listProjectTasks(taskFilters)
+          .then((rows) => rows.filter((t) => taskIds.includes(Number(t.id))))
+          .catch(() => [])
       : Promise.resolve([]),
-    assigneeIds.length || !Number.isFinite(projectId)
-      ? store.listPeople().then((rows) => (
-          assigneeIds.length
-            ? rows.filter((p) => assigneeIds.includes(Number(p.id)))
-            : rows
-        )).catch(() => [])
+    phaseIds.length
+      ? store.listProjectPhases(
+          Number.isFinite(projectId) ? projectId : undefined,
+          { columns: 'id,name' },
+        )
+          .then((rows) => rows.filter((ph) => phaseIds.includes(Number(ph.id))))
+          .catch(() => [])
       : Promise.resolve([]),
-    issueIds.length && typeof store.listIssues === 'function'
-      ? store.listIssues().then((rows) => rows.filter((i) => issueIds.includes(Number(i.id)))).catch(() => [])
+    wpIds.length
+      ? store.listWorkPackages(
+          Number.isFinite(projectId) ? projectId : undefined,
+          { columns: 'id,name,classification' },
+        )
+          .then((rows) => rows.filter((w) => wpIds.includes(Number(w.id))))
+          .catch(() => [])
       : Promise.resolve([]),
-    store.listProjectTasks(filters).catch(() => []),
-    store.listProjectPhases(projectId ?? undefined).catch(() => []),
-    store.listWorkPackages(projectId ?? undefined).catch(() => []),
-    creatorIds.length
-      ? store.listUsers().then((rows) => rows.filter((u) => creatorIds.includes(Number(u.id)))).catch(() => [])
-      : Promise.resolve([]),
+    creatorIds.length && typeof store.listUsersByIds === 'function'
+      ? store.listUsersByIds(creatorIds).catch(() => [])
+      : creatorIds.length
+        ? store.listUsers().then((rows) => rows.filter((u) => creatorIds.includes(Number(u.id)))).catch(() => [])
+        : Promise.resolve([]),
   ]);
   return {
     projects,
@@ -166,28 +212,38 @@ async function loadBacklogListContext(projectId = null, backlogRows = []) {
 }
 
 backlogsRouter.get('/', async (req, res) => {
-  await reloadStore();
-  const projectId = req.query.project_id ? +req.query.project_id : null;
-  const status = req.query.status;
-  const itemType = req.query.item_type;
-  const source = req.query.source;
-  const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  const filters = {};
-  if (Number.isFinite(projectId)) filters.project_id = projectId;
-  if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
-  let backlogs = await store.listBacklogs(filters);
-  if (status && status !== 'all') backlogs = backlogs.filter((b) => b.status === status);
-  if (itemType && itemType !== 'all') backlogs = backlogs.filter((b) => b.item_type === itemType);
-  if (source && source !== 'all') backlogs = backlogs.filter((b) => b.source === source);
-  const ctx = await loadBacklogListContext(
-    Number.isFinite(projectId) ? projectId : null,
-    backlogs,
-  );
-  // Skip per-row comment fetches on list views — keep workspace opens fast.
-  ctx.commentCountByBacklog = new Map(backlogs.map((b) => [Number(b.id), 0]));
-  let list = await Promise.all(backlogs.map((b) => enrichBacklog(b, ctx)));
-  list.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
-  res.json(list);
+  try {
+    const projectId = req.query.project_id ? +req.query.project_id : null;
+    const status = req.query.status;
+    const itemType = req.query.item_type;
+    const source = req.query.source;
+    const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
+    const filters = {};
+    if (Number.isFinite(projectId)) filters.project_id = projectId;
+    if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
+    let backlogs = await store.listBacklogs(filters);
+    if (status && status !== 'all') backlogs = backlogs.filter((b) => b.status === status);
+    if (itemType && itemType !== 'all') backlogs = backlogs.filter((b) => b.item_type === itemType);
+    if (source && source !== 'all') backlogs = backlogs.filter((b) => b.source === source);
+    if (!backlogs?.length) return res.json([]);
+
+    const ctx = await loadBacklogListContext(
+      Number.isFinite(projectId) ? projectId : null,
+      backlogs,
+    );
+    // Skip per-row comment fetches on list views — keep workspace opens fast.
+    ctx.commentCountByBacklog = new Map(backlogs.map((b) => [Number(b.id), 0]));
+    let list = await Promise.all(backlogs.map((b) => enrichBacklog(b, ctx)));
+    list.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+    res.json(list);
+  } catch (e) {
+    console.error('backlogs GET failed', e);
+    const msg = String(e?.message || e || '');
+    if (/does not exist|schema cache|PGRST204/i.test(msg)) {
+      return res.json([]);
+    }
+    res.status(500).json({ error: e?.message || 'Failed to load backlogs' });
+  }
 });
 
 async function enrichComment(comment) {

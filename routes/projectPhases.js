@@ -41,12 +41,16 @@ async function enrichPhase(phase, preloaded = null) {
 
 async function loadPhaseMetaContext(projectId = null) {
   const pid = Number.isFinite(projectId) ? projectId : null;
+  const backlogFilters = pid != null
+    ? { project_id: pid, columns: 'id,phase_id,work_package_id' }
+    : { columns: 'id,phase_id,work_package_id,project_id' };
+
   const [projects, workPackages, backlogs] = await Promise.all([
     pid != null && typeof store.findProjectById === 'function'
       ? store.findProjectById(pid, { includeCover: false }).then((p) => (p ? [p] : [])).catch(() => [])
-      : store.listProjects(),
-    store.listWorkPackages(pid ?? undefined),
-    store.listBacklogs(pid != null ? { project_id: pid } : {}),
+      : store.listProjects().catch(() => []),
+    store.listWorkPackages(pid ?? undefined, { columns: 'id,name,classification,project_id' }).catch(() => []),
+    store.listBacklogs(backlogFilters).catch(() => []),
   ]);
   return { projects, workPackages, backlogs };
 }
@@ -55,8 +59,10 @@ projectPhasesRouter.get('/finance-summary', async (req, res) => {
   if (!canViewFinance(req.user)) {
     return res.status(403).json({ error: 'Finance access required' });
   }
-  const ctx = await loadPhaseMetaContext();
-  const phaseRows = await store.listProjectPhases();
+  const [ctx, phaseRows] = await Promise.all([
+    loadPhaseMetaContext(),
+    store.listProjectPhases(),
+  ]);
   const phases = await Promise.all(phaseRows.map((p) => enrichPhase(p, ctx)));
   const readyToBill = phases.filter(
     (p) => p.status === 'completed'
@@ -160,17 +166,30 @@ projectPhasesRouter.get('/finance-summary', async (req, res) => {
 });
 
 projectPhasesRouter.get('/', async (req, res) => {
-  await reloadStore();
-  const projectId = req.query.project_id ? +req.query.project_id : null;
-  const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  const ctx = await loadPhaseMetaContext(Number.isFinite(projectId) ? projectId : null);
-  let phaseRows = projectId
-    ? await store.listProjectPhases(projectId)
-    : await store.listProjectPhases();
-  let list = await Promise.all(phaseRows.map((p) => enrichPhase(p, ctx)));
-  if (workPackageId) list = list.filter((p) => p.work_package_id === workPackageId);
-  list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  res.json(list);
+  try {
+    const projectId = req.query.project_id ? +req.query.project_id : null;
+    const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
+    const scopedProjectId = Number.isFinite(projectId) ? projectId : null;
+
+    const [ctx, phaseRows] = await Promise.all([
+      loadPhaseMetaContext(scopedProjectId),
+      scopedProjectId != null
+        ? store.listProjectPhases(scopedProjectId)
+        : store.listProjectPhases(),
+    ]);
+
+    let list = await Promise.all(phaseRows.map((p) => enrichPhase(p, ctx)));
+    if (workPackageId) list = list.filter((p) => p.work_package_id === workPackageId);
+    list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    res.json(list);
+  } catch (e) {
+    console.error('project-phases GET failed', e);
+    const msg = String(e?.message || e || '');
+    if (/does not exist|schema cache|PGRST204/i.test(msg)) {
+      return res.json([]);
+    }
+    res.status(500).json({ error: e?.message || 'Failed to load project phases' });
+  }
 });
 
 projectPhasesRouter.post('/init-template', async (req, res) => {

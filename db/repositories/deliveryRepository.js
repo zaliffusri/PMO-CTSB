@@ -59,24 +59,26 @@ export function createDeliveryRepository(ctx, getStore) {
       return [...(getData().work_packages || [])];
     },
 
-    async listProjectPhases(projectId) {
+    async listProjectPhases(projectId, options = {}) {
+      const columns = options.columns || '*';
       if (!isDbMode()) {
         const rows = getData().project_phases || [];
         if (projectId == null) return [...rows];
         return rows.filter((p) => Number(p.project_id) === Number(projectId));
       }
       const filters = projectId != null ? { project_id: Number(projectId) } : {};
-      return dbSelect('project_phases_app', { filters, order: 'id' });
+      return dbSelect('project_phases_app', { columns, filters, order: 'id' });
     },
 
-    async listWorkPackages(projectId) {
+    async listWorkPackages(projectId, options = {}) {
+      const columns = options.columns || '*';
       if (!isDbMode()) {
         const rows = getData().work_packages || [];
         if (projectId == null) return [...rows];
         return rows.filter((w) => Number(w.project_id) === Number(projectId));
       }
       const filters = projectId != null ? { project_id: Number(projectId) } : {};
-      return dbSelect('project_work_packages_app', { filters, order: 'id' });
+      return dbSelect('project_work_packages_app', { columns, filters, order: 'id' });
     },
 
     async addProjectPhase(row) {

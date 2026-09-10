@@ -13,6 +13,19 @@ export function createClientsRepository(ctx, getStore) {
     return dbSelect('clients', { order: 'id' });
   }
 
+  async function listClientsByIds(ids = []) {
+    const want = [...new Set((ids || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (!want.length) return [];
+    if (!isDbMode()) {
+      return (getData().clients || []).filter((c) => want.includes(Number(c.id)));
+    }
+    return dbSelect('clients', {
+      columns: 'id,name',
+      inFilters: { id: want },
+      order: 'id',
+    });
+  }
+
   async function listClientContacts() {
     if (!isDbMode()) return [...(getData().client_contacts || [])];
     return dbSelect('client_contacts', { order: 'id' });
@@ -41,6 +54,7 @@ export function createClientsRepository(ctx, getStore) {
     },
 
     listClients,
+    listClientsByIds,
     listClientContacts,
     listProjectClients,
     getClientById,
