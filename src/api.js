@@ -147,6 +147,7 @@ export const api = {
   },
   activities: {
     list: (params) => request('/activities?' + new URLSearchParams(params).toString()),
+    get: (id) => request(`/activities/${id}`),
     create: (body) => request('/activities', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     delete: (id, params = {}) => {

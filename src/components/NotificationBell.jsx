@@ -4,13 +4,19 @@ import { api } from '../api';
 import { useNotificationsRealtime } from '../hooks/useNotificationsRealtime';
 
 function resolveNotificationLink(n) {
-  if (n?.link) return n.link;
+  const stored = String(n?.link || '').trim();
+  if (stored) return stored.startsWith('/') ? stored : `/${stored}`;
+
   const type = String(n?.entity_type || n?.type || '');
-  const id = n?.entity_id;
-  if ((type === 'activity' || type === 'activity_assigned' || type === 'activity_updated') && id != null) {
+  const id = n?.entity_id != null && Number.isFinite(Number(n.entity_id)) ? Number(n.entity_id) : null;
+
+  if (type === 'activity_cancelled') return '/calendar';
+  if (
+    (type === 'activity' || type === 'activity_assigned' || type === 'activity_updated')
+    && id != null
+  ) {
     return `/calendar?activity=${id}`;
   }
-  if (type === 'activity_cancelled') return '/calendar';
   if ((type === 'project_task' || type === 'task_assigned') && id != null) {
     return '/my-work';
   }
@@ -19,6 +25,15 @@ function resolveNotificationLink(n) {
   }
   if (type === 'backlog') return '/my-work';
   return null;
+}
+
+function notificationActionLabel(href) {
+  if (!href) return null;
+  if (href.startsWith('/calendar')) return 'Open calendar';
+  if (href.startsWith('/helpdesk')) return 'Open helpdesk';
+  if (href.startsWith('/projects')) return 'Open project';
+  if (href.startsWith('/my-work')) return 'Open My Work';
+  return 'Open';
 }
 
 export default function NotificationBell() {
@@ -52,7 +67,9 @@ export default function NotificationBell() {
     }
     setOpen(false);
     const href = resolveNotificationLink(n);
-    if (href) navigate(href);
+    if (!href) return;
+    // Force Calendar to re-run deep-link even if already on /calendar.
+    navigate(href, { replace: false });
   };
 
   const markAll = async () => {
@@ -90,19 +107,27 @@ export default function NotificationBell() {
             <p className="notif-bell__empty">No notifications</p>
           ) : (
             <ul className="notif-bell__list">
-              {items.map((n) => (
-                <li key={n.id}>
-                  <button
-                    type="button"
-                    className={`notif-bell__item ${n.read_at ? '' : 'unread'}`}
-                    onClick={() => openNotification(n)}
-                  >
-                    <span className="notif-bell__item-title">{n.title}</span>
-                    {n.body && <span className="notif-bell__item-body">{n.body}</span>}
-                    <span className="notif-bell__item-time">{new Date(n.created_at).toLocaleString()}</span>
-                  </button>
-                </li>
-              ))}
+              {items.map((n) => {
+                const href = resolveNotificationLink(n);
+                const action = notificationActionLabel(href);
+                return (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      className={`notif-bell__item ${n.read_at ? '' : 'unread'}${href ? ' notif-bell__item--link' : ''}`}
+                      onClick={() => openNotification(n)}
+                      disabled={!href}
+                    >
+                      <span className="notif-bell__item-title">{n.title}</span>
+                      {n.body && <span className="notif-bell__item-body">{n.body}</span>}
+                      <span className="notif-bell__item-foot">
+                        <span className="notif-bell__item-time">{new Date(n.created_at).toLocaleString()}</span>
+                        {action && <span className="notif-bell__item-action">{action}</span>}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

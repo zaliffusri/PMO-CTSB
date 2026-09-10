@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
@@ -67,6 +67,8 @@ export default function Calendar() {
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
   const [pendingOpenActivityId, setPendingOpenActivityId] = useState(null);
+  /** Target month for notification deep-link so we don't clear pending before month load. */
+  const pendingOpenMonthRef = useRef(null);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [showReport, setShowReport] = useState(false);
   const [showScheduleEmail, setShowScheduleEmail] = useState(false);
@@ -232,8 +234,12 @@ export default function Calendar() {
 
   useEffect(() => {
     if (detailActivityId == null) return;
-    if (!activities.some((x) => x.id === detailActivityId)) setDetailActivityId(null);
-  }, [activities, detailActivityId]);
+    // Keep detail open while a notification deep-link is still resolving.
+    if (pendingOpenActivityId != null) return;
+    if (!activities.some((x) => Number(x.id) === Number(detailActivityId))) {
+      setDetailActivityId(null);
+    }
+  }, [activities, detailActivityId, pendingOpenActivityId]);
 
   // Deep-link from notifications: /calendar?activity=<id>
   useEffect(() => {
@@ -246,26 +252,47 @@ export default function Calendar() {
       try {
         let row = activities.find((a) => Number(a.id) === aid);
         if (!row) {
-          const all = await api.activities.list({});
-          if (cancelled) return;
-          row = (all || []).find((a) => Number(a.id) === aid);
+          try {
+            row = await api.activities.get(aid);
+          } catch {
+            row = null;
+          }
         }
-        if (!row || cancelled) return;
+        if (cancelled) return;
+        if (!row) {
+          pendingOpenMonthRef.current = null;
+          setPendingOpenActivityId(null);
+          setSearchParams((prev) => {
+            if (!prev.has('activity')) return prev;
+            const next = new URLSearchParams(prev);
+            next.delete('activity');
+            return next;
+          }, { replace: true });
+          return;
+        }
         const d = new Date(row.start_at);
         if (Number.isFinite(d.getTime())) {
-          setYear(d.getFullYear());
-          setMonth(d.getMonth() + 1);
+          const y = d.getFullYear();
+          const m = d.getMonth() + 1;
+          pendingOpenMonthRef.current = { year: y, month: m };
+          setYear(y);
+          setMonth(m);
+        } else {
+          pendingOpenMonthRef.current = { year, month };
         }
+        setTypeFilter('all');
+        setDayListDay(null);
         setPendingOpenActivityId(aid);
       } catch {
         /* ignore */
       } finally {
         if (!cancelled) {
-          const next = new URLSearchParams(searchParams);
-          if (next.has('activity')) {
+          setSearchParams((prev) => {
+            if (!prev.has('activity')) return prev;
+            const next = new URLSearchParams(prev);
             next.delete('activity');
-            setSearchParams(next, { replace: true });
-          }
+            return next;
+          }, { replace: true });
         }
       }
     })();
@@ -278,15 +305,24 @@ export default function Calendar() {
 
   useEffect(() => {
     if (pendingOpenActivityId == null || loading) return;
-    const raw = activities.find((a) => Number(a.id) === pendingOpenActivityId);
-    if (!raw) return;
+    const target = pendingOpenMonthRef.current;
+    if (target && (year !== target.year || month !== target.month)) return;
+
+    const raw = activities.find((a) => Number(a.id) === Number(pendingOpenActivityId));
+    if (!raw) {
+      // Target month loaded and activity is gone (cancelled / missing).
+      setPendingOpenActivityId(null);
+      pendingOpenMonthRef.current = null;
+      return;
+    }
     const key = activityLogicalGroupKey(raw);
     const grouped = groupedCalendarActivities.find((a) => activityLogicalGroupKey(a) === key);
     if (grouped) {
-      setDetailActivityId(grouped.id);
+      setDetailActivityId(Number(grouped.id));
       setPendingOpenActivityId(null);
+      pendingOpenMonthRef.current = null;
     }
-  }, [pendingOpenActivityId, loading, activities, groupedCalendarActivities]);
+  }, [pendingOpenActivityId, loading, activities, groupedCalendarActivities, year, month]);
 
   const activitiesByDay = useMemo(() => {
     const byDay = {};
@@ -565,7 +601,9 @@ export default function Calendar() {
     });
   };
 
-  const detailActivity = detailActivityId != null ? groupedCalendarActivities.find((x) => x.id === detailActivityId) : null;
+  const detailActivity = detailActivityId != null
+    ? groupedCalendarActivities.find((x) => Number(x.id) === Number(detailActivityId))
+    : null;
   const dayListActivities = dayListDay != null ? (activitiesByDay[dayListDay] ?? []) : [];
   const clientByProjectId = useMemo(
     () => Object.fromEntries(projects.map((p) => [String(p.id), p.client_name || '-'])),

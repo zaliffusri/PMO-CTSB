@@ -4784,11 +4784,31 @@
   font: inherit;
   color: inherit;
 }
+.notif-bell__item:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
 .notif-bell__item:hover { background: var(--surface-hover); }
+.notif-bell__item:disabled:hover { background: transparent; }
 .notif-bell__item.unread { background: var(--accent-soft); }
+.notif-bell__item.unread:disabled:hover { background: var(--accent-soft); }
+.notif-bell__item--link:hover .notif-bell__item-action { text-decoration: underline; }
 .notif-bell__item-title { font-weight: 600; font-size: 0.86rem; }
 .notif-bell__item-body { font-size: 0.8rem; color: var(--text-muted); }
+.notif-bell__item-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.15rem;
+}
 .notif-bell__item-time { font-size: 0.72rem; color: var(--text-muted); }
+.notif-bell__item-action {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+  white-space: nowrap;
+}
 .notif-bell__footer {
   display: block;
   padding: 0.65rem 1rem;

@@ -435,6 +435,23 @@ activitiesRouter.post('/schedule-email/send', requireCalendarEditor, async (req,
   });
 });
 
+/** Single activity for notification deep-links (avoids full-table list). */
+activitiesRouter.get('/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid activity id' });
+  try {
+    const row = typeof store.findActivityById === 'function'
+      ? await store.findActivityById(id)
+      : null;
+    if (!row) return res.status(404).json({ error: 'Activity not found' });
+    const enriched = await enrichActivityForClient(row);
+    return res.json(enriched);
+  } catch (e) {
+    console.error('activities GET/:id failed', e);
+    return res.status(500).json({ error: e?.message || 'Failed to load activity' });
+  }
+});
+
 activitiesRouter.post('/:id/notify', requireCalendarEditor, async (req, res) => {
   if (!(await isMailerConfigured())) {
     return res.status(503).json({ error: 'SMTP is not configured on the server.' });
