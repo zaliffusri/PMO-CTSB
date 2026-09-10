@@ -175,7 +175,7 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     if (req.body.cover_image_url !== undefined) {
       patch.cover_image_url = req.body.cover_image_url === null || req.body.cover_image_url === ''
         ? null
-        : validateImageDataUrl(req.body.cover_image_url, { maxBytes: 240_000, field: 'cover_image_url' });
+        : validateImageDataUrl(req.body.cover_image_url, { maxBytes: 500_000, field: 'cover_image_url' });
     }
 
     const ok = await store.updateProject(id, patch);
@@ -192,7 +192,8 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     // Writes are already durable in DB mode; never block the response on a full snapshot sync.
     store.persistToSupabase().catch((e) => console.warn('persist:', e?.message || e));
 
-    // Omit cover from reload — large data URLs make save responses hang/fail on Vercel.
+    // Omit heavy cover from DB reload — large data URLs slow Vercel responses.
+    // Echo the value we just accepted so the UI can keep showing it.
     let project = typeof store.findProjectById === 'function'
       ? await store.findProjectById(id, { includeCover: false })
       : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
@@ -200,6 +201,7 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     // Keep fields we just persisted even if a lite-column select cache omits them briefly.
     if (patch.engagement_type !== undefined) project = { ...project, engagement_type: patch.engagement_type };
     if (patch.classification !== undefined) project = { ...project, classification: patch.classification };
+    if (patch.cover_image_url !== undefined) project = { ...project, cover_image_url: patch.cover_image_url };
     res.json(await enrichProject(project));
   } catch (e) {
     console.error('projects PUT/:id failed', e);

@@ -39,7 +39,7 @@ function clearProjectLiteColumnsCache() {
   cachedProjectLiteColumns = null;
 }
 
-/** Best-effort DDL so engagement_type / classification exist on older production DBs. */
+/** Best-effort DDL so optional project columns exist on older production DBs. */
 async function ensureProjectsOptionalColumns() {
   try {
     const { getPgPool } = await import('../runtime/pgPool.js');
@@ -48,7 +48,13 @@ async function ensureProjectsOptionalColumns() {
     await pool.query(`
       alter table public.projects add column if not exists engagement_type text;
       alter table public.projects add column if not exists classification text;
+      alter table public.projects add column if not exists cover_image_url text;
     `);
+    try {
+      await pool.query("NOTIFY pgrst, 'reload schema'");
+    } catch {
+      /* best-effort PostgREST cache reload */
+    }
     clearProjectLiteColumnsCache();
     // PostgREST schema cache can lag briefly after DDL.
     await new Promise((r) => setTimeout(r, 500));
@@ -387,10 +393,10 @@ export function createProjectsRepository(ctx, getStore) {
       }
       if (Object.keys(forDb).length) {
         // Retry while stripping *non-critical* optional columns missing from older schemas.
-        // Never silently drop engagement_type / classification — those are user-edited identity fields.
+        // Never silently drop engagement_type / classification / cover_image_url when the user sent them.
         let pending = { ...forDb };
-        const softDropKeys = ['cover_image_url', 'tags'];
-        const identityKeys = ['engagement_type', 'classification'];
+        const softDropKeys = ['tags'];
+        const identityKeys = ['engagement_type', 'classification', 'cover_image_url'];
         let ensuredSchema = false;
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
@@ -414,6 +420,13 @@ export function createProjectsRepository(ctx, getStore) {
             const namedKey = [...identityKeys, ...softDropKeys].find(
               (key) => pending[key] !== undefined && msg.includes(key),
             );
+            if (namedKey === 'cover_image_url') {
+              throw new Error(
+                'Cannot save project cover: database column is missing. '
+                  + 'Run migration `20260910160000_projects_cover_image_url.sql` '
+                  + '(or set SUPABASE_DB_URL so the API can add cover_image_url).',
+              );
+            }
             if (namedKey && identityKeys.includes(namedKey)) {
               throw new Error(
                 `Cannot save ${namedKey === 'engagement_type' ? 'engagement type' : 'classification'}: `
@@ -428,7 +441,7 @@ export function createProjectsRepository(ctx, getStore) {
               continue;
             }
 
-            // Unknown missing-column error — only soft-drop cover/tags, never identity fields.
+            // Unknown missing-column error — only soft-drop tags, never identity/cover fields.
             let changed = false;
             for (const key of softDropKeys) {
               if (pending[key] !== undefined) {
@@ -437,6 +450,13 @@ export function createProjectsRepository(ctx, getStore) {
               }
             }
             if (!changed) {
+              if (pending.cover_image_url !== undefined) {
+                throw new Error(
+                  'Cannot save project cover: database column is missing. '
+                    + 'Run migration `20260910160000_projects_cover_image_url.sql` '
+                    + '(or set SUPABASE_DB_URL so the API can add cover_image_url).',
+                );
+              }
               if (identityKeys.some((k) => pending[k] !== undefined)) {
                 throw new Error(
                   'Cannot save project details: a required database column is missing. '

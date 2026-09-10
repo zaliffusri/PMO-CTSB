@@ -384,8 +384,20 @@ function ProjectDetail() {
 
   const saveCover = async (cover_image_url) => {
     await run(async () => {
-      const updated = await api.projects.update(id, { cover_image_url });
-      setProject(updated);
+      try {
+        const updated = await api.projects.update(id, { cover_image_url });
+        setProject((prev) => ({
+          ...updated,
+          members: updated.members ?? prev?.members,
+          // Prefer API echo; otherwise keep the value we just uploaded/cleared.
+          cover_image_url:
+            updated.cover_image_url !== undefined
+              ? updated.cover_image_url
+              : cover_image_url,
+        }));
+      } catch (err) {
+        alert(err.message || 'Failed to save project cover');
+      }
     });
   };
 
