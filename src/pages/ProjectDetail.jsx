@@ -229,12 +229,13 @@ function ProjectDetail() {
           // Keep workspace-only fields the lightweight update response omits.
           members: updated.members ?? prev?.members,
           cover_image_url: updated.cover_image_url ?? prev?.cover_image_url,
+          engagement_type: updated?.engagement_type ?? editForm.engagement_type ?? null,
         }));
         setEditForm({
           name: updated?.name || '',
           description: updated?.description || '',
           status: updated?.status || 'active',
-          engagement_type: updated?.engagement_type || '',
+          engagement_type: updated?.engagement_type ?? editForm.engagement_type ?? '',
           client_ids: Array.isArray(updated?.client_ids)
             ? updated.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
             : [],

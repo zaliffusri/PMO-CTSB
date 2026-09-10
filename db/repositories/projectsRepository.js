@@ -35,6 +35,30 @@ function isMissingColumnError(err) {
 
 let cachedProjectLiteColumns = null;
 
+function clearProjectLiteColumnsCache() {
+  cachedProjectLiteColumns = null;
+}
+
+/** Best-effort DDL so engagement_type / classification exist on older production DBs. */
+async function ensureProjectsOptionalColumns() {
+  try {
+    const { getPgPool } = await import('../runtime/pgPool.js');
+    const pool = getPgPool();
+    if (!pool) return false;
+    await pool.query(`
+      alter table public.projects add column if not exists engagement_type text;
+      alter table public.projects add column if not exists classification text;
+    `);
+    clearProjectLiteColumnsCache();
+    // PostgREST schema cache can lag briefly after DDL.
+    await new Promise((r) => setTimeout(r, 500));
+    return true;
+  } catch (e) {
+    console.warn('ensureProjectsOptionalColumns failed:', e?.message || e);
+    return false;
+  }
+}
+
 async function selectProjectsLite({ filters = undefined, maybeSingle = false, order = 'id' } = {}) {
   const candidates = cachedProjectLiteColumns
     ? [cachedProjectLiteColumns, ...PROJECT_LITE_COLUMN_CANDIDATES.filter((c) => c !== cachedProjectLiteColumns)]
@@ -362,31 +386,66 @@ export function createProjectsRepository(ctx, getStore) {
         return true;
       }
       if (Object.keys(forDb).length) {
-        // Retry while stripping optional columns missing from older production schemas.
+        // Retry while stripping *non-critical* optional columns missing from older schemas.
+        // Never silently drop engagement_type / classification — those are user-edited identity fields.
         let pending = { ...forDb };
-        const optionalKeys = ['classification', 'engagement_type', 'cover_image_url', 'tags'];
-        for (let attempt = 0; attempt < 5; attempt += 1) {
+        const softDropKeys = ['cover_image_url', 'tags'];
+        const identityKeys = ['engagement_type', 'classification'];
+        let ensuredSchema = false;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
             await dbUpdate('projects', Number(id), pending, { returning: false });
+            if (identityKeys.some((k) => forDb[k] !== undefined)) {
+              clearProjectLiteColumnsCache();
+            }
             break;
           } catch (e) {
             if (!isMissingColumnError(e)) throw e;
             const msg = String(e?.message || e || '');
-            const dropKey = optionalKeys.find((key) => pending[key] !== undefined && msg.includes(key));
-            if (!dropKey) {
-              // Unknown missing column — drop all optional keys and retry once more.
-              let changed = false;
-              for (const key of optionalKeys) {
-                if (pending[key] !== undefined) {
-                  delete pending[key];
-                  changed = true;
-                }
-              }
-              if (!changed || !Object.keys(pending).length) throw e;
+
+            if (
+              !ensuredSchema
+              && identityKeys.some((k) => pending[k] !== undefined || msg.includes(k))
+            ) {
+              ensuredSchema = true;
+              if (await ensureProjectsOptionalColumns()) continue;
+            }
+
+            const namedKey = [...identityKeys, ...softDropKeys].find(
+              (key) => pending[key] !== undefined && msg.includes(key),
+            );
+            if (namedKey && identityKeys.includes(namedKey)) {
+              throw new Error(
+                `Cannot save ${namedKey === 'engagement_type' ? 'engagement type' : 'classification'}: `
+                  + 'database column is missing. Run migration '
+                  + '`20260627170000_project_engagement_type.sql` (or set SUPABASE_DB_URL so the API can add it).',
+              );
+            }
+            if (namedKey) {
+              console.warn(`projects.update: omitting missing column ${namedKey}`);
+              delete pending[namedKey];
+              if (!Object.keys(pending).length) break;
               continue;
             }
-            console.warn(`projects.update: omitting missing column ${dropKey}`);
-            delete pending[dropKey];
+
+            // Unknown missing-column error — only soft-drop cover/tags, never identity fields.
+            let changed = false;
+            for (const key of softDropKeys) {
+              if (pending[key] !== undefined) {
+                delete pending[key];
+                changed = true;
+              }
+            }
+            if (!changed) {
+              if (identityKeys.some((k) => pending[k] !== undefined)) {
+                throw new Error(
+                  'Cannot save project details: a required database column is missing. '
+                    + 'Run migration `20260627170000_project_engagement_type.sql` '
+                    + '(or set SUPABASE_DB_URL so the API can add engagement_type / classification).',
+                );
+              }
+              throw e;
+            }
             if (!Object.keys(pending).length) break;
           }
         }

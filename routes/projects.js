@@ -193,10 +193,13 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     store.persistToSupabase().catch((e) => console.warn('persist:', e?.message || e));
 
     // Omit cover from reload — large data URLs make save responses hang/fail on Vercel.
-    const project = typeof store.findProjectById === 'function'
+    let project = typeof store.findProjectById === 'function'
       ? await store.findProjectById(id, { includeCover: false })
       : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
     if (!project) return res.status(404).json({ error: 'Project not found after update' });
+    // Keep fields we just persisted even if a lite-column select cache omits them briefly.
+    if (patch.engagement_type !== undefined) project = { ...project, engagement_type: patch.engagement_type };
+    if (patch.classification !== undefined) project = { ...project, classification: patch.classification };
     res.json(await enrichProject(project));
   } catch (e) {
     console.error('projects PUT/:id failed', e);
