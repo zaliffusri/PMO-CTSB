@@ -187,6 +187,7 @@ export default function Clients() {
   const [loadError, setLoadError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingPic, setEditingPic] = useState(null);
+  const [editingCompany, setEditingCompany] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState(emptyForm);
   const { pending: saving, run } = useSubmitLock();
@@ -230,12 +231,14 @@ export default function Clients() {
 
   const openForm = (preset = {}) => {
     setEditingPic(null);
+    setEditingCompany(null);
     setForm({ ...emptyForm, ...preset });
     setShowForm(true);
   };
 
   const openEditPic = (pic, companyName) => {
     setShowForm(false);
+    setEditingCompany(null);
     resetForm();
     setEditingPic({
       id: pic.id,
@@ -247,6 +250,46 @@ export default function Clients() {
   };
 
   const closeEditPic = () => setEditingPic(null);
+
+  const openEditCompany = (company) => {
+    setShowForm(false);
+    setEditingPic(null);
+    resetForm();
+    setEditingCompany({
+      id: company.id,
+      name: company.name || '',
+      short_code: company.short_code || '',
+      logo_url: company.logo_url || null,
+    });
+  };
+
+  const closeEditCompany = () => setEditingCompany(null);
+
+  const saveEditCompany = async (e) => {
+    e.preventDefault();
+    if (!editingCompany) return;
+    const name = String(editingCompany.name || '').trim();
+    if (!name) {
+      alert('Company name is required.');
+      return;
+    }
+    await run(async () => {
+      try {
+        const body = {
+          name,
+          short_code: editingCompany.short_code?.trim() || null,
+        };
+        if (canEditLogo) {
+          body.logo_url = editingCompany.logo_url || null;
+        }
+        const updated = await api.clients.update(editingCompany.id, body);
+        setCompanies((list) => list.map((c) => (c.id === editingCompany.id ? { ...c, ...updated } : c)));
+        closeEditCompany();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -350,6 +393,78 @@ export default function Clients() {
           </button>
         }
       />
+
+      {editingCompany && (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-edit-company-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="client-edit-company-modal-title" className="modal-dialog-title">
+                Edit company
+              </h2>
+              <button
+                type="button"
+                className="modal-dialog-close"
+                onClick={closeEditCompany}
+                aria-label="Close dialog"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={saveEditCompany} style={{ display: 'grid', gap: '0.75rem' }}>
+              <label>
+                Company / organisation name <span className="form-field__required">*</span>
+                <input
+                  type="text"
+                  value={editingCompany.name}
+                  onChange={(e) => setEditingCompany((c) => ({ ...c, name: e.target.value }))}
+                  style={inputStyle}
+                  required
+                  autoFocus
+                />
+              </label>
+              <label>
+                Short code
+                <input
+                  type="text"
+                  value={editingCompany.short_code}
+                  onChange={(e) => setEditingCompany((c) => ({ ...c, short_code: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="e.g. PKPJ"
+                  maxLength={32}
+                />
+                <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Optional code used in helpdesk / imports
+                </span>
+              </label>
+              {canEditLogo && (
+                <ImageUploadField
+                  label="Company logo"
+                  value={editingCompany.logo_url}
+                  onChange={(logo_url) => setEditingCompany((c) => ({ ...c, logo_url }))}
+                  onError={(m) => alert(m)}
+                  preset={IMAGE_PRESETS.clientLogo}
+                  variant="logo"
+                  placeholder="Upload logo"
+                  busy={saving}
+                />
+              )}
+              <div className="project-create-footer">
+                <button type="button" className="btn btn-secondary" onClick={closeEditCompany} disabled={saving}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary project-create-footer__primary" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {editingPic && (
         <div className="modal-backdrop" role="presentation">
@@ -603,6 +718,7 @@ export default function Clients() {
                     <div>
                       <div className="client-card__name">{company.name}</div>
                       <p className="client-card__meta">
+                        {company.short_code ? `${company.short_code} · ` : ''}
                         {(company.contacts?.length ?? 0) === 0
                           ? 'No PIC on file'
                           : `${company.contacts.length} PIC${company.contacts.length !== 1 ? 's' : ''}`}
@@ -612,6 +728,14 @@ export default function Clients() {
                     </div>
                   </div>
                   <div className="client-card__actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => openEditCompany(company)}
+                      disabled={saving}
+                    >
+                      Edit company
+                    </button>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
@@ -634,7 +758,7 @@ export default function Clients() {
                   </div>
                 </div>
 
-                {canEditLogo && (
+                {canEditLogo && !editingCompany && (
                   <div className="client-card__logo-upload">
                     <ImageUploadField
                       label="Company logo"

@@ -241,14 +241,35 @@ clientsRouter.put('/:id', asyncHandler(async (req, res) => {
       ? null
       : validateImageDataUrl(req.body.logo_url, { maxBytes: 120_000, field: 'logo_url' });
   }
+  if (req.body.short_code !== undefined) {
+    const code = req.body.short_code == null || req.body.short_code === ''
+      ? null
+      : String(req.body.short_code).trim().toUpperCase();
+    if (code) {
+      const codeDup = clients.find(
+        (c) => Number(c.id) !== id && String(c.short_code || '').trim().toUpperCase() === code,
+      );
+      if (codeDup) return res.status(400).json({ error: 'Another company already uses this short code' });
+    }
+    patch.short_code = code;
+  }
   try {
     await store.updateClient(id, patch);
   } catch (e) {
-    // Older DBs may not have logo_url — still allow name-only updates.
-    if (patch.logo_url !== undefined && isMissingRelationError(e)) {
-      console.warn('clients: logo_url column missing — saving name only');
-      const { logo_url: _logo, ...nameOnly } = patch;
-      await store.updateClient(id, nameOnly);
+    // Older DBs may lack optional columns — retry without them.
+    if (isMissingRelationError(e)) {
+      const retry = { ...patch };
+      const msg = String(e?.message || e || '');
+      if (msg.includes('logo_url')) delete retry.logo_url;
+      if (msg.includes('short_code')) delete retry.short_code;
+      if (!Object.keys(retry).length || (Object.keys(retry).length === 1 && retry.name === existing.name)) {
+        // Still try name-only if that was the intent
+        if (retry.name) await store.updateClient(id, { name: retry.name });
+        else throw e;
+      } else {
+        console.warn('clients: retrying update without missing optional columns');
+        await store.updateClient(id, retry);
+      }
     } else {
       throw e;
     }
