@@ -179,17 +179,7 @@ clientsRouter.post('/', asyncHandler(async (req, res) => {
     if (logo_url !== undefined && logo_url !== null && logo_url !== '') {
       createPayload.logo_url = validateImageDataUrl(logo_url, { maxBytes: 120_000, field: 'logo_url' });
     }
-    try {
-      clientId = await store.addClient(createPayload);
-    } catch (e) {
-      if (isMissingRelationError(e) && createPayload.logo_url) {
-        console.warn('clients: retrying create without logo_url');
-        delete createPayload.logo_url;
-        clientId = await store.addClient(createPayload);
-      } else {
-        throw e;
-      }
-    }
+    clientId = await store.addClient(createPayload);
     if (!clientId) return res.status(400).json({ error: 'Company name is required' });
   } else {
     return res.status(400).json({ error: 'Select an existing company or enter a new company name' });
@@ -289,27 +279,7 @@ clientsRouter.put('/:id', asyncHandler(async (req, res) => {
     if (codeDup) return res.status(400).json({ error: 'Another company already uses this short code' });
     patch.short_code = code;
   }
-  try {
-    await store.updateClient(id, patch);
-  } catch (e) {
-    // Older DBs may lack optional columns — retry without them.
-    if (isMissingRelationError(e)) {
-      const retry = { ...patch };
-      const msg = String(e?.message || e || '');
-      if (msg.includes('logo_url')) delete retry.logo_url;
-      if (msg.includes('short_code')) delete retry.short_code;
-      if (!Object.keys(retry).length || (Object.keys(retry).length === 1 && retry.name === existing.name)) {
-        // Still try name-only if that was the intent
-        if (retry.name) await store.updateClient(id, { name: retry.name });
-        else throw e;
-      } else {
-        console.warn('clients: retrying update without missing optional columns');
-        await store.updateClient(id, retry);
-      }
-    } else {
-      throw e;
-    }
-  }
+  await store.updateClient(id, patch);
   await store.appendAuditLog(req.user, {
     action: 'update',
     target_type: 'client',

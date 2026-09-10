@@ -5,6 +5,54 @@ import { formatClientNames } from '../../lib/projectClients.js';
 import { nextId } from '../runtime/helpers.js';
 import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere } from '../runtime/query.js';
 
+function isMissingColumnError(err) {
+  const msg = String(err?.message || err || '');
+  return /schema cache|PGRST204|does not exist|column .* does not exist/i.test(msg);
+}
+
+/** Best-effort DDL so short_code / logo_url exist on older production DBs. */
+async function ensureClientsOptionalColumns() {
+  try {
+    const { getPgPool } = await import('../runtime/pgPool.js');
+    const pool = getPgPool();
+    if (!pool) return false;
+    await pool.query(`
+      alter table public.clients add column if not exists short_code text;
+      alter table public.clients add column if not exists logo_url text;
+      create index if not exists clients_short_code_idx on public.clients (short_code);
+    `);
+    try {
+      await pool.query("NOTIFY pgrst, 'reload schema'");
+    } catch {
+      /* best-effort PostgREST cache reload */
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    return true;
+  } catch (e) {
+    console.warn('ensureClientsOptionalColumns failed:', e?.message || e);
+    return false;
+  }
+}
+
+function missingClientsColumnMessage(err) {
+  const msg = String(err?.message || err || '');
+  if (/short_code/i.test(msg)) {
+    return (
+      'Cannot save short code: the clients.short_code column is missing. '
+      + 'Run migration `20260910143000_clients_short_code_logo.sql` '
+      + '(or set SUPABASE_DB_URL so the API can add it).'
+    );
+  }
+  if (/logo_url/i.test(msg)) {
+    return (
+      'Cannot save logo: the clients.logo_url column is missing. '
+      + 'Run migration `20260910143000_clients_short_code_logo.sql` '
+      + '(or set SUPABASE_DB_URL so the API can add it).'
+    );
+  }
+  return msg || 'Client update failed because a required column is missing';
+}
+
 export function createClientsRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
@@ -235,8 +283,44 @@ export function createClientsRepository(ctx, getStore) {
         save();
         return id;
       }
-      const saved = await dbInsert('clients', payload);
-      return saved.id;
+      try {
+        const saved = await dbInsert('clients', payload);
+        return saved.id;
+      } catch (e) {
+        if (!isMissingColumnError(e)) throw e;
+        const ensured = await ensureClientsOptionalColumns();
+        if (!ensured) {
+          const err = new Error(missingClientsColumnMessage(e));
+          err.status = 503;
+          throw err;
+        }
+        try {
+          const saved = await dbInsert('clients', payload);
+          return saved.id;
+        } catch (retryErr) {
+          if (isMissingColumnError(retryErr) && payload.logo_url !== undefined) {
+            // Logo is optional; short_code is not.
+            const withoutLogo = { ...payload };
+            delete withoutLogo.logo_url;
+            if (payload.short_code != null && /short_code/i.test(String(retryErr?.message || ''))) {
+              const err = new Error(missingClientsColumnMessage(retryErr));
+              err.status = 503;
+              throw err;
+            }
+            if (/logo_url/i.test(String(retryErr?.message || ''))) {
+              console.warn('clients: inserting without logo_url after ensure');
+              const saved = await dbInsert('clients', withoutLogo);
+              return saved.id;
+            }
+          }
+          if (isMissingColumnError(retryErr)) {
+            const err = new Error(missingClientsColumnMessage(retryErr));
+            err.status = 503;
+            throw err;
+          }
+          throw retryErr;
+        }
+      }
     },
 
     async addClientContact(row) {
@@ -273,8 +357,44 @@ export function createClientsRepository(ctx, getStore) {
         save();
         return true;
       }
-      const saved = await dbUpdate('clients', id, patch);
-      return Boolean(saved);
+      try {
+        const saved = await dbUpdate('clients', id, patch);
+        return Boolean(saved);
+      } catch (e) {
+        if (!isMissingColumnError(e)) throw e;
+        const ensured = await ensureClientsOptionalColumns();
+        if (!ensured) {
+          const err = new Error(missingClientsColumnMessage(e));
+          err.status = 503;
+          throw err;
+        }
+        try {
+          const saved = await dbUpdate('clients', id, patch);
+          return Boolean(saved);
+        } catch (retryErr) {
+          // Never silently drop short_code — it is required identity data.
+          if (isMissingColumnError(retryErr) && patch.short_code !== undefined
+            && /short_code/i.test(String(retryErr?.message || ''))) {
+            const err = new Error(missingClientsColumnMessage(retryErr));
+            err.status = 503;
+            throw err;
+          }
+          if (isMissingColumnError(retryErr) && patch.logo_url !== undefined
+            && /logo_url/i.test(String(retryErr?.message || ''))) {
+            console.warn('clients: updating without logo_url after ensure');
+            const withoutLogo = { ...patch };
+            delete withoutLogo.logo_url;
+            const saved = await dbUpdate('clients', id, withoutLogo);
+            return Boolean(saved);
+          }
+          if (isMissingColumnError(retryErr)) {
+            const err = new Error(missingClientsColumnMessage(retryErr));
+            err.status = 503;
+            throw err;
+          }
+          throw retryErr;
+        }
+      }
     },
 
     async updateClientContact(id, row) {
