@@ -231,6 +231,25 @@ export default function ProjectBacklogPanel({
     });
   };
 
+  const deleteItem = async (item) => {
+    if (!item?.id) return;
+    const label = item.ref_no ? `${item.ref_no}: ${item.title}` : item.title;
+    if (!confirm(`Delete backlog item "${label}"?\n\nThis removes comments and attachments. Linked helpdesk refs are cleared.`)) {
+      return;
+    }
+    await run(async () => {
+      try {
+        await api.backlogs.delete(item.id);
+        if (detailItem?.id === item.id) setDetailItem(null);
+        if (attachItem?.id === item.id) setAttachItem(null);
+        setItems((prev) => prev.filter((b) => Number(b.id) !== Number(item.id)));
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  };
+
   if (loading) return <div className="page-loading">Loading backlog…</div>;
 
   return (
@@ -420,6 +439,18 @@ export default function ProjectBacklogPanel({
                         → Task
                       </button>
                     )}
+                      {canManage && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => deleteItem(item)}
+                          disabled={busy}
+                          title="Delete backlog item"
+                        >
+                          Delete
+                        </button>
+                      )}
                   </td>
                 </tr>
               ))}
@@ -607,6 +638,11 @@ export default function ProjectBacklogPanel({
           canManage={canManage}
           onClose={() => setDetailItem(null)}
           onUpdated={handleItemUpdated}
+          onDeleted={(id) => {
+            setDetailItem(null);
+            setItems((prev) => prev.filter((b) => Number(b.id) !== Number(id)));
+            load();
+          }}
         />
       )}
 

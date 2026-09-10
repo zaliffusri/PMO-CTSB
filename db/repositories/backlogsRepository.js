@@ -2,7 +2,7 @@ import { normalizeBacklogStatus, normalizeBacklogType } from '../../lib/backlogC
 import { normalizeModuleCode } from '../../lib/epbtModules.js';
 import { cleanExternalTicketRef } from '../../lib/issueBacklogLink.js';
 import { nextId } from '../runtime/helpers.js';
-import { isDbMode, dbSelect, dbInsert, dbUpdate } from '../runtime/query.js';
+import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere, dbUpdateWhere } from '../runtime/query.js';
 
 function isMissingColumnError(err) {
   const msg = String(err?.message || err || '');
@@ -244,6 +244,93 @@ export function createBacklogsRepository(ctx, getStore) {
         }
         throw e;
       }
+    },
+
+    async deleteBacklog(id) {
+      const bid = Number(id);
+      if (!Number.isFinite(bid)) return false;
+      const store = getStore();
+      const existing = await store.findBacklogById(bid);
+      if (!existing) return false;
+
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.backlogs) return false;
+        const i = data.backlogs.findIndex((b) => Number(b.id) === bid);
+        if (i === -1) return false;
+        const [removed] = data.backlogs.splice(i, 1);
+        const ref = String(removed.ref_no || '').trim().toLowerCase();
+        if (data.backlog_comments) {
+          data.backlog_comments = data.backlog_comments.filter((c) => Number(c.backlog_id) !== bid);
+        }
+        if (data.attachments) {
+          data.attachments = data.attachments.filter(
+            (a) => !(String(a.entity_type) === 'backlog' && Number(a.entity_id) === bid),
+          );
+        }
+        if (data.notifications) {
+          data.notifications = data.notifications.filter(
+            (n) => !(String(n.entity_type) === 'backlog' && Number(n.entity_id) === bid),
+          );
+        }
+        if (data.project_tasks) {
+          data.project_tasks = data.project_tasks.map((t) => (
+            Number(t.backlog_id) === bid ? { ...t, backlog_id: null } : t
+          ));
+        }
+        if (data.issues) {
+          data.issues = data.issues.map((issue) => {
+            const linkedById = Number(removed.issue_id) === Number(issue.id);
+            const linkedByRef = ref
+              && String(issue.backlog_ref || '').trim().toLowerCase() === ref;
+            if (!linkedById && !linkedByRef) return issue;
+            return { ...issue, backlog_ref: null };
+          });
+        }
+        save();
+        return true;
+      }
+
+      // Best-effort related cleanup before deleting the row.
+      try {
+        await dbDeleteWhere('attachments_app', { entity_type: 'backlog', entity_id: bid });
+      } catch (e) {
+        console.warn('deleteBacklog attachments cleanup:', e?.message || e);
+      }
+      try {
+        await dbDeleteWhere('backlog_comments_app', { backlog_id: bid });
+      } catch (e) {
+        console.warn('deleteBacklog comments cleanup:', e?.message || e);
+      }
+      try {
+        await dbDeleteWhere('notifications_app', { entity_type: 'backlog', entity_id: bid });
+      } catch (e) {
+        console.warn('deleteBacklog notifications cleanup:', e?.message || e);
+      }
+      try {
+        await dbUpdateWhere('project_tasks', { backlog_id: bid }, { backlog_id: null });
+      } catch {
+        /* project_tasks.backlog_id may be absent on older DBs */
+      }
+      try {
+        if (existing.issue_id != null) {
+          await store.updateIssue(existing.issue_id, { backlog_ref: null });
+        } else if (existing.ref_no) {
+          const issues = await store.listIssues().catch(() => []);
+          const ref = String(existing.ref_no).trim().toLowerCase();
+          const linked = (issues || []).find(
+            (i) => String(i.backlog_ref || '').trim().toLowerCase() === ref,
+          );
+          if (linked?.id != null) {
+            await store.updateIssue(linked.id, { backlog_ref: null });
+          }
+        }
+      } catch (e) {
+        console.warn('deleteBacklog issue unlink:', e?.message || e);
+      }
+
+      await dbDelete('backlogs_app', bid);
+      return true;
     },
 
     async listBacklogComments(backlogId) {

@@ -669,3 +669,34 @@ backlogsRouter.post('/:id/promote-task', async (req, res) => {
     res.status(500).json({ error: e?.message || 'Failed to promote backlog to task' });
   }
 });
+
+backlogsRouter.delete('/:id', async (req, res) => {
+  try {
+    if (!canCreateProject(req.user)) {
+      return res.status(403).json({ error: 'Only PMO can delete backlog items' });
+    }
+    const id = +req.params.id;
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid backlog id' });
+
+    const cur = typeof store.findBacklogById === 'function'
+      ? await store.findBacklogById(id)
+      : (await store.listBacklogs()).find((b) => Number(b.id) === id) || null;
+    if (!cur) return res.status(404).json({ error: 'Backlog item not found' });
+
+    const ok = await store.deleteBacklog(id);
+    if (!ok) return res.status(404).json({ error: 'Backlog item not found' });
+
+    store.appendAuditLog(req.user, {
+      action: 'delete',
+      target_type: 'backlog',
+      target_id: id,
+      summary: `Deleted backlog ${cur.ref_no || id}: ${cur.title || ''}`.trim(),
+    }).catch((e) => console.warn('backlog delete audit:', e?.message || e));
+    store.persistToSupabase().catch((e) => console.warn('backlog delete persist:', e?.message || e));
+
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error('backlogs DELETE failed', e);
+    res.status(500).json({ error: e?.message || 'Failed to delete backlog item' });
+  }
+});

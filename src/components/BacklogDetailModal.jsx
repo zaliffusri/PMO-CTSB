@@ -102,6 +102,7 @@ export default function BacklogDetailModal({
   canManage = false,
   onClose,
   onUpdated,
+  onDeleted,
 }) {
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState('');
@@ -150,6 +151,22 @@ export default function BacklogDetailModal({
     } catch (err) {
       alert(err.message);
     }
+  };
+
+  const deleteItem = async () => {
+    const label = item.ref_no ? `${item.ref_no}: ${item.title}` : item.title;
+    if (!confirm(`Delete backlog item "${label}"?\n\nThis removes comments and attachments. Linked helpdesk refs are cleared.`)) {
+      return;
+    }
+    await run(async () => {
+      try {
+        await api.backlogs.delete(item.id);
+        onDeleted?.(item.id);
+        onClose?.();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   };
 
   const insertMention = (person) => {
@@ -211,7 +228,20 @@ export default function BacklogDetailModal({
               <span className="pmo-table-muted">{sourceLabel(item.source)} · {priorityLabel(item.priority)}</span>
             </div>
           </div>
-          <button type="button" className="modal-dialog-close" onClick={onClose} aria-label="Close">×</button>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+            {canManage && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ color: 'var(--danger)' }}
+                onClick={deleteItem}
+                disabled={busy}
+              >
+                Delete
+              </button>
+            )}
+            <button type="button" className="modal-dialog-close" onClick={onClose} aria-label="Close">×</button>
+          </div>
         </div>
 
         <div className="backlog-detail__body">

@@ -202,6 +202,7 @@ export const api = {
     get: (id) => request(`/backlogs/${id}`),
     create: (body) => request('/backlogs', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/backlogs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    delete: (id) => request(`/backlogs/${id}`, { method: 'DELETE' }),
     promoteToTask: (id, body) => request(`/backlogs/${id}/promote-task`, { method: 'POST', body: JSON.stringify(body || {}) }),
     listComments: (id) => request(`/backlogs/${id}/comments`),
     addComment: (id, body) => request(`/backlogs/${id}/comments`, { method: 'POST', body: JSON.stringify(body) }),
