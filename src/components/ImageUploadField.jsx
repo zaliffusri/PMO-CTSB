@@ -13,8 +13,10 @@ export default function ImageUploadField({
   placeholder = 'Upload image',
   busy = false,
   disabled = false,
+  fallbackLetter = '',
 }) {
   const inputRef = useRef(null);
+  const isAvatar = variant === 'avatar';
 
   const pick = () => {
     if (!busy && !disabled) inputRef.current?.click();
@@ -32,6 +34,50 @@ export default function ImageUploadField({
     }
   };
 
+  if (isAvatar) {
+    const letter = (fallbackLetter || placeholder || '?').toString().slice(0, 1).toUpperCase();
+    return (
+      <div className="image-upload image-upload--avatar">
+        {label && <span className="image-upload__label">{label}</span>}
+        <div className="image-upload__avatar-wrap">
+          <button
+            type="button"
+            className="image-upload__avatar-btn"
+            onClick={pick}
+            disabled={busy || disabled}
+            aria-label={value ? 'Change logo' : 'Upload logo'}
+            title={value ? 'Change logo' : 'Upload logo'}
+          >
+            {value ? (
+              <img src={value} alt="" className="image-upload__avatar-img" />
+            ) : (
+              <span className="image-upload__avatar-fallback" aria-hidden>
+                {letter}
+              </span>
+            )}
+            <span className="image-upload__avatar-overlay">
+              {busy ? '…' : value ? 'Change' : 'Add'}
+            </span>
+          </button>
+          {value && (
+            <button
+              type="button"
+              className="image-upload__avatar-clear"
+              onClick={() => onChange?.(null)}
+              disabled={busy || disabled}
+              aria-label="Remove logo"
+              title="Remove logo"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {hint && <p className="image-upload__hint">{hint}</p>}
+        <input ref={inputRef} type="file" accept={accept} className="sr-only" onChange={onFile} />
+      </div>
+    );
+  }
+
   return (
     <div className={`image-upload image-upload--${variant}`}>
       {label && <span className="image-upload__label">{label}</span>}
@@ -40,7 +86,6 @@ export default function ImageUploadField({
           <img src={value} alt="" className="image-upload__preview" />
         ) : (
           <div className="image-upload__placeholder">
-            <span className="image-upload__icon" aria-hidden>🖼</span>
             <span>{placeholder}</span>
           </div>
         )}

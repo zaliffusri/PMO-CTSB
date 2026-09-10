@@ -137,24 +137,59 @@ clientsRouter.get('/:id', asyncHandler(async (req, res) => {
   res.json(await buildCompanyResponse(client));
 }));
 
-/** Add a PIC to an existing company or create company + PIC */
+/** Add a PIC to an existing company or create company (+ optional PIC) */
 clientsRouter.post('/', asyncHandler(async (req, res) => {
   const {
     company_id,
     company_name,
     name: legacyName,
+    short_code,
     contact_name,
     email,
     phone,
+    logo_url,
   } = req.body;
   let clientId = company_id != null && company_id !== '' ? +company_id : null;
   const newCompanyName = (company_name || legacyName || '').trim();
+  const shortCode = short_code == null || short_code === ''
+    ? null
+    : String(short_code).trim().toUpperCase();
 
   if (clientId) {
     const existing = await store.getClientById(clientId);
     if (!existing) return res.status(404).json({ error: 'Company not found' });
   } else if (newCompanyName) {
-    clientId = await store.findOrCreateClient(newCompanyName);
+    if (!shortCode) {
+      return res.status(400).json({ error: 'Short code is required' });
+    }
+    const clients = await store.listClients();
+    const nameDup = clients.find(
+      (c) => (c.name || '').trim().toLowerCase() === newCompanyName.toLowerCase(),
+    );
+    if (nameDup) return res.status(400).json({ error: 'A company with this name already exists' });
+    const codeDup = clients.find(
+      (c) => String(c.short_code || '').trim().toUpperCase() === shortCode,
+    );
+    if (codeDup) return res.status(400).json({ error: 'Another company already uses this short code' });
+
+    const createPayload = {
+      name: newCompanyName,
+      short_code: shortCode,
+    };
+    if (logo_url !== undefined && logo_url !== null && logo_url !== '') {
+      createPayload.logo_url = validateImageDataUrl(logo_url, { maxBytes: 120_000, field: 'logo_url' });
+    }
+    try {
+      clientId = await store.addClient(createPayload);
+    } catch (e) {
+      if (isMissingRelationError(e) && createPayload.logo_url) {
+        console.warn('clients: retrying create without logo_url');
+        delete createPayload.logo_url;
+        clientId = await store.addClient(createPayload);
+      } else {
+        throw e;
+      }
+    }
     if (!clientId) return res.status(400).json({ error: 'Company name is required' });
   } else {
     return res.status(400).json({ error: 'Select an existing company or enter a new company name' });
@@ -245,12 +280,13 @@ clientsRouter.put('/:id', asyncHandler(async (req, res) => {
     const code = req.body.short_code == null || req.body.short_code === ''
       ? null
       : String(req.body.short_code).trim().toUpperCase();
-    if (code) {
-      const codeDup = clients.find(
-        (c) => Number(c.id) !== id && String(c.short_code || '').trim().toUpperCase() === code,
-      );
-      if (codeDup) return res.status(400).json({ error: 'Another company already uses this short code' });
+    if (!code) {
+      return res.status(400).json({ error: 'Short code is required' });
     }
+    const codeDup = clients.find(
+      (c) => Number(c.id) !== id && String(c.short_code || '').trim().toUpperCase() === code,
+    );
+    if (codeDup) return res.status(400).json({ error: 'Another company already uses this short code' });
     patch.short_code = code;
   }
   try {

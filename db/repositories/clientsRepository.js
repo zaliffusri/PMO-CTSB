@@ -225,6 +225,9 @@ export function createClientsRepository(ctx, getStore) {
         short_code: company.short_code != null ? String(company.short_code).trim().toUpperCase() || null : null,
         created_at,
       };
+      if (company.logo_url !== undefined) {
+        payload.logo_url = company.logo_url || null;
+      }
       if (!isDbMode()) {
         const data = getData();
         const id = nextId(data.clients);

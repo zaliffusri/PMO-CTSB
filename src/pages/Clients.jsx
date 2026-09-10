@@ -16,6 +16,7 @@ function companyMatchesSearch(company, q) {
   if (!q) return true;
   const haystack = [
     company.name,
+    company.short_code,
     ...(company.contacts || []).flatMap((pic) => [pic.contact_name, pic.email, pic.phone]),
     ...(company.projects || []).map((p) => p.name),
   ]
@@ -40,6 +41,7 @@ const emptyForm = {
   companyMode: 'existing',
   company_id: '',
   company_name: '',
+  short_code: '',
   contact_name: '',
   email: '',
   phone: '',
@@ -104,19 +106,19 @@ function ProjectViewMenu({ projects }) {
   if (!projects?.length) return null;
 
   const label =
-    projects.length === 1 ? 'View project' : `View projects (${projects.length})`;
+    projects.length === 1 ? 'Projects' : `Projects (${projects.length})`;
 
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <button
         type="button"
-        className="btn btn-secondary btn-sm"
+        className="btn btn-ghost btn-sm"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="listbox"
       >
         {label}
-        <span aria-hidden="true" style={{ marginLeft: '0.35rem', opacity: 0.7 }}>
+        <span aria-hidden="true" style={{ marginLeft: '0.25rem', opacity: 0.7 }}>
           {open ? '▴' : '▾'}
         </span>
       </button>
@@ -188,6 +190,7 @@ export default function Clients() {
   const [showForm, setShowForm] = useState(false);
   const [editingPic, setEditingPic] = useState(null);
   const [editingCompany, setEditingCompany] = useState(null);
+  const [addingCompany, setAddingCompany] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState(emptyForm);
   const { pending: saving, run } = useSubmitLock();
@@ -218,8 +221,12 @@ export default function Clients() {
 
   const saveCompanyLogo = async (companyId, logo_url) => {
     await run(async () => {
-      const updated = await api.clients.update(companyId, { logo_url });
-      setCompanies((list) => list.map((c) => (c.id === companyId ? updated : c)));
+      try {
+        const updated = await api.clients.update(companyId, { logo_url });
+        setCompanies((list) => list.map((c) => (c.id === companyId ? { ...c, ...updated } : c)));
+      } catch (err) {
+        alert(err.message || 'Could not update logo');
+      }
     });
   };
 
@@ -232,6 +239,7 @@ export default function Clients() {
   const openForm = (preset = {}) => {
     setEditingPic(null);
     setEditingCompany(null);
+    setAddingCompany(null);
     setForm({ ...emptyForm, ...preset });
     setShowForm(true);
   };
@@ -239,6 +247,7 @@ export default function Clients() {
   const openEditPic = (pic, companyName) => {
     setShowForm(false);
     setEditingCompany(null);
+    setAddingCompany(null);
     resetForm();
     setEditingPic({
       id: pic.id,
@@ -251,9 +260,55 @@ export default function Clients() {
 
   const closeEditPic = () => setEditingPic(null);
 
+  const openAddCompany = () => {
+    setShowForm(false);
+    setEditingPic(null);
+    resetForm();
+    setEditingCompany(null);
+    setAddingCompany({
+      name: '',
+      short_code: '',
+      logo_url: null,
+    });
+  };
+
+  const closeAddCompany = () => setAddingCompany(null);
+
+  const saveAddCompany = async (e) => {
+    e.preventDefault();
+    if (!addingCompany) return;
+    const name = String(addingCompany.name || '').trim();
+    const shortCode = String(addingCompany.short_code || '').trim();
+    if (!name) {
+      alert('Company name is required.');
+      return;
+    }
+    if (!shortCode) {
+      alert('Short code is required.');
+      return;
+    }
+    await run(async () => {
+      try {
+        const body = {
+          company_name: name,
+          short_code: shortCode,
+        };
+        if (canEditLogo && addingCompany.logo_url) {
+          body.logo_url = addingCompany.logo_url;
+        }
+        await api.clients.create(body);
+        closeAddCompany();
+        load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  };
+
   const openEditCompany = (company) => {
     setShowForm(false);
     setEditingPic(null);
+    setAddingCompany(null);
     resetForm();
     setEditingCompany({
       id: company.id,
@@ -269,15 +324,20 @@ export default function Clients() {
     e.preventDefault();
     if (!editingCompany) return;
     const name = String(editingCompany.name || '').trim();
+    const shortCode = String(editingCompany.short_code || '').trim();
     if (!name) {
       alert('Company name is required.');
+      return;
+    }
+    if (!shortCode) {
+      alert('Short code is required.');
       return;
     }
     await run(async () => {
       try {
         const body = {
           name,
-          short_code: editingCompany.short_code?.trim() || null,
+          short_code: shortCode,
         };
         if (canEditLogo) {
           body.logo_url = editingCompany.logo_url || null;
@@ -293,6 +353,7 @@ export default function Clients() {
 
   const submit = async (e) => {
     e.preventDefault();
+    const shortCode = form.short_code.trim();
     const body =
       form.companyMode === 'existing'
         ? {
@@ -303,6 +364,7 @@ export default function Clients() {
           }
         : {
             company_name: form.company_name.trim(),
+            short_code: shortCode,
             contact_name: form.contact_name,
             email: form.email,
             phone: form.phone,
@@ -314,6 +376,10 @@ export default function Clients() {
     }
     if (form.companyMode === 'new' && !body.company_name) {
       alert('Please enter a company or organisation name.');
+      return;
+    }
+    if (form.companyMode === 'new' && !shortCode) {
+      alert('Short code is required.');
       return;
     }
 
@@ -386,13 +452,103 @@ export default function Clients() {
     <div className="page-module clients-page">
       <PageHeader
         title="Clients"
-        subtitle="Manage companies and their persons in charge (PIC). Projects link to the company, not individual PICs."
+        subtitle="Companies, short codes, and PICs."
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => (showForm ? (setShowForm(false), resetForm()) : openForm())}>
-            {showForm ? 'Cancel' : '+ Add PIC'}
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => (addingCompany ? closeAddCompany() : openAddCompany())}
+            >
+              {addingCompany ? 'Cancel' : '+ Add client'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => (showForm ? (setShowForm(false), resetForm()) : openForm())}
+            >
+              {showForm ? 'Cancel' : '+ Add PIC'}
+            </button>
+          </div>
         }
       />
+
+      {addingCompany && (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-add-company-modal-title"
+          >
+            <div className="modal-dialog-header">
+              <h2 id="client-add-company-modal-title" className="modal-dialog-title">
+                Add client
+              </h2>
+              <button
+                type="button"
+                className="modal-dialog-close"
+                onClick={closeAddCompany}
+                aria-label="Close dialog"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={saveAddCompany} style={{ display: 'grid', gap: '0.75rem' }}>
+              <label>
+                Company / organisation name <span className="form-field__required">*</span>
+                <input
+                  type="text"
+                  value={addingCompany.name}
+                  onChange={(e) => setAddingCompany((c) => ({ ...c, name: e.target.value }))}
+                  style={inputStyle}
+                  required
+                  autoFocus
+                />
+              </label>
+              <label>
+                Short code <span className="form-field__required">*</span>
+                <input
+                  type="text"
+                  value={addingCompany.short_code}
+                  onChange={(e) => setAddingCompany((c) => ({ ...c, short_code: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="e.g. PKPJ"
+                  maxLength={32}
+                  required
+                />
+                <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Required code used in helpdesk / imports
+                </span>
+              </label>
+              {canEditLogo && (
+                <div className="client-modal-logo">
+                  <ImageUploadField
+                    value={addingCompany.logo_url}
+                    onChange={(logo_url) => setAddingCompany((c) => ({ ...c, logo_url }))}
+                    onError={(m) => alert(m)}
+                    preset={IMAGE_PRESETS.clientLogo}
+                    variant="avatar"
+                    fallbackLetter={addingCompany.name || 'C'}
+                    busy={saving}
+                  />
+                  <p className="client-modal-logo__hint">
+                    Click the square to add a logo. Optional.
+                  </p>
+                </div>
+              )}
+              <div className="project-create-footer">
+                <button type="button" className="btn btn-secondary" onClick={closeAddCompany} disabled={saving}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary project-create-footer__primary" disabled={saving}>
+                  {saving ? 'Creating…' : 'Create client'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {editingCompany && (
         <div className="modal-backdrop" role="presentation">
@@ -428,7 +584,7 @@ export default function Clients() {
                 />
               </label>
               <label>
-                Short code
+                Short code <span className="form-field__required">*</span>
                 <input
                   type="text"
                   value={editingCompany.short_code}
@@ -436,22 +592,27 @@ export default function Clients() {
                   style={inputStyle}
                   placeholder="e.g. PKPJ"
                   maxLength={32}
+                  required
                 />
                 <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Optional code used in helpdesk / imports
+                  Required code used in helpdesk / imports
                 </span>
               </label>
               {canEditLogo && (
-                <ImageUploadField
-                  label="Company logo"
-                  value={editingCompany.logo_url}
-                  onChange={(logo_url) => setEditingCompany((c) => ({ ...c, logo_url }))}
-                  onError={(m) => alert(m)}
-                  preset={IMAGE_PRESETS.clientLogo}
-                  variant="logo"
-                  placeholder="Upload logo"
-                  busy={saving}
-                />
+                <div className="client-modal-logo">
+                  <ImageUploadField
+                    value={editingCompany.logo_url}
+                    onChange={(logo_url) => setEditingCompany((c) => ({ ...c, logo_url }))}
+                    onError={(m) => alert(m)}
+                    preset={IMAGE_PRESETS.clientLogo}
+                    variant="avatar"
+                    fallbackLetter={editingCompany.name || 'C'}
+                    busy={saving}
+                  />
+                  <p className="client-modal-logo__hint">
+                    Click the square to change the logo.
+                  </p>
+                </div>
               )}
               <div className="project-create-footer">
                 <button type="button" className="btn btn-secondary" onClick={closeEditCompany} disabled={saving}>
@@ -567,7 +728,7 @@ export default function Clients() {
                       type="radio"
                       name="companyMode"
                       checked={form.companyMode === 'existing'}
-                      onChange={() => setForm((f) => ({ ...f, companyMode: 'existing', company_name: '' }))}
+                      onChange={() => setForm((f) => ({ ...f, companyMode: 'existing', company_name: '', short_code: '' }))}
                     />
                     <span>Choose existing</span>
                   </label>
@@ -597,15 +758,30 @@ export default function Clients() {
                     <span>Add new company</span>
                   </label>
                   {form.companyMode === 'new' && (
-                    <input
-                      type="text"
-                      value={form.company_name}
-                      onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))}
-                      style={inputStyle}
-                      placeholder="Company or organisation name"
-                      required={form.companyMode === 'new'}
-                      aria-label="New company name"
-                    />
+                    <>
+                      <input
+                        type="text"
+                        value={form.company_name}
+                        onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))}
+                        style={inputStyle}
+                        placeholder="Company or organisation name"
+                        required={form.companyMode === 'new'}
+                        aria-label="New company name"
+                      />
+                      <label>
+                        Short code <span className="form-field__required">*</span>
+                        <input
+                          type="text"
+                          value={form.short_code}
+                          onChange={(e) => setForm((f) => ({ ...f, short_code: e.target.value }))}
+                          style={inputStyle}
+                          placeholder="e.g. PKPJ"
+                          maxLength={32}
+                          required={form.companyMode === 'new'}
+                          aria-label="Company short code"
+                        />
+                      </label>
+                    </>
                   )}
                 </div>
               </fieldset>
@@ -680,11 +856,16 @@ export default function Clients() {
           <div className="ui-card section-card">
             <UiEmptyState
               title="No companies yet"
-              description="Add a person in charge (PIC) to create a company and contact."
+              description="Add a client company first, then attach persons in charge (PIC) as needed."
               action={
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => openForm()}>
-                  + Add PIC
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={openAddCompany}>
+                    + Add client
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => openForm()}>
+                    + Add PIC
+                  </button>
+                </div>
               }
             />
           </div>
@@ -703,131 +884,115 @@ export default function Clients() {
             />
           </div>
         ) : (
-          <>
-            {filteredCompanies.map((company) => (
-              <div key={company.id} className="client-card ui-card">
-                <div className="client-card__head">
-                  <div className="client-card__identity">
-                    {company.logo_url ? (
-                      <img src={company.logo_url} alt="" className="client-card__logo" />
-                    ) : (
-                      <div className="client-card__logo client-card__logo--placeholder" aria-hidden>
-                        {company.name?.slice(0, 1)?.toUpperCase() || 'C'}
+          <div className="clients-list ui-card">
+            {filteredCompanies.map((company) => {
+              const picCount = company.contacts?.length ?? 0;
+              const metaParts = [];
+              if (picCount === 0) metaParts.push('No PIC');
+              else metaParts.push(`${picCount} PIC${picCount !== 1 ? 's' : ''}`);
+              if (company.project_count > 0) {
+                metaParts.push(
+                  `${company.project_count} project${company.project_count !== 1 ? 's' : ''}`,
+                );
+              }
+
+              return (
+                <article key={company.id} className="client-row">
+                  <div className="client-row__main">
+                    <div className="client-row__identity">
+                      {canEditLogo ? (
+                        <ImageUploadField
+                          value={company.logo_url}
+                          onChange={(logo_url) => saveCompanyLogo(company.id, logo_url)}
+                          onError={(m) => alert(m)}
+                          preset={IMAGE_PRESETS.clientLogo}
+                          variant="avatar"
+                          fallbackLetter={company.name || 'C'}
+                          busy={saving}
+                        />
+                      ) : company.logo_url ? (
+                        <img src={company.logo_url} alt="" className="client-row__logo" />
+                      ) : (
+                        <div className="client-row__logo client-row__logo--placeholder" aria-hidden>
+                          {company.name?.slice(0, 1)?.toUpperCase() || 'C'}
+                        </div>
+                      )}
+                      <div>
+                        <div className="client-row__name">{company.name}</div>
+                        <p className="client-row__meta">
+                          {company.short_code ? (
+                            <span className="client-row__code">{company.short_code}</span>
+                          ) : null}
+                          {company.short_code ? ' · ' : ''}
+                          {metaParts.join(' · ')}
+                        </p>
                       </div>
-                    )}
-                    <div>
-                      <div className="client-card__name">{company.name}</div>
-                      <p className="client-card__meta">
-                        {company.short_code ? `${company.short_code} · ` : ''}
-                        {(company.contacts?.length ?? 0) === 0
-                          ? 'No PIC on file'
-                          : `${company.contacts.length} PIC${company.contacts.length !== 1 ? 's' : ''}`}
-                        {company.project_count > 0 &&
-                          ` · ${company.project_count} project${company.project_count !== 1 ? 's' : ''}`}
-                      </p>
+                    </div>
+                    <div className="client-row__actions">
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => openEditCompany(company)}
+                        disabled={saving}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() =>
+                          openForm({ companyMode: 'existing', company_id: String(company.id), company_name: '' })
+                        }
+                      >
+                        + PIC
+                      </button>
+                      <ProjectViewMenu projects={company.projects} />
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => removeCompany(company.id, company.name)}
+                        style={{ color: 'var(--danger)' }}
+                        disabled={saving}
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
-                  <div className="client-card__actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => openEditCompany(company)}
-                      disabled={saving}
-                    >
-                      Edit company
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() =>
-                        openForm({ companyMode: 'existing', company_id: String(company.id), company_name: '' })
-                      }
-                    >
-                      + Add PIC
-                    </button>
-                    <ProjectViewMenu projects={company.projects} />
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => removeCompany(company.id, company.name)}
-                      style={{ color: 'var(--danger)' }}
-                      disabled={saving}
-                    >
-                      Remove company
-                    </button>
-                  </div>
-                </div>
 
-                {canEditLogo && !editingCompany && (
-                  <div className="client-card__logo-upload">
-                    <ImageUploadField
-                      label="Company logo"
-                      value={company.logo_url}
-                      onChange={(logo_url) => saveCompanyLogo(company.id, logo_url)}
-                      onError={(m) => alert(m)}
-                      preset={IMAGE_PRESETS.clientLogo}
-                      variant="logo"
-                      placeholder="Upload logo"
-                      busy={saving}
-                    />
-                  </div>
-                )}
-
-                {(company.contacts?.length ?? 0) > 0 && (
-                  <ul
-                    style={{
-                      margin: 0,
-                      padding: 0,
-                      listStyle: 'none',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem',
-                      borderTop: '1px solid var(--border)',
-                      paddingTop: '0.75rem',
-                    }}
-                  >
-                    {company.contacts.map((pic) => (
-                      <li
-                        key={pic.id}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: '0.5rem',
-                          fontSize: '0.9rem',
-                          color: 'var(--text-muted)',
-                        }}
-                      >
-                        <span>{formatPicLine(pic) || 'Unnamed contact'}</span>
-                        <div className="card-actions">
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={saving}
-                            onClick={() => openEditPic(pic, company.name)}
-                          >
-                            Edit PIC
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            style={{ color: 'var(--danger)' }}
-                            disabled={saving}
-                            onClick={() =>
-                              removeContact(pic.id, company.name, pic.contact_name || pic.email || 'this contact')
-                            }
-                          >
-                            Remove PIC
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </>
+                  {picCount > 0 && (
+                    <ul className="client-row__pics">
+                      {company.contacts.map((pic) => (
+                        <li key={pic.id} className="client-row__pic">
+                          <span>{formatPicLine(pic) || 'Unnamed contact'}</span>
+                          <div className="client-row__pic-actions">
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={saving}
+                              onClick={() => openEditPic(pic, company.name)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              style={{ color: 'var(--danger)' }}
+                              disabled={saving}
+                              onClick={() =>
+                                removeContact(pic.id, company.name, pic.contact_name || pic.email || 'this contact')
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </article>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
