@@ -37,7 +37,6 @@ create table if not exists projects (
   description text,
   classification text,
   engagement_type text,
-  cover_image_url text,
   status text not null default 'active',
   start_date date,
   end_date date,

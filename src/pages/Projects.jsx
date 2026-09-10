@@ -72,17 +72,11 @@ function ProjectCard({ project: p, highlight = false }) {
       id={`project-card-${p.id}`}
       className={`project-card ui-card project-card--${p.health || 'on_track'} ${highlight ? 'project-card--spotlight' : ''}`}
     >
-      <Link to={`/projects/${p.id}`} className="project-card__cover-link" aria-hidden={!p.cover_image_url}>
-        {p.cover_image_url ? (
-          <div className="project-card__cover" style={{ backgroundImage: `url(${p.cover_image_url})` }}>
-            <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
-          </div>
-        ) : (
-          <div className="project-card__cover project-card__cover--placeholder">
-            <span className="project-card__initial">{initial}</span>
-            <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
-          </div>
-        )}
+      <Link to={`/projects/${p.id}`} className="project-card__cover-link">
+        <div className="project-card__cover project-card__cover--placeholder">
+          <span className="project-card__initial">{initial}</span>
+          <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
+        </div>
       </Link>
       <div className="project-card__body">
         <div className="project-card__head">

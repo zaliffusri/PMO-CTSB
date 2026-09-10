@@ -75,7 +75,6 @@ export const IMAGE_PRESETS = {
   avatar: { maxDim: 256, quality: 0.85 },
   logo: { maxWidth: 160, maxHeight: 64, quality: 0.9, cover: false },
   banner: { maxWidth: 1200, maxHeight: 320, quality: 0.82 },
-  projectCover: { maxWidth: 960, maxHeight: 240, quality: 0.82 },
   clientLogo: { maxDim: 128, quality: 0.88 },
 };
 

@@ -7,8 +7,6 @@ import ClientMultiSelect from '../components/ClientMultiSelect';
 import ProjectMiniTimeline from '../components/ProjectMiniTimeline';
 import ProjectTimelinePanel from '../components/ProjectTimelinePanel';
 import PageHeader from '../components/PageHeader';
-import ImageUploadField from '../components/ImageUploadField';
-import { IMAGE_PRESETS } from '../lib/imageResize';
 import { computeProjectHealth, healthLabel, formatProjectDate, deadlineSummary } from '../../lib/pmoMetrics.js';
 import { useAuth } from '../AuthContext';
 import { canCreateProject, canDeleteProject, canViewFinance } from '../../lib/permissions.js';
@@ -231,7 +229,6 @@ function ProjectDetail() {
           ...updated,
           // Keep workspace-only fields the lightweight update response omits.
           members: updated.members ?? prev?.members,
-          cover_image_url: updated.cover_image_url ?? prev?.cover_image_url,
           engagement_type: updated?.engagement_type ?? editForm.engagement_type ?? null,
         }));
         setEditForm({
@@ -382,25 +379,6 @@ function ProjectDetail() {
       : null,
   })), [tabCounts]);
 
-  const saveCover = async (cover_image_url) => {
-    await run(async () => {
-      try {
-        const updated = await api.projects.update(id, { cover_image_url });
-        setProject((prev) => ({
-          ...updated,
-          members: updated.members ?? prev?.members,
-          // Prefer API echo; otherwise keep the value we just uploaded/cleared.
-          cover_image_url:
-            updated.cover_image_url !== undefined
-              ? updated.cover_image_url
-              : cover_image_url,
-        }));
-      } catch (err) {
-        alert(err.message || 'Failed to save project cover');
-      }
-    });
-  };
-
   const deleteProject = async () => {
     if (!canRemoveProject || !project?.id) return;
     const ok = confirm(
@@ -428,15 +406,6 @@ function ProjectDetail() {
   return (
     <div className="page-module project-workspace">
       <Link to="/projects" className="page-breadcrumb">← Projects</Link>
-
-      {project.cover_image_url ? (
-        <div
-          className="project-cover-banner"
-          style={{ backgroundImage: `url(${project.cover_image_url})` }}
-          role="img"
-          aria-label={`${project.name} cover`}
-        />
-      ) : null}
 
       <PageHeader
         compact={false}
@@ -789,24 +758,6 @@ function ProjectDetail() {
             )}
             <div className="project-overview-actions">
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => changeTab('people')}>Manage team</button>
-            </div>
-          </div>
-
-          <div className="ui-card section-card project-cover-panel">
-            <div className="section-card__header section-card__header--compact">
-              <h2 className="section-card__title">Project cover</h2>
-              <p className="section-card__desc">Optional banner for this workspace</p>
-            </div>
-            <div className="project-cover-panel__body">
-              <ImageUploadField
-                value={project.cover_image_url}
-                onChange={saveCover}
-                onError={(m) => alert(m)}
-                preset={IMAGE_PRESETS.projectCover}
-                variant="banner"
-                placeholder="Add project cover"
-                busy={busy}
-              />
             </div>
           </div>
         </div>

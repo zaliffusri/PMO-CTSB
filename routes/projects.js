@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { store } from '../db/store.js';
 import { parseClientIds } from '../lib/projectClients.js';
-import { validateImageDataUrl } from '../lib/validateImageDataUrl.js';
 import {
   PROJECT_CLASSIFICATION_IDS,
   PROJECT_ENGAGEMENT_TYPE_SET,
@@ -172,11 +171,6 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     if (engagement_type !== undefined) patch.engagement_type = nextEngagementType;
     if (classification !== undefined) patch.classification = nextClassification;
     if (clientIds !== null) patch.client_ids = clientIds;
-    if (req.body.cover_image_url !== undefined) {
-      patch.cover_image_url = req.body.cover_image_url === null || req.body.cover_image_url === ''
-        ? null
-        : validateImageDataUrl(req.body.cover_image_url, { maxBytes: 500_000, field: 'cover_image_url' });
-    }
 
     const ok = await store.updateProject(id, patch);
     if (ok === false) return res.status(404).json({ error: 'Project not found' });
@@ -193,7 +187,6 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     store.persistToSupabase().catch((e) => console.warn('persist:', e?.message || e));
 
     // Omit heavy cover from DB reload — large data URLs slow Vercel responses.
-    // Echo the value we just accepted so the UI can keep showing it.
     let project = typeof store.findProjectById === 'function'
       ? await store.findProjectById(id, { includeCover: false })
       : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
@@ -201,7 +194,6 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     // Keep fields we just persisted even if a lite-column select cache omits them briefly.
     if (patch.engagement_type !== undefined) project = { ...project, engagement_type: patch.engagement_type };
     if (patch.classification !== undefined) project = { ...project, classification: patch.classification };
-    if (patch.cover_image_url !== undefined) project = { ...project, cover_image_url: patch.cover_image_url };
     res.json(await enrichProject(project));
   } catch (e) {
     console.error('projects PUT/:id failed', e);

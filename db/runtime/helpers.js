@@ -99,7 +99,7 @@ export function companyRowForDb(c) {
 }
 
 export function projectRowForDb(p) {
-  // Explicit columns only — spreading unknown fields (e.g. cover_image_url) breaks upsert on older schemas.
+  // Explicit columns only — spreading unknown fields breaks upsert on older schemas.
   const row = {
     id: p.id,
     name: p.name,
@@ -112,7 +112,6 @@ export function projectRowForDb(p) {
     tags: Array.isArray(p.tags) ? p.tags : [],
     created_at: p.created_at || new Date().toISOString(),
   };
-  if (p.cover_image_url !== undefined) row.cover_image_url = p.cover_image_url;
   return row;
 }
 
