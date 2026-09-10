@@ -21,6 +21,19 @@ export function createPeopleRepository(ctx, getStore) {
     return dbSelect('people', { order: 'id' });
   }
 
+  async function listPeopleByIds(ids = []) {
+    const want = [...new Set((ids || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (!want.length) return [];
+    if (!isDbMode()) {
+      return (getData().people || []).filter((p) => want.includes(Number(p.id)));
+    }
+    return dbSelect('people', {
+      columns: 'id,name,email,role,user_id',
+      inFilters: { id: want },
+      order: 'id',
+    });
+  }
+
   async function findPersonByUserId(userId) {
     const uid = Number(userId);
     if (!Number.isFinite(uid)) return null;
@@ -57,6 +70,7 @@ export function createPeopleRepository(ctx, getStore) {
     },
 
     listPeople,
+    listPeopleByIds,
     findPersonByUserId,
 
     async addPerson(row) {

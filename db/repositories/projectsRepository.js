@@ -33,19 +33,30 @@ function isMissingColumnError(err) {
   return /schema cache|PGRST204|does not exist|column .* does not exist/i.test(msg);
 }
 
+let cachedProjectLiteColumns = null;
+
 async function selectProjectsLite({ filters = undefined, maybeSingle = false, order = 'id' } = {}) {
+  const candidates = cachedProjectLiteColumns
+    ? [cachedProjectLiteColumns, ...PROJECT_LITE_COLUMN_CANDIDATES.filter((c) => c !== cachedProjectLiteColumns)]
+    : PROJECT_LITE_COLUMN_CANDIDATES;
+
   let lastError;
-  for (const columns of PROJECT_LITE_COLUMN_CANDIDATES) {
+  for (const columns of candidates) {
     try {
-      return await dbSelect('projects', {
+      const data = await dbSelect('projects', {
         columns,
         filters,
         maybeSingle,
         order: maybeSingle ? null : order,
       });
+      cachedProjectLiteColumns = columns;
+      return data;
     } catch (e) {
       lastError = e;
-      if (isMissingColumnError(e)) continue;
+      if (isMissingColumnError(e)) {
+        if (cachedProjectLiteColumns === columns) cachedProjectLiteColumns = null;
+        continue;
+      }
       throw e;
     }
   }

@@ -27,7 +27,11 @@ export function createBacklogsRepository(ctx, getStore) {
     const dbFilters = {};
     if (Number.isFinite(projectId)) dbFilters.project_id = projectId;
     if (Number.isFinite(workPackageId)) dbFilters.work_package_id = workPackageId;
-    return dbSelect('backlogs_app', { filters: dbFilters, order: 'id' });
+    return dbSelect('backlogs_app', {
+      columns: filters.columns || '*',
+      filters: dbFilters,
+      order: 'id',
+    });
   }
 
   return {

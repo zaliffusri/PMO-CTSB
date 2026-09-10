@@ -21,16 +21,20 @@ function rollupGroupHours(groupId, allTasks) {
 }
 
 async function withTaskMeta(t, preloaded = null) {
-  const projects = preloaded?.projects ?? await store.listProjects();
-  const people = preloaded?.people ?? await store.listPeople();
-  const allTasks = preloaded?.tasks ?? await store.listProjectTasks();
-  const workPackages = preloaded?.workPackages ?? await store.listWorkPackages();
-  const project = projects.find(p => p.id === t.project_id);
-  const assignee = t.assignee_id != null ? people.find(p => p.id === t.assignee_id) : null;
+  const projects = preloaded?.projects ?? [];
+  const people = preloaded?.people ?? [];
+  const allTasks = preloaded?.tasks ?? [];
+  const workPackages = preloaded?.workPackages ?? [];
+  const project = projects.find((p) => Number(p.id) === Number(t.project_id));
+  const assignee = t.assignee_id != null
+    ? people.find((p) => Number(p.id) === Number(t.assignee_id))
+    : null;
   const task_kind = t.task_kind === 'group' ? 'group' : 'task';
-  const parent = t.parent_id != null ? allTasks.find(p => p.id === t.parent_id) : null;
+  const parent = t.parent_id != null
+    ? allTasks.find((p) => Number(p.id) === Number(t.parent_id))
+    : null;
   const wp = t.work_package_id
-    ? workPackages.find((w) => w.id === t.work_package_id)
+    ? workPackages.find((w) => Number(w.id) === Number(t.work_package_id))
     : null;
   const hours = task_kind === 'group' ? rollupGroupHours(t.id, allTasks) : {
     estimated_hours: t.estimated_hours ?? null,
@@ -79,28 +83,50 @@ function applySort(tasks) {
 
 async function loadTaskMetaContext(filters = {}) {
   const projectId = filters.project_id != null ? Number(filters.project_id) : null;
-  const [projects, people, tasks, workPackages] = await Promise.all([
-    Number.isFinite(projectId) && typeof store.findProjectById === 'function'
-      ? store.findProjectById(projectId, { includeCover: false }).then((p) => (p ? [p] : []))
-      : store.listProjects(),
-    store.listPeople(),
+
+  // Load tasks + packages first; people only for assignees present in those rows.
+  const [tasks, workPackages] = await Promise.all([
     store.listProjectTasks(filters),
-    store.listWorkPackages(Number.isFinite(projectId) ? projectId : undefined),
+    store.listWorkPackages(Number.isFinite(projectId) ? projectId : undefined).catch(() => []),
   ]);
-  return { projects, people, tasks, workPackages };
+
+  const assigneeIds = [
+    ...new Set(
+      (tasks || [])
+        .map((t) => Number(t.assignee_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+
+  const [people, projects] = await Promise.all([
+    assigneeIds.length && typeof store.listPeopleByIds === 'function'
+      ? store.listPeopleByIds(assigneeIds).catch(() => [])
+      : assigneeIds.length
+        ? store.listPeople().then((rows) => rows.filter((p) => assigneeIds.includes(Number(p.id)))).catch(() => [])
+        : Promise.resolve([]),
+    Number.isFinite(projectId) && typeof store.findProjectById === 'function'
+      ? store.findProjectById(projectId, { includeCover: false }).then((p) => (p ? [p] : [])).catch(() => [])
+      : store.listProjects().catch(() => []),
+  ]);
+
+  return { projects, people, tasks: tasks || [], workPackages: workPackages || [] };
 }
 
 projectTasksRouter.get('/', async (req, res) => {
-  await reloadStore();
-  const projectId = req.query.project_id ? +req.query.project_id : null;
-  const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
-  const filters = {};
-  if (Number.isFinite(projectId)) filters.project_id = projectId;
-  if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
-  const ctx = await loadTaskMetaContext(filters);
-  let tasks = await Promise.all(ctx.tasks.map((t) => withTaskMeta(t, ctx)));
-  tasks = applySort(tasks);
-  res.json(tasks);
+  try {
+    const projectId = req.query.project_id ? +req.query.project_id : null;
+    const workPackageId = req.query.work_package_id ? +req.query.work_package_id : null;
+    const filters = {};
+    if (Number.isFinite(projectId)) filters.project_id = projectId;
+    if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
+    const ctx = await loadTaskMetaContext(filters);
+    let tasks = ctx.tasks.map((t) => withTaskMeta(t, ctx));
+    tasks = applySort(tasks);
+    res.json(tasks);
+  } catch (e) {
+    console.error('project-tasks GET failed', e);
+    res.status(500).json({ error: e?.message || 'Failed to load project tasks' });
+  }
 });
 
 projectTasksRouter.get('/gantt', async (req, res) => {

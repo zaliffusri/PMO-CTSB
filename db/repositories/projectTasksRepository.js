@@ -11,6 +11,7 @@ export function createProjectTasksRepository(ctx, getStore) {
     const workPackageId = filters.work_package_id != null && filters.work_package_id !== ''
       ? Number(filters.work_package_id)
       : null;
+    const columns = filters.columns || '*';
 
     if (!isDbMode()) {
       let rows = [...getData().project_tasks];
@@ -23,6 +24,7 @@ export function createProjectTasksRepository(ctx, getStore) {
     if (Number.isFinite(projectId)) dbFilters.project_id = projectId;
     if (Number.isFinite(workPackageId)) dbFilters.work_package_id = workPackageId;
     return dbSelect('project_tasks', {
+      columns,
       filters: dbFilters,
       order: 'id',
     });

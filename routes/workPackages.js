@@ -13,13 +13,9 @@ const CLASSIFICATION_SET = new Set(PROJECT_CLASSIFICATIONS.map((c) => c.id));
 
 async function enrichWorkPackage(wp, preloaded = null) {
   const pid = wp.project_id;
-  const tasks = preloaded?.tasks ?? await store.listProjectTasks(
-    pid != null ? { project_id: pid } : {},
-  );
-  const phases = preloaded?.phases ?? await store.listProjectPhases(pid);
-  const backlogs = preloaded?.backlogs ?? await store.listBacklogs(
-    pid != null ? { project_id: pid } : {},
-  );
+  const tasks = preloaded?.tasks ?? [];
+  const phases = preloaded?.phases ?? [];
+  const backlogs = preloaded?.backlogs ?? [];
   const wpTasks = tasks.filter((t) => Number(t.work_package_id) === Number(wp.id));
   const wpPhases = phases.filter((p) => Number(p.work_package_id) === Number(wp.id));
   const wpBacklogs = backlogs.filter((b) => Number(b.work_package_id) === Number(wp.id));
@@ -42,34 +38,56 @@ async function enrichWorkPackage(wp, preloaded = null) {
 }
 
 async function loadWorkPackageMetaContext(projectId = null) {
-  const taskFilters = Number.isFinite(Number(projectId)) ? { project_id: Number(projectId) } : {};
-  const backlogFilters = Number.isFinite(Number(projectId)) ? { project_id: Number(projectId) } : {};
+  const pid = Number.isFinite(Number(projectId)) ? Number(projectId) : null;
+  const taskFilters = pid != null
+    ? { project_id: pid, columns: 'id,work_package_id' }
+    : { columns: 'id,work_package_id,project_id' };
+  const backlogFilters = pid != null
+    ? { project_id: pid, columns: 'id,work_package_id,status' }
+    : { columns: 'id,work_package_id,status,project_id' };
+
   const [tasks, phases, backlogs] = await Promise.all([
-    store.listProjectTasks(taskFilters),
-    store.listProjectPhases(projectId ?? undefined),
-    store.listBacklogs(backlogFilters),
+    store.listProjectTasks(taskFilters).catch(() => []),
+    store.listProjectPhases(pid ?? undefined).catch(() => []),
+    store.listBacklogs(backlogFilters).catch(() => []),
   ]);
   return { tasks, phases, backlogs };
 }
 
 workPackagesRouter.get('/', async (req, res) => {
-  await reloadStore();
-  const projectId = req.query.project_id ? +req.query.project_id : null;
-  const packages = projectId
-    ? await store.listWorkPackages(projectId)
-    : await store.listWorkPackages();
-  const ctx = await loadWorkPackageMetaContext(projectId);
-  let list = await Promise.all(packages.map((w) => enrichWorkPackage(w, ctx)));
-  list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
-  res.json(list);
+  try {
+    const projectId = req.query.project_id ? +req.query.project_id : null;
+    const packages = projectId
+      ? await store.listWorkPackages(projectId)
+      : await store.listWorkPackages();
+    if (!packages?.length) return res.json([]);
+
+    const ctx = await loadWorkPackageMetaContext(Number.isFinite(projectId) ? projectId : null);
+    const list = packages.map((w) => enrichWorkPackage(w, ctx));
+    list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
+    res.json(list);
+  } catch (e) {
+    console.error('work-packages GET failed', e);
+    // Soft-fail empty list so workspace shell still opens when delivery tables lag schema.
+    const msg = String(e?.message || e || '');
+    if (/does not exist|schema cache|PGRST204/i.test(msg)) {
+      return res.json([]);
+    }
+    res.status(500).json({ error: e?.message || 'Failed to load work packages' });
+  }
 });
 
 workPackagesRouter.get('/:id', async (req, res) => {
-  await reloadStore();
-  const packages = await store.listWorkPackages();
-  const wp = packages.find((w) => w.id === +req.params.id);
-  if (!wp) return res.status(404).json({ error: 'Work package not found' });
-  res.json(await enrichWorkPackage(wp));
+  try {
+    const packages = await store.listWorkPackages();
+    const wp = packages.find((w) => Number(w.id) === +req.params.id);
+    if (!wp) return res.status(404).json({ error: 'Work package not found' });
+    const ctx = await loadWorkPackageMetaContext(wp.project_id);
+    res.json(enrichWorkPackage(wp, ctx));
+  } catch (e) {
+    console.error('work-packages GET/:id failed', e);
+    res.status(500).json({ error: e?.message || 'Failed to load work package' });
+  }
 });
 
 workPackagesRouter.post('/', async (req, res) => {
