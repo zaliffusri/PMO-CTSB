@@ -520,7 +520,7 @@ export async function runRichDemoSeed(store) {
   }
 
   // Multi-type engagement: one project, several work packages
-  const wpPortal = await store.addWorkPackage({
+  const wpPortalRow = await store.addWorkPackage({
     project_id: projPortal,
     name: 'Citizen portal modules',
     description: 'Core portal UI, licensing, and complaints workflow.',
@@ -529,7 +529,7 @@ export async function runRichDemoSeed(store) {
     start_date: dayOffset(-120),
     end_date: dayOffset(90),
   });
-  const wpPayment = await store.addWorkPackage({
+  const wpPaymentRow = await store.addWorkPackage({
     project_id: projPortal,
     name: 'Payment gateway API',
     description: 'FPX and card payment integration with treasury.',
@@ -538,7 +538,7 @@ export async function runRichDemoSeed(store) {
     start_date: dayOffset(-60),
     end_date: dayOffset(45),
   });
-  const wpData = await store.addWorkPackage({
+  const wpDataRow = await store.addWorkPackage({
     project_id: projPortal,
     name: 'Legacy records import',
     description: 'Historical complaint and license data migration.',
@@ -547,6 +547,9 @@ export async function runRichDemoSeed(store) {
     start_date: dayOffset(-14),
     end_date: dayOffset(120),
   });
+  const wpPortal = wpPortalRow?.id ?? wpPortalRow;
+  const wpPayment = wpPaymentRow?.id ?? wpPaymentRow;
+  const wpData = wpDataRow?.id ?? wpDataRow;
 
   await store.initProjectPhasesFromTemplate(projPortal, templateForClassification('New System Development'), wpPortal);
   await store.initProjectPhasesFromTemplate(projPortal, templateForClassification('API Integration'), wpPayment);

@@ -154,22 +154,40 @@ export function createDeliveryRepository(ctx, getStore) {
         const sort_order = row.sort_order != null
           ? +row.sort_order
           : siblings.reduce((m, w) => Math.max(m, w.sort_order ?? 0), -1) + 1;
-        data.work_packages.push({ id, ...buildWorkPackagePayload(row, { sort_order, now }) });
+        const payload = { id, ...buildWorkPackagePayload(row, { sort_order, now }) };
+        data.work_packages.push(payload);
         save();
-        return id;
+        return payload;
       }
       let sort_order = row.sort_order != null ? +row.sort_order : null;
       if (sort_order == null) {
-        const siblings = await dbSelect('project_work_packages_app', {
-          filters: { project_id: +row.project_id },
-        });
-        sort_order = siblings.reduce((m, w) => Math.max(m, w.sort_order ?? 0), -1) + 1;
+        try {
+          const siblings = await dbSelect('project_work_packages_app', {
+            columns: 'sort_order',
+            filters: { project_id: +row.project_id },
+          });
+          sort_order = siblings.reduce((m, w) => Math.max(m, w.sort_order ?? 0), -1) + 1;
+        } catch {
+          sort_order = 0;
+        }
       }
       const saved = await dbInsert(
         'project_work_packages_app',
         buildWorkPackagePayload(row, { sort_order, now }),
       );
-      return saved.id;
+      return saved;
+    },
+
+    async findWorkPackageById(id) {
+      const wid = Number(id);
+      if (!Number.isFinite(wid)) return null;
+      if (!isDbMode()) {
+        return (getData().work_packages || []).find((w) => Number(w.id) === wid) || null;
+      }
+      return dbSelect('project_work_packages_app', {
+        filters: { id: wid },
+        maybeSingle: true,
+      });
     },
 
     async updateWorkPackage(id, patch) {
