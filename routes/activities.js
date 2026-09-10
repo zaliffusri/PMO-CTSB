@@ -849,30 +849,32 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
 });
 
 activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
-  try {
-    await store.refreshActivitiesFromSupabase();
-  } catch (e) {
-    console.warn('activities DELETE: could not refresh from Supabase', e?.message || e);
-  }
   const id = +req.params.id;
-  const [activities, projects] = await Promise.all([
-    store.listActivities(),
-    store.listProjects(),
-  ]);
-  const existing = activities.find((a) => a.id === id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid activity id' });
+
+  // Scoped cancel — never full-table refresh/list (those 504 on Vercel).
+  let existing = null;
+  try {
+    existing = typeof store.findActivityById === 'function'
+      ? await store.findActivityById(id)
+      : (await store.listActivities()).find((a) => Number(a.id) === id) || null;
+  } catch (e) {
+    console.warn('activities DELETE find:', e?.message || e);
+  }
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
 
-  // Cancellation never sends Outlook/Teams email — in-app notice only.
+  let groupRows = [existing];
+  try {
+    if (typeof store.findActivityLogicalGroupRows === 'function') {
+      groupRows = await store.findActivityLogicalGroupRows(existing);
+      if (!groupRows.length) groupRows = [existing];
+    }
+  } catch (e) {
+    console.warn('activities DELETE group lookup:', e?.message || e);
+  }
 
-  const deletedIds = idsInSameLogicalGroup(activities, id);
-  const groupRows = deletedIds
-    .map((aid) => activities.find((a) => a.id === aid))
-    .filter(Boolean);
+  const deletedIds = groupRows.map((r) => Number(r.id)).filter(Number.isFinite);
   const assigneeUids = [...new Set(groupRows.map((r) => r.person_id).filter((x) => x != null))];
-  const external_attendees = groupRows.map((r) => r.external_attendees).find((x) => x != null && String(x).trim())
-    || existing.external_attendees
-    || null;
-  const project = projects.find((p) => p.id === existing.project_id);
   const cancelledBy = req.user?.name || req.user?.email || '';
   const cancelPayload = {
     title: existing.title,
@@ -880,28 +882,55 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     location: existing.location,
     start_at: existing.start_at,
     end_at: existing.end_at,
-    projectName: project?.name || null,
+    projectName: null,
     description: existing.description || null,
   };
 
-  // Durable cancel: purge DB + memory first (skip sync queue), notify, audit.
-  // Do NOT full-persist afterward — a stale upsert snapshot can resurrect rows.
-  const { deleted, deleted_ids: removedIds } = await store.deleteActivityLogicalGroupByAnyMemberId(id, {
-    skipSave: true,
-  });
+  // Optional project name — never block cancel on a projects list.
+  if (existing.project_id != null) {
+    try {
+      const project = typeof store.findProjectById === 'function'
+        ? await store.findProjectById(existing.project_id, { includeCover: false })
+        : null;
+      cancelPayload.projectName = project?.name || null;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  let deleted = 0;
+  let removedIds = deletedIds;
+  try {
+    if (typeof store.deleteActivitiesByIds === 'function') {
+      const result = await store.deleteActivitiesByIds(deletedIds, { skipSave: true });
+      deleted = result.deleted;
+      removedIds = result.deleted_ids || deletedIds;
+    } else {
+      const result = await store.deleteActivityLogicalGroupByAnyMemberId(id, { skipSave: true });
+      deleted = result.deleted;
+      removedIds = result.deleted_ids || deletedIds;
+    }
+  } catch (e) {
+    console.error('activities DELETE failed', e);
+    return res.status(500).json({ error: e?.message || 'Failed to cancel activity' });
+  }
   if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
 
-  const idsToPurge = [...new Set([...(removedIds || []), ...deletedIds].map(Number).filter(Number.isFinite))];
-  try {
-    await store.purgeActivityIdsFromSupabase(idsToPurge);
-  } catch (e) {
-    console.warn('activities DELETE early purge:', e?.message || e);
+  // deleteActivitiesByIds already removed rows + tombstones; legacy path needs an extra purge.
+  if (typeof store.deleteActivitiesByIds !== 'function') {
+    const idsToPurge = [...new Set([...(removedIds || []), ...deletedIds].map(Number).filter(Number.isFinite))];
+    try {
+      await store.purgeActivityIdsFromSupabase(idsToPurge);
+    } catch (e) {
+      console.warn('activities DELETE purge:', e?.message || e);
+    }
   }
 
   const calendarUid = existing.activity_group_id || `activity-${id}`;
 
+  // Race in-app notify so cancel still returns under Vercel's gateway limit.
   let emailNotify = {
-    smtp_configured: await isMailerConfigured(),
+    smtp_configured: null,
     variant: 'cancelled',
     in_app: 0,
     attempted: 0,
@@ -910,23 +939,31 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     recipients: [],
   };
   try {
-    emailNotify = await dispatchActivityNotifications({
-      assigneeUids,
-      title: cancelPayload.title,
-      typeKey: cancelPayload.typeKey,
-      location: cancelPayload.location,
-      start_at: cancelPayload.start_at,
-      end_at: cancelPayload.end_at,
-      projectName: cancelPayload.projectName,
-      description: cancelPayload.description,
-      loggedBy: cancelledBy,
-      external_attendees,
-      variant: 'cancelled',
-      calendarUid,
-      sequence: nextCalendarSequence('cancel'),
-      activityId: id,
-      sendEmail: false,
-    });
+    emailNotify = await Promise.race([
+      dispatchActivityNotifications({
+        assigneeUids,
+        title: cancelPayload.title,
+        typeKey: cancelPayload.typeKey,
+        location: cancelPayload.location,
+        start_at: cancelPayload.start_at,
+        end_at: cancelPayload.end_at,
+        projectName: cancelPayload.projectName,
+        description: cancelPayload.description,
+        loggedBy: cancelledBy,
+        external_attendees: null,
+        variant: 'cancelled',
+        calendarUid,
+        sequence: nextCalendarSequence('cancel'),
+        activityId: id,
+        sendEmail: false,
+      }),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({
+          ...emailNotify,
+          in_app_error: 'notification timed out — activity was still cancelled',
+        }), 2500);
+      }),
+    ]);
   } catch (notifyErr) {
     console.error('activities DELETE notify failed', notifyErr);
     emailNotify = {
@@ -936,31 +973,27 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   }
 
   const suffix = deleted > 1 ? ` (${deleted} assignee rows)` : '';
-  await store.appendAuditLog(req.user, {
+  // Non-blocking audit — never hold the cancel response.
+  store.appendAuditLog(req.user, {
     action: 'cancel',
     target_type: 'activity',
     target_id: id,
     summary: `Cancelled activity "${existing.title}"${suffix}`,
     detail: {
       cancelled_activity_ids: deletedIds,
-      notify_email: shouldNotify,
+      notify_email: false,
       email_notify: emailNotify
-        ? { attempted: emailNotify.attempted, sent: emailNotify.sent, failed: emailNotify.failed }
+        ? { attempted: emailNotify.attempted, sent: emailNotify.sent, failed: emailNotify.failed, in_app: emailNotify.in_app }
         : null,
     },
-  });
-  // Final hard-delete in case a concurrent upsert raced during notify/audit.
-  try {
-    await store.purgeActivityIdsFromSupabase(idsToPurge);
-  } catch (e) {
-    console.warn('activities DELETE final purge:', e?.message || e);
-  }
+  }).catch((e) => console.warn('activities DELETE audit:', e?.message || e));
+
   res.json({
     cancelled: true,
     id,
     title: existing.title,
     removed: deleted,
-    notify_email_requested: shouldNotify,
+    notify_email_requested: false,
     email_notify: emailNotify,
   });
 });

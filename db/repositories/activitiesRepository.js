@@ -1,4 +1,4 @@
-import { idsInSameLogicalGroup } from '../../lib/activityLogicalGroup.js';
+import { idsInSameLogicalGroup, activityLogicalGroupKey } from '../../lib/activityLogicalGroup.js';
 import { parseActorEmbedFromDescription } from '../../lib/activityActorEmbed.js';
 import { nextId } from '../runtime/helpers.js';
 import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere, requireSupabase } from '../runtime/query.js';
@@ -102,6 +102,72 @@ export function createActivitiesRepository(ctx, getStore) {
     listActivities,
     listActivitiesOverlapping,
 
+    async findActivityById(id) {
+      const aid = Number(id);
+      if (!Number.isFinite(aid)) return null;
+      if (!isDbMode()) {
+        return (getData().activities || []).find((a) => Number(a.id) === aid) || null;
+      }
+      const row = await dbSelect('activities', { filters: { id: aid }, maybeSingle: true });
+      return row ? rehydrateActivityActors([row])[0] : null;
+    },
+
+    /**
+     * Rows for the same logical calendar activity as `anchor` (scoped — no full-table pull).
+     */
+    async findActivityLogicalGroupRows(anchor) {
+      if (!anchor?.id) return [];
+      if (!isDbMode()) {
+        const all = getData().activities || [];
+        const ids = new Set(idsInSameLogicalGroup(all, anchor.id).map(Number));
+        return all.filter((a) => ids.has(Number(a.id)));
+      }
+      const gid = anchor.activity_group_id != null && String(anchor.activity_group_id).trim() !== ''
+        ? String(anchor.activity_group_id).trim()
+        : null;
+      let candidates;
+      if (gid) {
+        candidates = await dbSelect('activities', { filters: { activity_group_id: gid }, order: 'id' });
+      } else {
+        // Narrow by schedule window, then apply the same logical key as the calendar UI.
+        candidates = await dbSelect('activities', {
+          filters: {
+            start_at: anchor.start_at,
+            end_at: anchor.end_at,
+          },
+          order: 'id',
+        });
+      }
+      const key = activityLogicalGroupKey(anchor);
+      return (candidates || []).filter((row) => activityLogicalGroupKey(row) === key);
+    },
+
+    async deleteActivitiesByIds(ids, opts = {}) {
+      const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
+      if (!list.length) return { deleted: 0, deleted_ids: [] };
+      const idSet = new Set(list);
+      rememberDeletedActivityIds(list);
+      try {
+        await persistDeletedActivityIds(list);
+      } catch (e) {
+        console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
+      }
+      if (isDbMode()) {
+        await dbDeleteWhere('activities', {}, { inFilters: { id: list } });
+        const data = getData();
+        if (data.activities) {
+          data.activities = data.activities.filter((a) => !idSet.has(Number(a.id)));
+        }
+        return { deleted: list.length, deleted_ids: list };
+      }
+      const data = getData();
+      const before = data.activities.length;
+      data.activities = data.activities.filter((a) => !idSet.has(Number(a.id)));
+      if (data.activities.length === before) return { deleted: 0, deleted_ids: [] };
+      if (!opts.skipSave) save();
+      return { deleted: list.length, deleted_ids: list };
+    },
+
     async addActivity(row) {
       const created_at = row?.created_at || new Date().toISOString();
       const payload = { ...row, created_at };
@@ -199,35 +265,20 @@ export function createActivitiesRepository(ctx, getStore) {
      * @param {{ skipSave?: boolean }} [opts] skipSave avoids queueing a full sync (preferred on cancel).
      */
     async deleteActivityLogicalGroupByAnyMemberId(id, opts = {}) {
-      const activities = isDbMode()
-        ? await dbSelect('activities', { order: 'id' })
-        : getData().activities;
-      const ids = idsInSameLogicalGroup(activities, id);
-      if (ids.length === 0) return { deleted: 0, deleted_ids: [] };
-      const idSet = new Set(ids.map(Number));
-      rememberDeletedActivityIds(ids);
-      try {
-        await persistDeletedActivityIds(ids);
-      } catch (e) {
-        console.warn('activities: persistDeletedActivityIds failed', e?.message || e);
+      const anchor = await getStore().findActivityById(id);
+      if (!anchor) {
+        // Fallback for callers that still rely on a full scan (rare).
+        const activities = isDbMode()
+          ? await dbSelect('activities', { order: 'id' })
+          : getData().activities;
+        const ids = idsInSameLogicalGroup(activities, id);
+        if (!ids.length) return { deleted: 0, deleted_ids: [] };
+        return getStore().deleteActivitiesByIds(ids, opts);
       }
-
-      if (isDbMode()) {
-        await dbDeleteWhere('activities', {}, { inFilters: { id: ids } });
-        const data = getData();
-        if (data.activities) {
-          data.activities = data.activities.filter((a) => !idSet.has(Number(a.id)));
-        }
-        await dbDeleteWhere('activities', {}, { inFilters: { id: ids } });
-        return { deleted: ids.length, deleted_ids: ids };
-      }
-
-      const data = getData();
-      const before = data.activities.length;
-      data.activities = data.activities.filter((a) => !idSet.has(Number(a.id)));
-      if (data.activities.length === before) return { deleted: 0, deleted_ids: [] };
-      if (!opts.skipSave) save();
-      return { deleted: ids.length, deleted_ids: ids };
+      const rows = await getStore().findActivityLogicalGroupRows(anchor);
+      const ids = rows.map((r) => r.id);
+      if (!ids.length) return { deleted: 0, deleted_ids: [] };
+      return getStore().deleteActivitiesByIds(ids, opts);
     },
 
     /** Hard-delete activity row ids from Supabase (used after cancel to prevent resurrection). */
