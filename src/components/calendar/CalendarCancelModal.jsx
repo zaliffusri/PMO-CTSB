@@ -1,8 +1,5 @@
 export default function CalendarCancelModal({
   activity,
-  cancelNotify,
-  setCancelNotify,
-  smtpConfigured,
   mutating,
   onConfirm,
   onClose,
@@ -40,23 +37,9 @@ export default function CalendarCancelModal({
               : ''}
             .
           </p>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={cancelNotify}
-              onChange={(e) => setCancelNotify(e.target.checked)}
-              disabled={mutating}
-              style={{ marginTop: '0.2rem' }}
-            />
-            <span>
-              <strong>Also email cancellation</strong>
-              <span style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                {smtpConfigured
-                  ? 'Assignees always get an in-app cancellation notice. Tick to also send an Outlook / Teams cancellation email.'
-                  : 'Assignees always get an in-app cancellation notice. Cancellation emails need SMTP configured in Settings → Email.'}
-              </span>
-            </span>
-          </label>
+          <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+            Assignees get an in-app cancellation notice. No Outlook / Teams email is sent.
+          </p>
         </div>
         <div className="modal-dialog-footer" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-secondary" onClick={onClose} disabled={mutating}>

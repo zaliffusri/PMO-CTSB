@@ -155,13 +155,11 @@ export const api = {
       const qs = q.toString();
       return request(`/activities/${id}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
     },
-    /** Alias — calendar activities are cancelled (with optional email), not hard-deleted silently. */
+    /** Alias — calendar activities are cancelled with in-app notice only (no Outlook/Teams email). */
     cancel: (id, params = {}) => {
       const q = new URLSearchParams();
-      if (params.notify_email !== undefined) q.set('notify_email', String(params.notify_email));
-      else q.set('notify_email', 'true');
-      const qs = q.toString();
-      return request(`/activities/${id}?${qs}`, { method: 'DELETE' });
+      q.set('notify_email', String(params.notify_email ?? false));
+      return request(`/activities/${id}?${q}`, { method: 'DELETE' });
     },
     mailStatus: () => request('/activities/mail-status'),
     scheduleEmailPreview: (params) =>

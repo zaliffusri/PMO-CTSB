@@ -862,10 +862,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
   const existing = activities.find((a) => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
 
-  const notifyRaw = req.query.notify_email ?? req.body?.notify_email;
-  const shouldNotify = notifyRaw === undefined || notifyRaw === null || notifyRaw === ''
-    ? true
-    : !(notifyRaw === false || notifyRaw === 'false' || notifyRaw === 0 || notifyRaw === '0');
+  // Cancellation never sends Outlook/Teams email — in-app notice only.
 
   const deletedIds = idsInSameLogicalGroup(activities, id);
   const groupRows = deletedIds
@@ -928,7 +925,7 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
       calendarUid,
       sequence: nextCalendarSequence('cancel'),
       activityId: id,
-      sendEmail: shouldNotify,
+      sendEmail: false,
     });
   } catch (notifyErr) {
     console.error('activities DELETE notify failed', notifyErr);

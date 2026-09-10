@@ -67,7 +67,6 @@ export default function Calendar() {
   const [detailActivityId, setDetailActivityId] = useState(null);
   const [pendingOpenActivityId, setPendingOpenActivityId] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
-  const [cancelNotify, setCancelNotify] = useState(true);
   const [showReport, setShowReport] = useState(false);
   const [showScheduleEmail, setShowScheduleEmail] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
@@ -530,39 +529,24 @@ export default function Calendar() {
 
   const requestCancelActivity = (a) => {
     if (!canEditCalendar || !a?.id) return;
-    setCancelNotify(true);
     setCancelTarget(a);
   };
 
   const confirmCancelActivity = async () => {
     const a = cancelTarget;
     if (!canEditCalendar || !a?.id) return;
-    const notify = Boolean(cancelNotify);
     const cancelKey = activityLogicalGroupKey(a);
     setCancelTarget(null);
     await runMutation(async () => {
       try {
-        const result = await api.activities.cancel(a.id, { notify_email: notify });
+        const result = await api.activities.cancel(a.id, { notify_email: false });
         // Persist cancel locally so auto-reload cannot flash the activity back.
         rememberCancelledActivityKey(cancelKey);
         // Remove from UI immediately so the chip disappears even before reload finishes.
         setActivities((prev) => prev.filter((row) => activityLogicalGroupKey(row) !== cancelKey));
         const emailNotify = result?.email_notify;
-        if (!notify) {
-          alert('Activity cancelled.');
-        } else if (emailNotify?.smtp_configured === false && !(Number(emailNotify?.in_app) > 0)) {
-          alert('Activity cancelled. Email was not sent because SMTP is not configured.');
-        } else if (emailNotify && emailNotify.sent > 0) {
-          const inApp = Number(emailNotify?.in_app) || 0;
-          alert(
-            inApp > 0
-              ? `Activity cancelled. Notified ${inApp} assignee(s) in-app; cancellation email sent to ${emailNotify.sent}.`
-              : `Activity cancelled. Cancellation email sent to ${emailNotify.sent} recipient(s).`,
-          );
-        } else if (Number(emailNotify?.in_app) > 0) {
+        if (Number(emailNotify?.in_app) > 0) {
           alert(`Activity cancelled. In-app notification sent to ${emailNotify.in_app} assignee(s).`);
-        } else if (emailNotify && emailNotify.attempted > 0 && emailNotify.sent === 0) {
-          alert('Activity cancelled, but cancellation email could not be delivered. Check assignee emails and SMTP settings.');
         } else {
           alert('Activity cancelled.');
         }
@@ -1307,9 +1291,6 @@ export default function Calendar() {
       )}
       <CalendarCancelModal
         activity={cancelTarget}
-        cancelNotify={cancelNotify}
-        setCancelNotify={setCancelNotify}
-        smtpConfigured={smtpConfigured}
         mutating={mutating}
         onConfirm={confirmCancelActivity}
         onClose={() => setCancelTarget(null)}
