@@ -493,103 +493,150 @@ backlogsRouter.put('/:id', async (req, res) => {
 });
 
 backlogsRouter.post('/:id/promote-task', async (req, res) => {
-  if (!canCreateProject(req.user)) {
-    return res.status(403).json({ error: 'Only PMO can promote backlog to task' });
-  }
-  const id = +req.params.id;
-  const backlogs = await store.listBacklogs();
-  const item = backlogs.find((b) => b.id === id);
-  if (!item) return res.status(404).json({ error: 'Backlog item not found' });
-  if (item.task_id) return res.status(400).json({ error: 'Backlog item already linked to a task' });
-  if (!canPromoteBacklogToTask(item)) {
-    return res.status(400).json({ error: 'Closed backlog items cannot be promoted to a task' });
-  }
-
-  const people = await store.listPeople();
-  const assigneeId = req.body?.assignee_id != null && req.body.assignee_id !== ''
-    ? +req.body.assignee_id
-    : item.assignee_person_id;
-  if (assigneeId != null && !people.some((p) => p.id === assigneeId)) {
-    return res.status(400).json({ error: 'Invalid assignee' });
-  }
-
-  let taskId;
   try {
-    const { promoteBacklogToTaskTx } = await import('../lib/backlogPromoteTaskTx.js');
-    const tx = await promoteBacklogToTaskTx(id, {
-      assigneeId: assigneeId ?? null,
-      estimatedHours: item.estimated_hours ?? (item.effort_days != null ? item.effort_days * 8 : null),
-      actualHours: item.actual_hours ?? null,
-    });
-    if (tx?.task?.id) {
-      taskId = tx.task.id;
+    if (!canCreateProject(req.user)) {
+      return res.status(403).json({ error: 'Only PMO can promote backlog to task' });
     }
+    const id = +req.params.id;
+    const item = typeof store.findBacklogById === 'function'
+      ? await store.findBacklogById(id)
+      : (await store.listBacklogs()).find((b) => Number(b.id) === id) || null;
+    if (!item) return res.status(404).json({ error: 'Backlog item not found' });
+    if (item.task_id) return res.status(400).json({ error: 'Backlog item already linked to a task' });
+    if (!canPromoteBacklogToTask(item)) {
+      return res.status(400).json({ error: 'Closed backlog items cannot be promoted to a task' });
+    }
+
+    const assigneeId = req.body?.assignee_id != null && req.body.assignee_id !== ''
+      ? +req.body.assignee_id
+      : (item.assignee_person_id != null ? +item.assignee_person_id : null);
+
+    let person = null;
+    if (assigneeId != null) {
+      const people = typeof store.listPeopleByIds === 'function'
+        ? await store.listPeopleByIds([assigneeId]).catch(() => [])
+        : (await store.listPeople()).filter((p) => Number(p.id) === assigneeId);
+      person = people.find((p) => Number(p.id) === assigneeId) || null;
+      if (!person) return res.status(400).json({ error: 'Invalid assignee' });
+    }
+
+    const estimatedHours = item.estimated_hours ?? (item.effort_days != null ? item.effort_days * 8 : null);
+    const actualHours = item.actual_hours ?? null;
+
+    // Prefer a short TX when pool is healthy; never wait long — Vercel pooler URLs often hang.
+    let taskRow = null;
+    try {
+      const { promoteBacklogToTaskTx } = await import('../lib/backlogPromoteTaskTx.js');
+      const txResult = await Promise.race([
+        promoteBacklogToTaskTx(id, {
+          assigneeId: assigneeId ?? null,
+          estimatedHours,
+          actualHours,
+        }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 3500)),
+      ]);
+      if (txResult?.task?.id) taskRow = txResult.task;
+    } catch (e) {
+      if (/already linked|cannot be promoted|not found/i.test(String(e?.message || ''))) {
+        return res.status(400).json({ error: e.message });
+      }
+      console.warn('promoteBacklogToTaskTx:', e?.message || e);
+    }
+
+    if (!taskRow) {
+      const taskId = await store.addProjectTask({
+        project_id: item.project_id,
+        name: item.title,
+        task_kind: 'task',
+        status: 'new',
+        progress_percent: 0,
+        assignee_id: assigneeId ?? null,
+        backlog_id: id,
+        work_package_id: item.work_package_id ?? null,
+        estimated_hours: estimatedHours,
+        actual_hours: actualHours,
+      });
+      await store.updateBacklog(id, { status: 'in_progress', task_id: taskId });
+      taskRow = {
+        id: taskId,
+        project_id: item.project_id,
+        name: item.title,
+        task_kind: 'task',
+        status: 'new',
+        progress_percent: 0,
+        assignee_id: assigneeId ?? null,
+        backlog_id: id,
+        work_package_id: item.work_package_id ?? null,
+        estimated_hours: estimatedHours,
+        actual_hours: actualHours,
+      };
+    }
+
+    const backlogRow = {
+      ...item,
+      status: 'in_progress',
+      task_id: taskRow.id,
+    };
+    const projectId = Number(item.project_id);
+    const [project, ctx] = await Promise.all([
+      typeof store.findProjectById === 'function'
+        ? store.findProjectById(projectId, { includeCover: false }).catch(() => null)
+        : store.listProjects().then((rows) => rows.find((p) => Number(p.id) === projectId) || null).catch(() => null),
+      loadBacklogListContext(projectId, [backlogRow]),
+    ]);
+    ctx.commentCountByBacklog = new Map([[id, 0]]);
+    // Avoid loading comments on promote response.
+    const backlog = await enrichBacklog(backlogRow, ctx);
+
+    // Attachments / notify / email / audit must not block the gateway.
+    Promise.resolve()
+      .then(async () => {
+        await copyAttachments(store, 'backlog', id, 'task', taskRow.id);
+        await store.appendAuditLog(req.user, {
+          action: 'promote',
+          target_type: 'backlog',
+          target_id: id,
+          summary: `Promoted backlog ${item.ref_no} to task #${taskRow.id}`,
+        });
+        if (assigneeId && person) {
+          await notifyPersonInApp(assigneeId, {
+            type: 'task_assigned',
+            title: 'New task from backlog',
+            body: `${item.ref_no}: ${item.title}`,
+            link: `/projects/${item.project_id}?tab=tasks`,
+          });
+          const email = await emailForPerson(person);
+          if (email) {
+            await sendTaskAssignedEmail({
+              to: email,
+              personName: person?.name,
+              taskName: item.title,
+              projectName: project?.name,
+              assignedBy: req.user.name,
+            });
+          }
+        }
+        await store.persistToSupabase();
+      })
+      .catch((e) => console.warn('promote-task side-effects:', e?.message || e));
+
+    res.json({
+      backlog,
+      task: {
+        ...taskRow,
+        status: normalizeTaskStatus(taskRow),
+        project_name: project?.name ?? null,
+        assignee_name: person?.name ?? null,
+      },
+    });
   } catch (e) {
-    if (/already linked|cannot be promoted|not found/i.test(String(e?.message || ''))) {
-      return res.status(400).json({ error: e.message });
-    }
-    console.warn('promoteBacklogToTaskTx:', e?.message || e);
-  }
-
-  if (taskId == null) {
-    taskId = await store.addProjectTask({
-      project_id: item.project_id,
-      name: item.title,
-      task_kind: 'task',
-      status: 'new',
-      progress_percent: 0,
-      assignee_id: assigneeId ?? null,
-      backlog_id: id,
-      work_package_id: item.work_package_id ?? null,
-      estimated_hours: item.estimated_hours ?? (item.effort_days != null ? item.effort_days * 8 : null),
-      actual_hours: item.actual_hours ?? null,
-    });
-    await store.updateBacklog(id, { status: 'in_progress', task_id: taskId });
-  }
-
-  await copyAttachments(store, 'backlog', id, 'task', taskId);
-
-  const tasks = await store.listProjectTasks();
-  const task = tasks.find((t) => t.id === taskId);
-  await store.appendAuditLog(req.user, {
-    action: 'promote',
-    target_type: 'backlog',
-    target_id: id,
-    summary: `Promoted backlog ${item.ref_no} to task #${taskId}`,
-  });
-
-  if (assigneeId) {
-    const person = people.find((p) => p.id === assigneeId);
-    const projects = await store.listProjects();
-    const project = projects.find((p) => p.id === item.project_id);
-    await notifyPersonInApp(assigneeId, {
-      type: 'task_assigned',
-      title: 'New task from backlog',
-      body: `${item.ref_no}: ${item.title}`,
-      link: `/projects/${item.project_id}?tab=tasks`,
-    });
-    const email = await emailForPerson(person);
-    if (email) {
-      await sendTaskAssignedEmail({
-        to: email,
-        personName: person?.name,
-        taskName: item.title,
-        projectName: project?.name,
-        assignedBy: req.user.name,
+    console.error('backlogs promote-task failed', e);
+    const msg = String(e?.message || e || '');
+    if (/does not exist|schema cache|PGRST204|PGRST205/i.test(msg)) {
+      return res.status(503).json({
+        error: 'Task or backlog schema is missing a required column. Run task/backlog migrations.',
       });
     }
+    res.status(500).json({ error: e?.message || 'Failed to promote backlog to task' });
   }
-
-  if (!(await persistStore(res))) return;
-
-  const backlogsAfter = await store.listBacklogs();
-  const projects = await store.listProjects();
-  res.json({
-    backlog: await enrichBacklog(backlogsAfter.find((b) => b.id === id)),
-    task: {
-      ...task,
-      status: normalizeTaskStatus(task),
-      project_name: projects.find((p) => p.id === task.project_id)?.name,
-    },
-  });
 });

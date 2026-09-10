@@ -60,6 +60,7 @@ export function createProjectTasksRepository(ctx, getStore) {
           );
         } else {
           siblings = await dbSelect('project_tasks', {
+            columns: 'sort_order',
             filters: { project_id, parent_id },
           });
         }
