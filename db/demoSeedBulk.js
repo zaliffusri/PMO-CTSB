@@ -232,7 +232,7 @@ export async function seedBulkVolumeData(store, ctx) {
     const refNo = `${mod.code}-${1000 + i}`;
     const status = pickWeighted(BACKLOG_STATUS_WEIGHTS, BACKLOG_STATUSES);
     const assignee = pick(people);
-    const id = await store.addBacklog({
+    const saved = await store.addBacklog({
       ref_no: refNo,
       project_id: projectId,
       title: `Backlog item ${refNo}: ${issueTitles[i % issueTitles.length]}`,
@@ -249,6 +249,7 @@ export async function seedBulkVolumeData(store, ctx) {
       estimated_hours: 4 + (i % 12) * 4,
       actual_hours: status === 'fixed' || status === 'closed' ? 8 + (i % 6) * 2 : null,
     });
+    const id = saved?.id ?? saved;
     backlogIds.push(id);
     if (i < 35 && issueIds[i]) {
       await store.updateBacklog(id, { issue_id: issueIds[i] });

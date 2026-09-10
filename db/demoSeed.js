@@ -825,7 +825,7 @@ export async function runRichDemoSeed(store) {
     l1_assignee_label: 'CTSB | Helpdesk L1',
   });
 
-  const blScope = await store.addBacklog({
+  const blScopeRow = await store.addBacklog({
     project_id: projPortal,
     title: 'License renewal module (original scope)',
     description: 'Core scope item from signed URS section 4.2.',
@@ -840,6 +840,7 @@ export async function runRichDemoSeed(store) {
     phase_id: devPhase?.id ?? null,
     work_package_id: wpPortal,
   });
+  const blScope = blScopeRow?.id ?? blScopeRow;
   await store.addBacklog({
     project_id: projPortal,
     title: 'CR-2026-004: Excel export for audit report',
@@ -854,7 +855,7 @@ export async function runRichDemoSeed(store) {
     phase_id: devPhase?.id ?? null,
     work_package_id: wpPortal,
   });
-  const blBug = await store.addBacklog({
+  const blBugRow = await store.addBacklog({
     project_id: projPortal,
     title: 'Fix login failure after deployment',
     description: 'Root cause analysis for weekend incident.',
@@ -869,6 +870,7 @@ export async function runRichDemoSeed(store) {
     phase_id: devPhase?.id ?? null,
     work_package_id: wpPortal,
   });
+  const blBug = blBugRow?.id ?? blBugRow;
   const taskFromBacklog = await store.addProjectTask({
     project_id: projPortal,
     name: 'Hotfix: login session cookie domain',

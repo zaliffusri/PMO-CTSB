@@ -321,54 +321,84 @@ backlogsRouter.get('/:id', async (req, res) => {
 });
 
 backlogsRouter.post('/', async (req, res) => {
-  if (!canCreateProject(req.user)) {
-    return res.status(403).json({ error: 'Only PMO can create backlog items' });
+  try {
+    if (!canCreateProject(req.user)) {
+      return res.status(403).json({ error: 'Only PMO can create backlog items' });
+    }
+    const body = req.body || {};
+    if (!body.project_id || !body.title) {
+      return res.status(400).json({ error: 'project_id and title are required' });
+    }
+
+    const projectId = +body.project_id;
+    let refNo = body.ref_no ? String(body.ref_no).trim() : '';
+    if (!refNo && body.module_code) {
+      const refRows = await store.listBacklogs({ columns: 'ref_no' }).catch(() => []);
+      refNo = nextModuleBacklogRef(refRows, body.module_code);
+    }
+
+    const saved = await store.addBacklog({
+      ref_no: refNo || undefined,
+      project_id: projectId,
+      title: String(body.title).trim(),
+      description: body.description != null ? String(body.description) : null,
+      item_type: BACKLOG_TYPE_SET.has(body.item_type) ? body.item_type : 'scope',
+      source: BACKLOG_SOURCE_SET.has(body.source) ? body.source : 'manual',
+      status: BACKLOG_STATUS_SET.has(body.status) ? body.status : 'open',
+      priority: BACKLOG_PRIORITY_SET.has(body.priority) ? body.priority : 'medium',
+      issue_id: body.issue_id != null && body.issue_id !== '' ? +body.issue_id : null,
+      assignee_person_id: body.assignee_person_id != null && body.assignee_person_id !== '' ? +body.assignee_person_id : null,
+      created_by_user_id: req.user.id,
+      module_code: body.module_code != null ? normalizeModuleCode(body.module_code) : null,
+      client_id: body.client_id != null && body.client_id !== '' ? +body.client_id : null,
+      external_ticket_ref: body.external_ticket_ref != null ? String(body.external_ticket_ref).trim() : null,
+      effort_days: body.effort_days != null && body.effort_days !== '' ? +body.effort_days : null,
+      estimated_hours: parseHoursInput(body.estimated_hours)
+        ?? (body.effort_days != null && body.effort_days !== '' ? +body.effort_days * 8 : null),
+      actual_hours: parseHoursInput(body.actual_hours),
+      phase_id: body.phase_id != null && body.phase_id !== '' ? +body.phase_id : null,
+      work_package_id: body.work_package_id != null && body.work_package_id !== '' ? +body.work_package_id : null,
+    });
+
+    const row = saved && typeof saved === 'object'
+      ? saved
+      : { id: saved, project_id: projectId, title: String(body.title).trim() };
+    const id = Number(row.id);
+
+    const ctx = await loadBacklogListContext(projectId, [row]);
+    ctx.commentCountByBacklog = new Map([[id, 0]]);
+    const item = await enrichBacklog(row, ctx);
+
+    // Link / notify / audit after response — do not block Vercel on full-table scans or email.
+    Promise.resolve()
+      .then(async () => {
+        if (body.issue_id) {
+          await syncIssueBacklogLink(store, +body.issue_id, id);
+        } else if (row.external_ticket_ref || row.ref_no) {
+          await tryLinkBacklogToIssueByRef(store, id);
+        }
+        await notifyBacklogAssigned(store, item, { actorUser: req.user, isNew: true });
+        await store.appendAuditLog(req.user, {
+          action: 'create',
+          target_type: 'backlog',
+          target_id: id,
+          summary: `Created backlog ${item.ref_no}: ${item.title}`,
+        });
+        await store.persistToSupabase();
+      })
+      .catch((e) => console.warn('backlog create side-effects:', e?.message || e));
+
+    res.status(201).json(item);
+  } catch (e) {
+    console.error('backlogs POST failed', e);
+    const msg = String(e?.message || e || '');
+    if (/does not exist|schema cache|PGRST204|PGRST205|Could not find the table/i.test(msg)) {
+      return res.status(503).json({
+        error: 'Backlogs table/columns missing. Run backlog migrations (20260627140000+).',
+      });
+    }
+    res.status(500).json({ error: e?.message || 'Failed to create backlog item' });
   }
-  const body = req.body || {};
-  if (!body.project_id || !body.title) {
-    return res.status(400).json({ error: 'project_id and title are required' });
-  }
-  const existingBacklogs = await store.listBacklogs();
-  const id = await store.addBacklog({
-    ref_no: body.ref_no
-      ? String(body.ref_no).trim()
-      : (body.module_code ? nextModuleBacklogRef(existingBacklogs, body.module_code) : undefined),
-    project_id: +body.project_id,
-    title: String(body.title).trim(),
-    description: body.description != null ? String(body.description) : null,
-    item_type: BACKLOG_TYPE_SET.has(body.item_type) ? body.item_type : 'scope',
-    source: BACKLOG_SOURCE_SET.has(body.source) ? body.source : 'manual',
-    status: BACKLOG_STATUS_SET.has(body.status) ? body.status : 'open',
-    priority: BACKLOG_PRIORITY_SET.has(body.priority) ? body.priority : 'medium',
-    issue_id: body.issue_id != null && body.issue_id !== '' ? +body.issue_id : null,
-    assignee_person_id: body.assignee_person_id != null && body.assignee_person_id !== '' ? +body.assignee_person_id : null,
-    created_by_user_id: req.user.id,
-    module_code: body.module_code != null ? normalizeModuleCode(body.module_code) : null,
-    client_id: body.client_id != null && body.client_id !== '' ? +body.client_id : null,
-    external_ticket_ref: body.external_ticket_ref != null ? String(body.external_ticket_ref).trim() : null,
-    effort_days: body.effort_days != null && body.effort_days !== '' ? +body.effort_days : null,
-    estimated_hours: parseHoursInput(body.estimated_hours)
-      ?? (body.effort_days != null && body.effort_days !== '' ? +body.effort_days * 8 : null),
-    actual_hours: parseHoursInput(body.actual_hours),
-    phase_id: body.phase_id != null && body.phase_id !== '' ? +body.phase_id : null,
-    work_package_id: body.work_package_id != null && body.work_package_id !== '' ? +body.work_package_id : null,
-  });
-  if (body.issue_id) {
-    await syncIssueBacklogLink(store, +body.issue_id, id);
-  } else {
-    await tryLinkBacklogToIssueByRef(store, id);
-  }
-  const backlogsAfter = await store.listBacklogs();
-  const item = await enrichBacklog(backlogsAfter.find((b) => b.id === id));
-  await notifyBacklogAssigned(store, item, { actorUser: req.user, isNew: true });
-  await store.appendAuditLog(req.user, {
-    action: 'create',
-    target_type: 'backlog',
-    target_id: id,
-    summary: `Created backlog ${item.ref_no}: ${item.title}`,
-  });
-  if (!(await persistStore(res))) return;
-  res.status(201).json(item);
 });
 
 backlogsRouter.put('/:id', async (req, res) => {

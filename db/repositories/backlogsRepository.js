@@ -65,6 +65,15 @@ export function createBacklogsRepository(ctx, getStore) {
       return `${prefix}${String(next).padStart(4, '0')}`;
     },
 
+    async findBacklogById(id) {
+      const bid = Number(id);
+      if (!Number.isFinite(bid)) return null;
+      if (!isDbMode()) {
+        return (getData().backlogs || []).find((b) => Number(b.id) === bid) || null;
+      }
+      return dbSelect('backlogs_app', { filters: { id: bid }, maybeSingle: true });
+    },
+
     async addBacklog(row) {
       const store = getStore();
       const now = new Date().toISOString();
@@ -101,12 +110,53 @@ export function createBacklogsRepository(ctx, getStore) {
         const data = getData();
         if (!data.backlogs) data.backlogs = [];
         const id = nextId(data.backlogs);
-        data.backlogs.push({ id, ...item });
+        const payload = { id, ...item };
+        data.backlogs.push(payload);
         save();
-        return id;
+        return payload;
       }
-      const saved = await dbInsert('backlogs_app', item);
-      return saved.id;
+
+      // Older production DBs may lag migrations — drop optional columns and retry.
+      const optionalKeys = [
+        'created_by_user_id',
+        'module_code',
+        'client_id',
+        'external_ticket_ref',
+        'estimated_hours',
+        'actual_hours',
+        'work_package_id',
+        'phase_id',
+        'effort_days',
+        'assignee_person_id',
+        'issue_id',
+        'task_id',
+      ];
+      let pending = { ...item };
+      let lastError;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        try {
+          const saved = await dbInsert('backlogs_app', pending);
+          return saved;
+        } catch (e) {
+          lastError = e;
+          const msg = String(e?.message || e || '');
+          if (!/schema cache|PGRST204|does not exist|column/i.test(msg)) throw e;
+          const dropKey = optionalKeys.find((key) => pending[key] !== undefined && msg.includes(key));
+          if (dropKey) {
+            delete pending[dropKey];
+            continue;
+          }
+          let changed = false;
+          for (const key of optionalKeys) {
+            if (pending[key] !== undefined) {
+              delete pending[key];
+              changed = true;
+            }
+          }
+          if (!changed) throw e;
+        }
+      }
+      throw lastError;
     },
 
     async updateBacklog(id, patch) {
