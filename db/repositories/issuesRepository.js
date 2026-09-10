@@ -113,8 +113,9 @@ export function createIssuesRepository(ctx, getStore) {
     async addIssue(row) {
       const store = getStore();
       const now = new Date().toISOString();
-      const moduleCode = normalizeModuleCode(row.module_code || row.epbt_module);
-      const epbtModule = row.epbt_module != null ? String(row.epbt_module).trim() : moduleLabelForCode(moduleCode);
+      const modules = (await store.getSettings().catch(() => null))?.epbt_modules;
+      const moduleCode = normalizeModuleCode(row.module_code || row.epbt_module, modules);
+      const epbtModule = row.epbt_module != null ? String(row.epbt_module).trim() : moduleLabelForCode(moduleCode, modules);
       const incidentType = row.incident_type && ISSUE_INCIDENT_TYPE_SET.has(row.incident_type)
         ? row.incident_type
         : (parseIncidentType(row.incident_type) || 'issue');

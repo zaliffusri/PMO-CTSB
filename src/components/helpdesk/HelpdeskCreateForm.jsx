@@ -3,8 +3,8 @@ import {
   ISSUE_CATEGORIES,
   ISSUE_INCIDENT_TYPES,
   ISSUE_INTAKE_CHANNELS,
-  EPBT_MODULES,
 } from '../../../lib/issueConstants.js';
+import { useEpbtModules } from '../../hooks/useEpbtModules.js';
 
 export default function HelpdeskCreateForm({
   form,
@@ -18,6 +18,7 @@ export default function HelpdeskCreateForm({
   onSubmit,
 }) {
   const setField = (key, value) => onFormChange((f) => ({ ...f, [key]: value }));
+  const { modules: epbtModules } = useEpbtModules();
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={(e) => e.target === e.currentTarget && !saving && onCancel()}>
@@ -52,7 +53,7 @@ export default function HelpdeskCreateForm({
               <div className="form-field">
                 <label className="form-field__label">ePBTP module</label>
                 <select className="form-field__input" value={form.module_code} onChange={(e) => setField('module_code', e.target.value)}>
-                  {EPBT_MODULES.map((m) => (
+                  {epbtModules.map((m) => (
                     <option key={m.code} value={m.code}>{m.code} — {m.label}</option>
                   ))}
                 </select>

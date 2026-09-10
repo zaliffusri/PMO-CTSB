@@ -20,10 +20,10 @@ import {
   backlogTypeLabel,
   normalizeBacklogType,
 } from '../../lib/backlogConstants.js';
-import { EPBT_MODULES } from '../../lib/epbtModules.js';
 import { ATTACHMENT_ACCEPT } from '../../lib/attachmentConstants.js';
 import { personIdForUser } from '../../lib/permissions.js';
 import { sumHours, formatHours } from '../../lib/hoursUtils.js';
+import { useEpbtModules } from '../hooks/useEpbtModules.js';
 
 function typeLabel(id) {
   return backlogTypeLabel(id);
@@ -77,6 +77,7 @@ export default function ProjectBacklogPanel({
 }) {
   const { user } = useAuth();
   const myPersonId = personIdForUser(user, people);
+  const { modules: epbtModules } = useEpbtModules();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState('all');
@@ -456,7 +457,7 @@ export default function ProjectBacklogPanel({
                       onChange={(e) => setForm((f) => ({ ...f, module_code: e.target.value }))}
                       required
                     >
-                      {EPBT_MODULES.map((m) => (
+                      {epbtModules.map((m) => (
                         <option key={m.code} value={m.code}>{m.code} — {m.label}</option>
                       ))}
                     </select>

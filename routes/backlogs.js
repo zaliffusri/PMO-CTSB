@@ -332,6 +332,8 @@ backlogsRouter.post('/', async (req, res) => {
     }
 
     const projectId = +body.project_id;
+    const settings = await store.getSettings().catch(() => null);
+    const modules = settings?.epbt_modules;
     let refNo = body.ref_no ? String(body.ref_no).trim() : '';
     if (!refNo && body.module_code) {
       const refRows = await store.listBacklogs({ columns: 'ref_no' }).catch(() => []);
@@ -352,7 +354,7 @@ backlogsRouter.post('/', async (req, res) => {
       issue_id: body.issue_id != null && body.issue_id !== '' ? +body.issue_id : null,
       assignee_person_id: body.assignee_person_id != null && body.assignee_person_id !== '' ? +body.assignee_person_id : null,
       created_by_user_id: req.user.id,
-      module_code: body.module_code != null ? normalizeModuleCode(body.module_code) : null,
+      module_code: body.module_code != null ? normalizeModuleCode(body.module_code, modules) : null,
       client_id: body.client_id != null && body.client_id !== '' ? +body.client_id : null,
       external_ticket_ref: body.external_ticket_ref != null ? String(body.external_ticket_ref).trim() : null,
       menu: body.menu != null ? String(body.menu).trim() || null : null,
@@ -450,7 +452,10 @@ backlogsRouter.put('/:id', async (req, res) => {
       patch.work_package_id = body.work_package_id != null && body.work_package_id !== '' ? +body.work_package_id : null;
     }
     if (body.module_code !== undefined) {
-      patch.module_code = body.module_code != null ? normalizeModuleCode(body.module_code) : null;
+      const settings = await store.getSettings().catch(() => null);
+      patch.module_code = body.module_code != null
+        ? normalizeModuleCode(body.module_code, settings?.epbt_modules)
+        : null;
     }
     if (body.client_id !== undefined) {
       patch.client_id = body.client_id != null && body.client_id !== '' ? +body.client_id : null;

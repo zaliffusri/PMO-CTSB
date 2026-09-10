@@ -17,6 +17,7 @@ import Account from '../pages/Account';
 import History from '../pages/History';
 import SettingsLayout from '../pages/settings/SettingsLayout';
 import SettingsLocations from '../pages/settings/SettingsLocations';
+import SettingsModules from '../pages/settings/SettingsModules';
 import SettingsBranding from '../pages/settings/SettingsBranding';
 import SettingsEmail from '../pages/settings/SettingsEmail';
 
@@ -48,6 +49,7 @@ export default function AppRoutes() {
         <Route index element={<Navigate to="/settings/locations" replace />} />
         <Route path="general" element={<Navigate to="/settings/locations" replace />} />
         <Route path="locations" element={<SettingsLocations />} />
+        <Route path="modules" element={<SettingsModules />} />
         <Route path="branding" element={<SettingsBranding />} />
         <Route path="appearance" element={<Navigate to="/settings/branding" replace />} />
         <Route path="email" element={<SettingsEmail />} />

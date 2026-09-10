@@ -14,8 +14,9 @@ import {
   backlogTypeLabel,
   normalizeBacklogType,
 } from '../../lib/backlogConstants.js';
-import { EPBT_MODULES, moduleLabelForCode } from '../../lib/epbtModules.js';
+import { moduleLabelForCode } from '../../lib/epbtModules.js';
 import { personIdForUser } from '../../lib/permissions.js';
+import { useEpbtModules } from '../hooks/useEpbtModules.js';
 
 function typeLabel(id) {
   return backlogTypeLabel(id);
@@ -109,6 +110,7 @@ export default function BacklogDetailModal({
   const [loadingComments, setLoadingComments] = useState(true);
   const textareaRef = useRef(null);
   const { pending: busy, run } = useSubmitLock();
+  const { modules: epbtModules } = useEpbtModules();
 
   const myPersonId = personIdForUser(user, people);
   const isAssignee = myPersonId != null && item.assignee_person_id === myPersonId;
@@ -244,11 +246,11 @@ export default function BacklogDetailModal({
                       value={item.module_code || 'XXX'}
                       onChange={(e) => patchItem({ module_code: e.target.value })}
                     >
-                      {EPBT_MODULES.map((m) => (
+                      {epbtModules.map((m) => (
                         <option key={m.code} value={m.code}>{m.code} — {m.label}</option>
                       ))}
                     </select>
-                  ) : (item.module_code ? `${item.module_code} — ${moduleLabelForCode(item.module_code)}` : '—')}
+                  ) : (item.module_code ? `${item.module_code} — ${moduleLabelForCode(item.module_code, epbtModules)}` : '—')}
                 </dd>
               </div>
               <DetailTextField

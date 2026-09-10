@@ -209,6 +209,15 @@ export default function AppShell({ children }) {
                 <span className="nav-link-label">Locations</span>
               </NavLink>
               <NavLink
+                to="/settings/modules"
+                title={sidebarCompact ? 'Modules' : undefined}
+                className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
+                onClick={closeNav}
+              >
+                <NavIcon name="settings" />
+                <span className="nav-link-label">Modules</span>
+              </NavLink>
+              <NavLink
                 to="/settings/email"
                 title={sidebarCompact ? 'Email' : undefined}
                 className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { store } from '../db/store.js';
 import { requireAdmin } from '../middleware/requireAuth.js';
 import { defaultSettings } from '../lib/defaultSettings.js';
+import { validateEpbtModulesPayload } from '../lib/epbtModules.js';
 import { validateImageDataUrl } from '../lib/validateImageDataUrl.js';
 import { isMailerConfigured, invalidateMailerCache, sendAssignmentEmail } from '../lib/mailer.js';
 import { publicSmtpStatus, resolveSmtpConfig } from '../lib/smtpConfig.js';
@@ -53,6 +54,14 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'At least one activity location is required' });
     }
     patch.activity_locations = locs;
+  }
+
+  if (body.epbt_modules !== undefined) {
+    const checked = validateEpbtModulesPayload(body.epbt_modules);
+    if (!checked.ok) {
+      return res.status(400).json({ error: checked.error });
+    }
+    patch.epbt_modules = checked.modules;
   }
 
   if (body.reference_office_name !== undefined) {

@@ -254,7 +254,8 @@ issuesRouter.post('/', validateBody(createIssueSchema), async (req, res) => {
   }
 
   const parsedIncident = parseIncidentType(incident_type) || 'issue';
-  const modCode = normalizeModuleCode(module_code || epbt_module);
+  const settings = await store.getSettings().catch(() => null);
+  const modCode = normalizeModuleCode(module_code || epbt_module, settings?.epbt_modules);
   const assignee = assigneeId ? people.find((p) => p.id === assigneeId) : null;
   const l1Label = assignee?.name ? `CTSB | ${assignee.name}` : personLabelFromUser(req.user);
 
@@ -332,10 +333,11 @@ issuesRouter.put('/:id', async (req, res) => {
   }
   if (req.body.module_code !== undefined || req.body.epbt_module !== undefined) {
     if (!canAssignIssues(req.user)) return res.status(403).json({ error: 'Only PMO can change module' });
-    const mc = normalizeModuleCode(req.body.module_code || req.body.epbt_module);
+    const settings = await store.getSettings().catch(() => null);
+    const mc = normalizeModuleCode(req.body.module_code || req.body.epbt_module, settings?.epbt_modules);
     patch.module_code = mc;
     if (req.body.epbt_module !== undefined) patch.epbt_module = req.body.epbt_module != null ? String(req.body.epbt_module).trim() : null;
-    else patch.epbt_module = moduleLabelForCode(mc);
+    else patch.epbt_module = moduleLabelForCode(mc, settings?.epbt_modules);
   }
   if (req.body.intake_channel !== undefined) {
     patch.intake_channel = parseIntakeChannel(req.body.intake_channel);

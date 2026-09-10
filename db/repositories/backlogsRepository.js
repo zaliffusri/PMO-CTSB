@@ -127,7 +127,9 @@ export function createBacklogsRepository(ctx, getStore) {
         task_id: row.task_id != null && row.task_id !== '' ? +row.task_id : null,
         assignee_person_id: row.assignee_person_id != null && row.assignee_person_id !== '' ? +row.assignee_person_id : null,
         created_by_user_id: row.created_by_user_id != null && row.created_by_user_id !== '' ? +row.created_by_user_id : null,
-        module_code: row.module_code != null ? normalizeModuleCode(row.module_code) : null,
+        module_code: row.module_code != null
+          ? normalizeModuleCode(row.module_code, (await getStore().getSettings().catch(() => null))?.epbt_modules)
+          : null,
         client_id: row.client_id != null && row.client_id !== '' ? +row.client_id : null,
         external_ticket_ref: row.external_ticket_ref != null
           ? cleanExternalTicketRef(row.external_ticket_ref)

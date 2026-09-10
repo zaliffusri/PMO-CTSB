@@ -2,8 +2,8 @@ import {
   ISSUE_STATUSES,
   HELPDESK_LEVEL_FILTERS,
   ISSUE_INCIDENT_TYPES,
-  EPBT_MODULES,
 } from '../../../lib/issueConstants.js';
+import { useEpbtModules } from '../../hooks/useEpbtModules.js';
 
 export default function HelpdeskToolbar({
   searchQuery,
@@ -23,6 +23,7 @@ export default function HelpdeskToolbar({
   visibleCount,
   totalCount,
 }) {
+  const { modules: epbtModules } = useEpbtModules();
   return (
     <div className="card section-card helpdesk-toolbar-card">
       <div className="module-toolbar helpdesk-toolbar helpdesk-toolbar--compact">
@@ -59,7 +60,7 @@ export default function HelpdeskToolbar({
           <span className="module-toolbar__label">Module</span>
           <select className="form-field__input helpdesk-filter-input" value={moduleFilter} onChange={(e) => onModuleFilterChange(e.target.value)}>
             <option value="all">All modules</option>
-            {EPBT_MODULES.map((m) => (
+            {epbtModules.map((m) => (
               <option key={m.code} value={m.code}>{m.code} — {m.label}</option>
             ))}
           </select>

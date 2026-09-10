@@ -1,4 +1,5 @@
 import { defaultSettings } from '../../lib/defaultSettings.js';
+import { resolveEpbtModules } from '../../lib/epbtModules.js';
 import {
   SMTP_EMBED_KEY,
   applySmtpEmbedToSettings,
@@ -12,12 +13,35 @@ import { isDbMode, dbSelect, dbInsert, dbUpsert } from '../runtime/query.js';
 const LEGACY_MS_GRAPH_EMBED_KEY = '__pmo_ms_graph__';
 const SECRET_MILEAGE_KEYS = new Set([SMTP_EMBED_KEY, LEGACY_MS_GRAPH_EMBED_KEY]);
 
+async function ensureEpbtModulesColumn() {
+  try {
+    const { getPgPool } = await import('../runtime/pgPool.js');
+    const pool = getPgPool();
+    if (!pool) return false;
+    await pool.query(`
+      alter table public.settings_app
+        add column if not exists epbt_modules jsonb not null default '[]'::jsonb;
+    `);
+    try {
+      await pool.query("NOTIFY pgrst, 'reload schema'");
+    } catch {
+      /* best-effort */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    return true;
+  } catch (e) {
+    console.warn('ensureEpbtModulesColumn failed:', e?.message || e);
+    return false;
+  }
+}
+
 function normalizeSettingsFromRaw(raw = {}) {
   const d = defaultSettings();
   const activity_locations =
     Array.isArray(raw.activity_locations) && raw.activity_locations.length > 0
       ? raw.activity_locations.map((x) => String(x).trim()).filter(Boolean)
       : d.activity_locations;
+  const epbt_modules = resolveEpbtModules(raw.epbt_modules);
   const rawMileage = {
     ...(raw.mileage_from_office_km && typeof raw.mileage_from_office_km === 'object'
       ? raw.mileage_from_office_km
@@ -33,6 +57,7 @@ function normalizeSettingsFromRaw(raw = {}) {
     ...d,
     ...withSecrets,
     activity_locations,
+    epbt_modules,
     mileage_from_office_km: stripSmtpEmbedFromMileage(mileage),
     reference_office_name: withSecrets.reference_office_name != null && String(withSecrets.reference_office_name).trim()
       ? String(withSecrets.reference_office_name).trim()
@@ -72,6 +97,7 @@ function buildSettingsAppRow(settings) {
   return {
     id: 1,
     activity_locations: s.activity_locations ?? [],
+    epbt_modules: resolveEpbtModules(s.epbt_modules),
     reference_office_name: s.reference_office_name ?? 'Main Office',
     mileage_from_office_km: mileage,
     general_notes: s.general_notes ?? '',
@@ -85,16 +111,28 @@ function buildSettingsAppRow(settings) {
 }
 
 async function upsertSettingsAppRow(settings) {
-  const optionalColumns = ['org_display_name', 'org_tagline', 'org_logo_url', 'org_banner_url'];
+  const optionalColumns = ['org_display_name', 'org_tagline', 'org_logo_url', 'org_banner_url', 'epbt_modules'];
   let row = buildSettingsAppRow(settings);
+  let ensured = false;
   try {
     await dbUpsert('settings_app', row, { onConflict: 'id', returning: false });
     return;
   } catch (error) {
-    const isSchemaError = /schema cache|PGRST204|Could not find|does not exist|column/i.test(
-      String(error?.message || ''),
-    );
+    const msg = String(error?.message || '');
+    const isSchemaError = /schema cache|PGRST204|Could not find|does not exist|column/i.test(msg);
     if (!isSchemaError) throw error;
+    if (!ensured && /epbt_modules/i.test(msg)) {
+      ensured = true;
+      const ok = await ensureEpbtModulesColumn();
+      if (ok) {
+        try {
+          await dbUpsert('settings_app', row, { onConflict: 'id', returning: false });
+          return;
+        } catch {
+          /* fall through to column drop retries */
+        }
+      }
+    }
   }
   for (const column of optionalColumns) {
     const next = { ...row };
@@ -117,6 +155,9 @@ function mergeSettingsPatch(cur, patch, prevSmtpEmbed) {
   const next = { ...cur, ...patch };
   if (patch.activity_locations) {
     next.activity_locations = patch.activity_locations.map((x) => String(x).trim()).filter(Boolean);
+  }
+  if (patch.epbt_modules !== undefined) {
+    next.epbt_modules = resolveEpbtModules(patch.epbt_modules);
   }
   if (patch.mileage_from_office_km !== undefined) {
     next.mileage_from_office_km = { ...patch.mileage_from_office_km };
