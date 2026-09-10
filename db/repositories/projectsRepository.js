@@ -3,7 +3,7 @@
  * Table: projects (+ project_clients on delete / client link)
  */
 import { nextId, projectRowForDb } from '../runtime/helpers.js';
-import { formatClientNames } from '../../lib/projectClients.js';
+import { formatClientNames, normalizeProjectClientIds } from '../../lib/projectClients.js';
 import {
   isDbMode,
   dbSelect,
@@ -308,11 +308,13 @@ export function createProjectsRepository(ctx, getStore) {
         ...rest,
         created_at,
       };
-      const ids = Array.isArray(client_ids)
-        ? client_ids
-        : client_id != null && client_id !== ''
-          ? [client_id]
-          : [];
+      const ids = normalizeProjectClientIds(
+        Array.isArray(client_ids)
+          ? client_ids
+          : client_id != null && client_id !== ''
+            ? [client_id]
+            : [],
+      );
 
       if (!isDbMode()) {
         const data = getData();

@@ -101,7 +101,7 @@ function ProjectDetail() {
           status: p?.status || 'active',
           engagement_type: p?.engagement_type || '',
           client_ids: Array.isArray(p?.client_ids)
-            ? p.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+            ? p.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid)).slice(0, 1)
             : p?.client_id
               ? [Number(p.client_id)]
               : [],
@@ -237,7 +237,7 @@ function ProjectDetail() {
           status: updated?.status || 'active',
           engagement_type: updated?.engagement_type ?? editForm.engagement_type ?? '',
           client_ids: Array.isArray(updated?.client_ids)
-            ? updated.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+            ? updated.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid)).slice(0, 1)
             : [],
         });
         setEditOpen(false);
@@ -255,7 +255,7 @@ function ProjectDetail() {
       status: project?.status || 'active',
       engagement_type: project?.engagement_type || '',
       client_ids: Array.isArray(project?.client_ids)
-        ? project.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+        ? project.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid)).slice(0, 1)
         : project?.client_id
           ? [Number(project.client_id)]
           : [],
@@ -272,7 +272,7 @@ function ProjectDetail() {
       status: project?.status || 'active',
       engagement_type: project?.engagement_type || '',
       client_ids: Array.isArray(project?.client_ids)
-        ? project.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid))
+        ? project.client_ids.map((cid) => Number(cid)).filter((cid) => Number.isFinite(cid)).slice(0, 1)
         : project?.client_id
           ? [Number(project.client_id)]
           : [],
@@ -504,7 +504,7 @@ function ProjectDetail() {
               <h2 className="section-card__title">Project details</h2>
               <p className="section-card__desc">
                 {editOpen
-                  ? 'Update name, description, engagement, status, and clients'
+                  ? 'Update name, description, engagement, status, and client'
                   : 'Core identity for this workspace — quick reference while you work'}
               </p>
             </div>
@@ -572,7 +572,7 @@ function ProjectDetail() {
                   </select>
                 </label>
                 <div className="project-details-item project-details-item--wide">
-                  <span className="project-details-item__label">Clients</span>
+                  <span className="project-details-item__label">Client</span>
                   <ClientMultiSelect
                     clients={clients}
                     value={editForm.client_ids}
@@ -622,18 +622,12 @@ function ProjectDetail() {
                 </dd>
               </div>
               <div className="project-details-item project-details-item--wide">
-                <dt>Clients</dt>
+                <dt>Client</dt>
                 <dd>
                   {projectClientNames.length ? (
-                    <ul className="project-details-clients">
-                      {projectClientNames.map((name) => (
-                        <li key={name}>
-                          <Link to="/clients" className="pmo-link-strong">{name}</Link>
-                        </li>
-                      ))}
-                    </ul>
+                    <Link to="/clients" className="pmo-link-strong">{projectClientNames[0]}</Link>
                   ) : (
-                    <span className="project-details-item__muted">No companies linked</span>
+                    <span className="project-details-item__muted">No company linked</span>
                   )}
                 </dd>
               </div>

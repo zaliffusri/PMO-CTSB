@@ -1,7 +1,7 @@
 /**
  * Stateless clients repository — Supabase when configured, in-memory when ALLOW_LOCAL_STORE only.
  */
-import { formatClientNames } from '../../lib/projectClients.js';
+import { formatClientNames, normalizeProjectClientIds } from '../../lib/projectClients.js';
 import { nextId } from '../runtime/helpers.js';
 import { isDbMode, dbSelect, dbInsert, dbUpdate, dbDelete, dbDeleteWhere } from '../runtime/query.js';
 
@@ -181,38 +181,15 @@ export function createClientsRepository(ctx, getStore) {
     },
 
     async linkProjectClient(projectId, clientId) {
-      const pid = +projectId;
       const cid = +clientId;
-      if (!Number.isFinite(pid) || !Number.isFinite(cid)) return false;
-      if (!isDbMode()) {
-        const data = getData();
-        if (!data.project_clients) data.project_clients = [];
-        if (data.project_clients.some((pc) => pc.project_id === pid && pc.client_id === cid)) return true;
-        data.project_clients.push({
-          id: nextId(data.project_clients),
-          project_id: pid,
-          client_id: cid,
-          created_at: new Date().toISOString(),
-        });
-        save();
-        return true;
-      }
-      const existing = await dbSelect('project_clients', {
-        filters: { project_id: pid, client_id: cid },
-        maybeSingle: true,
-      });
-      if (existing) return true;
-      await dbInsert('project_clients', {
-        project_id: pid,
-        client_id: cid,
-        created_at: new Date().toISOString(),
-      });
+      if (!Number.isFinite(cid) || cid <= 0) return false;
+      await getStore().setProjectClients(projectId, [cid]);
       return true;
     },
 
     async setProjectClients(projectId, clientIds) {
       const pid = +projectId;
-      const ids = [...new Set((clientIds || []).map((id) => +id).filter((id) => Number.isFinite(id) && id > 0))];
+      const ids = normalizeProjectClientIds(clientIds);
       if (!isDbMode()) {
         const data = getData();
         if (!data.project_clients) data.project_clients = [];
@@ -260,6 +237,8 @@ export function createClientsRepository(ctx, getStore) {
       } catch (e) {
         console.warn('projectWithClients failed:', e?.message || e);
       }
+      // One client per project — keep the first linked company if older data has more.
+      clients = (clients || []).slice(0, 1);
       const client_ids = clients.map((c) => c.id);
       const client_name = formatClientNames(clients);
       const { client_id: _legacy, ...rest } = project;

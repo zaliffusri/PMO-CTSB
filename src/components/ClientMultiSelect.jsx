@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 
 /**
- * Checkbox list to pick multiple client companies for a project.
+ * Pick client company(ies) for a project.
+ * Default is single-select (one client per project). Pass multiple={true} only if needed.
  */
 export default function ClientMultiSelect({
   clients,
@@ -12,10 +13,24 @@ export default function ClientMultiSelect({
   loading = false,
   error = '',
   onRetry,
+  multiple = false,
 }) {
-  const selected = new Set((value || []).map((id) => Number(id)).filter((id) => Number.isFinite(id)));
+  const selectedIds = (value || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id));
+  const selectedId = multiple ? null : (selectedIds[0] ?? null);
+  const selected = new Set(selectedIds);
 
-  const toggle = (clientId) => {
+  const selectOne = (clientId) => {
+    const id = Number(clientId);
+    if (!Number.isFinite(id)) {
+      onChange([]);
+      return;
+    }
+    onChange(selectedId === id ? [] : [id]);
+  };
+
+  const toggleMany = (clientId) => {
     const id = Number(clientId);
     if (!Number.isFinite(id)) return;
     const next = new Set(selected);
@@ -58,6 +73,43 @@ export default function ClientMultiSelect({
     ? 'client-picker-list'
     : 'client-picker-list client-picker-list--compact';
 
+  if (!multiple) {
+    return (
+      <div className={listClass} role="radiogroup" aria-label="Client company">
+        <label className="client-picker-item" htmlFor={`${idPrefix}-none`}>
+          <input
+            type="radio"
+            id={`${idPrefix}-none`}
+            name={`${idPrefix}-single`}
+            checked={selectedId == null}
+            onChange={() => onChange([])}
+            className="client-picker-item__check"
+          />
+          <span className="client-picker-item__name">No client</span>
+        </label>
+        {clients.map((c) => {
+          const cid = Number(c.id);
+          return (
+            <label key={c.id} className="client-picker-item" htmlFor={`${idPrefix}-${c.id}`}>
+              <input
+                type="radio"
+                id={`${idPrefix}-${c.id}`}
+                name={`${idPrefix}-single`}
+                checked={selectedId === cid}
+                onChange={() => selectOne(cid)}
+                className="client-picker-item__check"
+              />
+              <span className="client-picker-item__name">{c.name}</span>
+              {variant === 'picker' && selectedId === cid && (
+                <span className="client-picker-item__badge">Selected</span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className={listClass}>
       {clients.map((c) => {
@@ -68,7 +120,7 @@ export default function ClientMultiSelect({
               type="checkbox"
               id={`${idPrefix}-${c.id}`}
               checked={selected.has(cid)}
-              onChange={() => toggle(cid)}
+              onChange={() => toggleMany(cid)}
               className="client-picker-item__check"
             />
             <span className="client-picker-item__name">{c.name}</span>

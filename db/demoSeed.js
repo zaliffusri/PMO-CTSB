@@ -407,7 +407,7 @@ export async function runRichDemoSeed(store) {
     start_date: dayOffset(-120),
     end_date: dayOffset(90),
   });
-  await store.setProjectClients(projPortal, [dbklId, mbsaId]);
+  await store.setProjectClients(projPortal, [dbklId]);
 
   const projApi = await store.addProject({
     name: 'MOH Health API Gateway',

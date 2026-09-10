@@ -122,7 +122,7 @@ export default function ProjectCreateModal({
           <div className="project-create-step__line" aria-hidden />
           <div className={`project-create-step ${step >= 2 ? 'active' : ''}`}>
             <span className="project-create-step__num">2</span>
-            <span className="project-create-step__label">Schedule & clients</span>
+            <span className="project-create-step__label">Schedule & client</span>
           </div>
         </div>
 
@@ -236,9 +236,9 @@ export default function ProjectCreateModal({
               <p className="form-field__legend-hint">Dates power the Gantt chart and deadline alerts.</p>
 
               <div className="form-field">
-                <label className="form-field__label">Client companies</label>
+                <label className="form-field__label">Client company</label>
                 <p className="form-field__legend-hint">
-                  Link one or more clients. <Link to="/clients">Manage clients</Link>
+                  Link one client to this project. <Link to="/clients">Manage clients</Link>
                 </p>
                 <ClientMultiSelect
                   clients={clients}
@@ -259,7 +259,7 @@ export default function ProjectCreateModal({
                   <div><dt>Engagement</dt><dd>{PROJECT_ENGAGEMENT_TYPES.find((t) => t.id === form.engagement_type)?.label || 'Not set'}</dd></div>
                   <div><dt>Status</dt><dd>{STATUS_OPTIONS.find((s) => s.id === form.status)?.label}</dd></div>
                   <div><dt>Timeline</dt><dd>{formatPreviewDate(form.start_date)} → {formatPreviewDate(form.end_date)}</dd></div>
-                  <div><dt>Clients</dt><dd>{clientNames.length ? clientNames.join(', ') : 'None linked'}</dd></div>
+                  <div><dt>Client</dt><dd>{clientNames.length ? clientNames[0] : 'None linked'}</dd></div>
                 </dl>
               </div>
             </div>
