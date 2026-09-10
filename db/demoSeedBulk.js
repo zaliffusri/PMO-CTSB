@@ -14,7 +14,7 @@ const CATEGORIES = ['defect', 'support', 'change_request', 'data', 'access', 'in
 const INCIDENT_TYPES = ['bug_defect', 'inquiry', 'change_request', 'issue', 'request'];
 const INTAKE = ['helpdesk', 'email', 'call', 'whatsapp', 'walk_in'];
 
-const BACKLOG_TYPES = ['scope', 'cr', 'bug', 'defect', 'enhancement', 'support', 'data', 'recurring'];
+const BACKLOG_TYPES = ['inquiry', 'issue', 'bug_defect', 'cr', 'changes', 'golive'];
 const BACKLOG_SOURCES = ['scope', 'helpdesk', 'cr', 'inquiry', 'recurring', 'manual'];
 const BACKLOG_STATUSES = ['open', 'in_progress', 'fixed', 'closed'];
 const BACKLOG_STATUS_WEIGHTS = [0.32, 0.28, 0.22, 0.18];

@@ -17,12 +17,16 @@ import {
   OPEN_BACKLOG_STATUSES,
   backlogStatusLabel,
   backlogStatusTone,
+  backlogTypeLabel,
+  normalizeBacklogType,
 } from '../../lib/backlogConstants.js';
+import { EPBT_MODULES } from '../../lib/epbtModules.js';
+import { ATTACHMENT_ACCEPT } from '../../lib/attachmentConstants.js';
 import { personIdForUser } from '../../lib/permissions.js';
 import { sumHours, formatHours } from '../../lib/hoursUtils.js';
 
 function typeLabel(id) {
-  return BACKLOG_TYPES.find((t) => t.id === id)?.label || id;
+  return backlogTypeLabel(id);
 }
 
 function sourceLabel(id) {
@@ -31,6 +35,36 @@ function sourceLabel(id) {
 
 function statusLabel(id) {
   return backlogStatusLabel(id);
+}
+
+function emptyBacklogForm(workPackageFilter = '') {
+  return {
+    title: '',
+    description: '',
+    item_type: 'inquiry',
+    module_code: 'XXX',
+    menu: '',
+    submenu: '',
+    url: '',
+    notes: '',
+    status: 'open',
+    priority: 'medium',
+    assignee_person_id: '',
+    source: 'manual',
+    estimated_hours: '',
+    actual_hours: '',
+    phase_id: '',
+    work_package_id: workPackageFilter || '',
+  };
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ProjectBacklogPanel({
@@ -44,7 +78,6 @@ export default function ProjectBacklogPanel({
   const { user } = useAuth();
   const myPersonId = personIdForUser(user, people);
   const [items, setItems] = useState([]);
-  const [phases, setPhases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState('all');
   const [filterSource, setFilterSource] = useState('all');
@@ -53,30 +86,14 @@ export default function ProjectBacklogPanel({
   const [attachItem, setAttachItem] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    title: '',
-    description: '',
-    item_type: 'scope',
-    source: 'manual',
-    priority: 'medium',
-    assignee_person_id: '',
-    estimated_hours: '',
-    actual_hours: '',
-    phase_id: '',
-    work_package_id: '',
-  });
+  const [form, setForm] = useState(() => emptyBacklogForm(workPackageFilter));
+  const [pendingFiles, setPendingFiles] = useState([]);
   const { pending: busy, run } = useSubmitLock();
 
   const load = () => {
     setLoading(true);
-    Promise.all([
-      api.backlogs.list({ project_id: projectId }),
-      api.projectPhases.list({ project_id: projectId }),
-    ])
-      .then(([bl, ph]) => {
-        setItems(bl);
-        setPhases(ph);
-      })
+    api.backlogs.list({ project_id: projectId })
+      .then(setItems)
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -90,19 +107,14 @@ export default function ProjectBacklogPanel({
   }, [openBacklogId, items]);
 
   const canUpdateItem = (item) => canManage || (myPersonId != null && item.assignee_person_id === myPersonId);
-
-  const packagePhases = useMemo(() => {
-    if (!workPackageFilter) return phases;
-    return phases.filter((p) => p.work_package_id === +workPackageFilter);
-  }, [phases, workPackageFilter]);
-
   const stats = useMemo(() => {
     const openItems = items.filter((b) => OPEN_BACKLOG_STATUSES.has(b.status));
+    const typeOf = (b) => normalizeBacklogType(b.item_type);
     return {
       open: openItems.length,
-      cr: items.filter((b) => b.item_type === 'cr' && OPEN_BACKLOG_STATUSES.has(b.status)).length,
-      bugs: items.filter((b) => ['bug', 'defect'].includes(b.item_type) && OPEN_BACKLOG_STATUSES.has(b.status)).length,
-      recurring: items.filter((b) => b.item_type === 'recurring' || b.source === 'recurring').length,
+      cr: items.filter((b) => typeOf(b) === 'cr' && OPEN_BACKLOG_STATUSES.has(b.status)).length,
+      bugs: items.filter((b) => typeOf(b) === 'bug_defect' && OPEN_BACKLOG_STATUSES.has(b.status)).length,
+      changes: items.filter((b) => typeOf(b) === 'changes' && OPEN_BACKLOG_STATUSES.has(b.status)).length,
       estHours: Math.round(sumHours(openItems, 'estimated_hours') * 10) / 10,
       actHours: Math.round(sumHours(openItems, 'actual_hours') * 10) / 10,
     };
@@ -111,7 +123,9 @@ export default function ProjectBacklogPanel({
   const visible = useMemo(() => {
     let list = items;
     if (workPackageFilter) list = list.filter((b) => b.work_package_id === +workPackageFilter);
-    if (filterType !== 'all') list = list.filter((b) => b.item_type === filterType);
+    if (filterType !== 'all') {
+      list = list.filter((b) => normalizeBacklogType(b.item_type) === filterType);
+    }
     if (filterSource !== 'all') list = list.filter((b) => b.source === filterSource);
     if (filterStatus !== 'all') list = list.filter((b) => b.status === filterStatus);
     const q = searchQuery.trim().toLowerCase();
@@ -119,6 +133,9 @@ export default function ProjectBacklogPanel({
       list = list.filter((b) => (
         String(b.ref_no || '').toLowerCase().includes(q)
         || String(b.title || '').toLowerCase().includes(q)
+        || String(b.menu || '').toLowerCase().includes(q)
+        || String(b.submenu || '').toLowerCase().includes(q)
+        || String(b.module_code || '').toLowerCase().includes(q)
         || String(b.issue_ticket_no || '').toLowerCase().includes(q)
         || String(b.issue_external_ticket_ref || '').toLowerCase().includes(q)
       ));
@@ -131,29 +148,57 @@ export default function ProjectBacklogPanel({
     setDetailItem((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev));
   };
 
+  const openCreateForm = () => {
+    setForm(emptyBacklogForm(workPackageFilter));
+    setPendingFiles([]);
+    setShowForm(true);
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) return;
     await run(async () => {
       try {
-        await api.backlogs.create({
+        const created = await api.backlogs.create({
           project_id: +projectId,
           title: form.title.trim(),
           description: form.description || null,
           item_type: form.item_type,
-          source: form.source,
+          module_code: form.module_code || null,
+          menu: form.menu || null,
+          submenu: form.submenu || null,
+          url: form.url || null,
+          notes: form.notes || null,
+          status: form.status,
           priority: form.priority,
+          source: form.source || 'manual',
           assignee_person_id: form.assignee_person_id || null,
           estimated_hours: form.estimated_hours || null,
           actual_hours: form.actual_hours || null,
           phase_id: form.phase_id || null,
           work_package_id: form.work_package_id || workPackageFilter || null,
         });
+        const backlogId = created?.id;
+        if (backlogId && pendingFiles.length) {
+          for (const file of pendingFiles) {
+            try {
+              const data_url = await fileToDataUrl(file);
+              await api.attachments.create({
+                entity_type: 'backlog',
+                entity_id: backlogId,
+                kind: 'file',
+                file_name: file.name,
+                mime_type: file.type || undefined,
+                data_url,
+              });
+            } catch (attachErr) {
+              console.warn('backlog attachment upload failed', attachErr);
+            }
+          }
+        }
         setShowForm(false);
-        setForm({
-          title: '', description: '', item_type: 'scope', source: 'manual',
-          priority: 'medium', assignee_person_id: '', estimated_hours: '', actual_hours: '', phase_id: '', work_package_id: workPackageFilter || '',
-        });
+        setPendingFiles([]);
+        setForm(emptyBacklogForm(workPackageFilter));
         load();
       } catch (err) {
         alert(err.message);
@@ -195,6 +240,7 @@ export default function ProjectBacklogPanel({
           { id: 'open', label: 'Open backlog', value: stats.open },
           { id: 'cr', label: 'Open CR', value: stats.cr, valueClass: 'pmo-stat-warning' },
           { id: 'bugs', label: 'Open bugs', value: stats.bugs, valueClass: 'pmo-stat-danger' },
+          { id: 'changes', label: 'Open changes', value: stats.changes },
           { id: 'est', label: 'Est hours (open)', value: formatHours(stats.estHours) },
           { id: 'act', label: 'Actual hours (open)', value: formatHours(stats.actHours) },
         ]}
@@ -209,7 +255,7 @@ export default function ProjectBacklogPanel({
         </div>
         {canManage && (
           <div className="card-actions">
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>+ Backlog item</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={openCreateForm}>+ Backlog item</button>
           </div>
         )}
       </div>
@@ -310,6 +356,7 @@ export default function ProjectBacklogPanel({
                       )}
                       {item.client_name && ` · ${item.client_name}`}
                       {item.module_code && ` · ${item.module_code}`}
+                      {(item.menu || item.submenu) && ` · ${[item.menu, item.submenu].filter(Boolean).join(' / ')}`}
                       {item.task_name && ` · Task: ${item.task_name}`}
                       {item.phase_name && ` · Phase: ${item.phase_name}`}
                     </div>
@@ -389,93 +436,157 @@ export default function ProjectBacklogPanel({
             </div>
             <form className="project-create-form" onSubmit={submit}>
               <div className="project-create-panel">
-                <div className="form-field">
-                  <label className="form-field__label">Title <span className="form-field__required">*</span></label>
-                  <input className="form-field__input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} required />
-                </div>
-                <div className="form-field">
-                  <label className="form-field__label">Description</label>
-                  <textarea className="form-field__input form-field__textarea" rows={3} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-                </div>
                 <div className="form-row form-row-2">
                   <div className="form-field">
-                    <label className="form-field__label">Type</label>
-                    <select className="form-field__input" value={form.item_type} onChange={(e) => setForm((f) => ({ ...f, item_type: e.target.value }))}>
+                    <label className="form-field__label">Type <span className="form-field__required">*</span></label>
+                    <select
+                      className="form-field__input"
+                      value={form.item_type}
+                      onChange={(e) => setForm((f) => ({ ...f, item_type: e.target.value }))}
+                      required
+                    >
                       {BACKLOG_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                     </select>
                   </div>
                   <div className="form-field">
-                    <label className="form-field__label">Source</label>
-                    <select className="form-field__input" value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}>
-                      {BACKLOG_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                    <label className="form-field__label">Module <span className="form-field__required">*</span></label>
+                    <select
+                      className="form-field__input"
+                      value={form.module_code}
+                      onChange={(e) => setForm((f) => ({ ...f, module_code: e.target.value }))}
+                      required
+                    >
+                      {EPBT_MODULES.map((m) => (
+                        <option key={m.code} value={m.code}>{m.code} — {m.label}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
                 <div className="form-field">
-                  <label className="form-field__label">Priority</label>
-                  <select className="form-field__input" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
-                    {BACKLOG_PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                  </select>
+                  <label className="form-field__label">Backlog item <span className="form-field__required">*</span></label>
+                  <input
+                    className="form-field__input"
+                    value={form.title}
+                    onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                    required
+                    placeholder="Short name for this backlog item"
+                  />
                 </div>
                 <div className="form-row form-row-2">
                   <div className="form-field">
-                    <label className="form-field__label">Estimated hours</label>
+                    <label className="form-field__label">Menu</label>
                     <input
-                      type="number"
-                      min={0}
-                      step={0.5}
                       className="form-field__input"
-                      value={form.estimated_hours}
-                      onChange={(e) => setForm((f) => ({ ...f, estimated_hours: e.target.value }))}
-                      placeholder="e.g. 16"
+                      value={form.menu}
+                      onChange={(e) => setForm((f) => ({ ...f, menu: e.target.value }))}
+                      placeholder="e.g. Cukai"
                     />
                   </div>
                   <div className="form-field">
-                    <label className="form-field__label">Actual hours</label>
+                    <label className="form-field__label">Submenu</label>
                     <input
-                      type="number"
-                      min={0}
-                      step={0.5}
                       className="form-field__input"
-                      value={form.actual_hours}
-                      onChange={(e) => setForm((f) => ({ ...f, actual_hours: e.target.value }))}
-                      placeholder="When done"
+                      value={form.submenu}
+                      onChange={(e) => setForm((f) => ({ ...f, submenu: e.target.value }))}
+                      placeholder="e.g. Bil Cukai"
                     />
                   </div>
                 </div>
+                <div className="form-field">
+                  <label className="form-field__label">Description</label>
+                  <textarea
+                    className="form-field__input form-field__textarea"
+                    rows={3}
+                    value={form.description}
+                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                    placeholder="What needs to be done…"
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-field__label">URL</label>
+                  <input
+                    className="form-field__input"
+                    type="text"
+                    value={form.url}
+                    onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                    placeholder="https://…"
+                  />
+                </div>
                 <div className="form-row form-row-2">
-                  {workPackages.length > 0 && (
-                    <div className="form-field">
-                      <label className="form-field__label">Work package</label>
-                      <select
-                        className="form-field__input"
-                        value={form.work_package_id || workPackageFilter || ''}
-                        onChange={(e) => setForm((f) => ({ ...f, work_package_id: e.target.value, phase_id: '' }))}
-                      >
-                        <option value="">— None —</option>
-                        {workPackages.map((wp) => (
-                          <option key={wp.id} value={wp.id}>{wp.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  <div className="form-field">
-                    <label className="form-field__label">Project phase</label>
-                    <select className="form-field__input" value={form.phase_id} onChange={(e) => setForm((f) => ({ ...f, phase_id: e.target.value }))}>
-                      <option value="">— None —</option>
-                      {(form.work_package_id || workPackageFilter
-                        ? packagePhases.filter((ph) => ph.work_package_id === +(form.work_package_id || workPackageFilter))
-                        : phases
-                      ).map((ph) => <option key={ph.id} value={ph.id}>{ph.name}</option>)}
-                    </select>
-                  </div>
                   <div className="form-field">
                     <label className="form-field__label">Assignee</label>
-                    <select className="form-field__input" value={form.assignee_person_id} onChange={(e) => setForm((f) => ({ ...f, assignee_person_id: e.target.value }))}>
+                    <select
+                      className="form-field__input"
+                      value={form.assignee_person_id}
+                      onChange={(e) => setForm((f) => ({ ...f, assignee_person_id: e.target.value }))}
+                    >
                       <option value="">— Later —</option>
                       {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
+                  <div className="form-field">
+                    <label className="form-field__label">Status <span className="form-field__required">*</span></label>
+                    <select
+                      className="form-field__input"
+                      value={form.status}
+                      onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                      required
+                    >
+                      {BACKLOG_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="form-field">
+                  <label className="form-field__label">Priority <span className="form-field__required">*</span></label>
+                  <select
+                    className="form-field__input"
+                    value={form.priority}
+                    onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
+                    required
+                  >
+                    {BACKLOG_PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label className="form-field__label">Notes</label>
+                  <textarea
+                    className="form-field__input form-field__textarea"
+                    rows={2}
+                    value={form.notes}
+                    onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                    placeholder="Internal notes…"
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-field__label">Attachment</label>
+                  <input
+                    className="form-field__input"
+                    type="file"
+                    accept={ATTACHMENT_ACCEPT}
+                    multiple
+                    onChange={(e) => {
+                      const files = [...(e.target.files || [])];
+                      e.target.value = '';
+                      if (!files.length) return;
+                      setPendingFiles((prev) => [...prev, ...files]);
+                    }}
+                  />
+                  {pendingFiles.length > 0 && (
+                    <ul className="pmo-table-muted" style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
+                      {pendingFiles.map((f, idx) => (
+                        <li key={`${f.name}-${idx}`}>
+                          {f.name}{' '}
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
               <div className="project-create-footer">

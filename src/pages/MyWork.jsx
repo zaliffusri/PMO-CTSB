@@ -7,7 +7,7 @@ import UiEmptyState from '../components/UiEmptyState';
 import PageLoadError from '../components/PageLoadError';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import { priorityClass } from '../utils/issueUi';
-import { OPEN_BACKLOG_STATUSES, BACKLOG_TYPES, BACKLOG_STATUSES } from '../../lib/backlogConstants.js';
+import { OPEN_BACKLOG_STATUSES, BACKLOG_STATUSES, backlogTypeLabel } from '../../lib/backlogConstants.js';
 import { ISSUE_STATUSES } from '../../lib/issueConstants.js';
 import { supportLevelLabel } from '../../lib/issueWorkflow.js';
 import {
@@ -360,7 +360,7 @@ export default function MyWork() {
         typeLabel: 'Backlog',
         title: `${b.ref_no}: ${b.title}`,
         projectName: b.project_name,
-        subtitle: labelFrom(BACKLOG_TYPES, b.item_type),
+        subtitle: backlogTypeLabel(b.item_type),
         href: `/projects/${b.project_id}?tab=backlog`,
         priority: b.priority,
         priorityWeight: pw,

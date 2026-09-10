@@ -829,7 +829,7 @@ export async function runRichDemoSeed(store) {
     project_id: projPortal,
     title: 'License renewal module (original scope)',
     description: 'Core scope item from signed URS section 4.2.',
-    item_type: 'scope',
+    item_type: 'issue',
     source: 'scope',
     status: 'open',
     priority: 'high',

@@ -1,8 +1,45 @@
-import { normalizeBacklogStatus } from '../../lib/backlogConstants.js';
+import { normalizeBacklogStatus, normalizeBacklogType } from '../../lib/backlogConstants.js';
 import { normalizeModuleCode } from '../../lib/epbtModules.js';
 import { cleanExternalTicketRef } from '../../lib/issueBacklogLink.js';
 import { nextId } from '../runtime/helpers.js';
 import { isDbMode, dbSelect, dbInsert, dbUpdate } from '../runtime/query.js';
+
+function isMissingColumnError(err) {
+  const msg = String(err?.message || err || '');
+  return /schema cache|PGRST204|does not exist|column/i.test(msg);
+}
+
+/** Best-effort DDL so backlog form columns exist on older production DBs. */
+async function ensureBacklogFormColumns() {
+  try {
+    const { getPgPool } = await import('../runtime/pgPool.js');
+    const pool = getPgPool();
+    if (!pool) return false;
+    await pool.query(`
+      alter table public.backlogs_app
+        add column if not exists menu text,
+        add column if not exists submenu text,
+        add column if not exists url text,
+        add column if not exists notes text;
+    `);
+    try {
+      await pool.query("NOTIFY pgrst, 'reload schema'");
+    } catch {
+      /* best-effort */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    return true;
+  } catch (e) {
+    console.warn('ensureBacklogFormColumns failed:', e?.message || e);
+    return false;
+  }
+}
+
+function cleanOptionalText(value) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s || null;
+}
 
 export function createBacklogsRepository(ctx, getStore) {
   const { getData, save } = ctx;
@@ -82,7 +119,7 @@ export function createBacklogsRepository(ctx, getStore) {
         project_id: +row.project_id,
         title: String(row.title || '').trim(),
         description: row.description != null ? String(row.description) : null,
-        item_type: row.item_type || 'scope',
+        item_type: normalizeBacklogType(row.item_type || 'inquiry'),
         source: row.source || 'manual',
         status: normalizeBacklogStatus(row.status || 'open'),
         priority: row.priority || 'medium',
@@ -95,6 +132,10 @@ export function createBacklogsRepository(ctx, getStore) {
         external_ticket_ref: row.external_ticket_ref != null
           ? cleanExternalTicketRef(row.external_ticket_ref)
           : null,
+        menu: cleanOptionalText(row.menu),
+        submenu: cleanOptionalText(row.submenu),
+        url: cleanOptionalText(row.url),
+        notes: cleanOptionalText(row.notes),
         effort_days: row.effort_days != null && row.effort_days !== '' ? +row.effort_days : null,
         estimated_hours: row.estimated_hours != null && row.estimated_hours !== ''
           ? +row.estimated_hours
@@ -122,6 +163,10 @@ export function createBacklogsRepository(ctx, getStore) {
         'module_code',
         'client_id',
         'external_ticket_ref',
+        'menu',
+        'submenu',
+        'url',
+        'notes',
         'estimated_hours',
         'actual_hours',
         'work_package_id',
@@ -133,14 +178,20 @@ export function createBacklogsRepository(ctx, getStore) {
       ];
       let pending = { ...item };
       let lastError;
-      for (let attempt = 0; attempt < 8; attempt += 1) {
+      let ensured = false;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
         try {
           const saved = await dbInsert('backlogs_app', pending);
           return saved;
         } catch (e) {
           lastError = e;
           const msg = String(e?.message || e || '');
-          if (!/schema cache|PGRST204|does not exist|column/i.test(msg)) throw e;
+          if (!isMissingColumnError(e)) throw e;
+          if (!ensured && /(menu|submenu|url|notes)/i.test(msg)) {
+            ensured = true;
+            const ok = await ensureBacklogFormColumns();
+            if (ok) continue;
+          }
           const dropKey = optionalKeys.find((key) => pending[key] !== undefined && msg.includes(key));
           if (dropKey) {
             delete pending[dropKey];
@@ -162,6 +213,11 @@ export function createBacklogsRepository(ctx, getStore) {
     async updateBacklog(id, patch) {
       const next = { ...patch };
       if (next.status != null) next.status = normalizeBacklogStatus(next.status);
+      if (next.item_type != null) next.item_type = normalizeBacklogType(next.item_type);
+      if (next.menu !== undefined) next.menu = cleanOptionalText(next.menu);
+      if (next.submenu !== undefined) next.submenu = cleanOptionalText(next.submenu);
+      if (next.url !== undefined) next.url = cleanOptionalText(next.url);
+      if (next.notes !== undefined) next.notes = cleanOptionalText(next.notes);
       next.updated_at = new Date().toISOString();
 
       if (!isDbMode()) {
@@ -173,8 +229,19 @@ export function createBacklogsRepository(ctx, getStore) {
         save();
         return true;
       }
-      const saved = await dbUpdate('backlogs_app', +id, next);
-      return Boolean(saved);
+      try {
+        const saved = await dbUpdate('backlogs_app', +id, next);
+        return Boolean(saved);
+      } catch (e) {
+        if (isMissingColumnError(e) && /(menu|submenu|url|notes)/i.test(String(e?.message || e || ''))) {
+          const ok = await ensureBacklogFormColumns();
+          if (ok) {
+            const saved = await dbUpdate('backlogs_app', +id, next);
+            return Boolean(saved);
+          }
+        }
+        throw e;
+      }
     },
 
     async listBacklogComments(backlogId) {

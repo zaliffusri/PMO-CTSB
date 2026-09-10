@@ -11,11 +11,14 @@ import {
   BACKLOG_PRIORITIES,
   backlogStatusLabel,
   backlogStatusTone,
+  backlogTypeLabel,
+  normalizeBacklogType,
 } from '../../lib/backlogConstants.js';
+import { EPBT_MODULES, moduleLabelForCode } from '../../lib/epbtModules.js';
 import { personIdForUser } from '../../lib/permissions.js';
 
 function typeLabel(id) {
-  return BACKLOG_TYPES.find((t) => t.id === id)?.label || id;
+  return backlogTypeLabel(id);
 }
 
 function sourceLabel(id) {
@@ -24,6 +27,71 @@ function sourceLabel(id) {
 
 function priorityLabel(id) {
   return BACKLOG_PRIORITIES.find((p) => p.id === id)?.label || id;
+}
+
+function DetailTextField({
+  label,
+  value,
+  canEdit,
+  multiline = false,
+  type = 'text',
+  placeholder = '—',
+  onSave,
+}) {
+  const [draft, setDraft] = useState(value || '');
+  useEffect(() => {
+    setDraft(value || '');
+  }, [value]);
+
+  if (!canEdit) {
+    if (type === 'url' && value) {
+      return (
+        <div>
+          <dt>{label}</dt>
+          <dd><a href={value} target="_blank" rel="noopener noreferrer">{value}</a></dd>
+        </div>
+      );
+    }
+    return (
+      <div>
+        <dt>{label}</dt>
+        <dd>{value || '—'}</dd>
+      </div>
+    );
+  }
+
+  const commit = () => {
+    const next = String(draft || '').trim() || null;
+    const prev = String(value || '').trim() || null;
+    if (next !== prev) onSave(next);
+  };
+
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>
+        {multiline ? (
+          <textarea
+            className="form-field__input form-field__textarea"
+            rows={2}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            placeholder={placeholder}
+          />
+        ) : (
+          <input
+            className="form-field__input"
+            type={type}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            placeholder={placeholder}
+          />
+        )}
+      </dd>
+    </div>
+  );
 }
 
 export default function BacklogDetailModal({
@@ -152,6 +220,73 @@ export default function BacklogDetailModal({
             )}
             <dl className="backlog-detail__facts">
               <div>
+                <dt>Type</dt>
+                <dd>
+                  {canManage ? (
+                    <select
+                      className="form-field__input"
+                      value={normalizeBacklogType(item.item_type)}
+                      onChange={(e) => patchItem({ item_type: e.target.value })}
+                    >
+                      {BACKLOG_TYPES.map((t) => (
+                        <option key={t.id} value={t.id}>{t.label}</option>
+                      ))}
+                    </select>
+                  ) : typeLabel(item.item_type)}
+                </dd>
+              </div>
+              <div>
+                <dt>Module</dt>
+                <dd>
+                  {canManage ? (
+                    <select
+                      className="form-field__input"
+                      value={item.module_code || 'XXX'}
+                      onChange={(e) => patchItem({ module_code: e.target.value })}
+                    >
+                      {EPBT_MODULES.map((m) => (
+                        <option key={m.code} value={m.code}>{m.code} — {m.label}</option>
+                      ))}
+                    </select>
+                  ) : (item.module_code ? `${item.module_code} — ${moduleLabelForCode(item.module_code)}` : '—')}
+                </dd>
+              </div>
+              <DetailTextField
+                label="Menu"
+                value={item.menu}
+                canEdit={canManage}
+                onSave={(v) => patchItem({ menu: v })}
+              />
+              <DetailTextField
+                label="Submenu"
+                value={item.submenu}
+                canEdit={canManage}
+                onSave={(v) => patchItem({ submenu: v })}
+              />
+              <DetailTextField
+                label="URL"
+                value={item.url}
+                canEdit={canManage}
+                placeholder="https://…"
+                onSave={(v) => patchItem({ url: v })}
+              />
+              <div>
+                <dt>Priority</dt>
+                <dd>
+                  {canManage ? (
+                    <select
+                      className="form-field__input"
+                      value={item.priority || 'medium'}
+                      onChange={(e) => patchItem({ priority: e.target.value })}
+                    >
+                      {BACKLOG_PRIORITIES.map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  ) : priorityLabel(item.priority)}
+                </dd>
+              </div>
+              <div>
                 <dt>Assignee</dt>
                 <dd>
                   {canManage ? (
@@ -188,6 +323,14 @@ export default function BacklogDetailModal({
                   )}
                 </dd>
               </div>
+              <DetailTextField
+                label="Notes"
+                value={item.notes}
+                canEdit={canManage}
+                multiline
+                placeholder="Internal notes…"
+                onSave={(v) => patchItem({ notes: v })}
+              />
               <div>
                 <dt>Hours</dt>
                 <dd>

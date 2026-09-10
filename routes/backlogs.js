@@ -6,6 +6,7 @@ import {
   BACKLOG_STATUS_SET,
   BACKLOG_PRIORITY_SET,
   normalizeBacklogStatus,
+  normalizeBacklogType,
   backlogStatusLabel,
 } from '../lib/backlogConstants.js';
 import {
@@ -342,7 +343,9 @@ backlogsRouter.post('/', async (req, res) => {
       project_id: projectId,
       title: String(body.title).trim(),
       description: body.description != null ? String(body.description) : null,
-      item_type: BACKLOG_TYPE_SET.has(body.item_type) ? body.item_type : 'scope',
+      item_type: BACKLOG_TYPE_SET.has(body.item_type)
+        ? body.item_type
+        : normalizeBacklogType(body.item_type || 'inquiry'),
       source: BACKLOG_SOURCE_SET.has(body.source) ? body.source : 'manual',
       status: BACKLOG_STATUS_SET.has(body.status) ? body.status : 'open',
       priority: BACKLOG_PRIORITY_SET.has(body.priority) ? body.priority : 'medium',
@@ -352,6 +355,10 @@ backlogsRouter.post('/', async (req, res) => {
       module_code: body.module_code != null ? normalizeModuleCode(body.module_code) : null,
       client_id: body.client_id != null && body.client_id !== '' ? +body.client_id : null,
       external_ticket_ref: body.external_ticket_ref != null ? String(body.external_ticket_ref).trim() : null,
+      menu: body.menu != null ? String(body.menu).trim() || null : null,
+      submenu: body.submenu != null ? String(body.submenu).trim() || null : null,
+      url: body.url != null ? String(body.url).trim() || null : null,
+      notes: body.notes != null ? String(body.notes).trim() || null : null,
       effort_days: body.effort_days != null && body.effort_days !== '' ? +body.effort_days : null,
       estimated_hours: parseHoursInput(body.estimated_hours)
         ?? (body.effort_days != null && body.effort_days !== '' ? +body.effort_days * 8 : null),
@@ -419,7 +426,12 @@ backlogsRouter.put('/:id', async (req, res) => {
   if (isPmo) {
     if (body.title != null) patch.title = String(body.title).trim();
     if (body.description !== undefined) patch.description = body.description != null ? String(body.description) : null;
-    if (body.item_type != null && BACKLOG_TYPE_SET.has(body.item_type)) patch.item_type = body.item_type;
+    if (body.item_type != null) {
+      const nextType = BACKLOG_TYPE_SET.has(body.item_type)
+        ? body.item_type
+        : normalizeBacklogType(body.item_type);
+      if (BACKLOG_TYPE_SET.has(nextType)) patch.item_type = nextType;
+    }
     if (body.source != null && BACKLOG_SOURCE_SET.has(body.source)) patch.source = body.source;
     if (body.priority != null && BACKLOG_PRIORITY_SET.has(body.priority)) patch.priority = body.priority;
     if (body.assignee_person_id !== undefined) {
@@ -445,6 +457,18 @@ backlogsRouter.put('/:id', async (req, res) => {
     }
     if (body.external_ticket_ref !== undefined) {
       patch.external_ticket_ref = body.external_ticket_ref != null ? String(body.external_ticket_ref).trim() || null : null;
+    }
+    if (body.menu !== undefined) {
+      patch.menu = body.menu != null ? String(body.menu).trim() || null : null;
+    }
+    if (body.submenu !== undefined) {
+      patch.submenu = body.submenu != null ? String(body.submenu).trim() || null : null;
+    }
+    if (body.url !== undefined) {
+      patch.url = body.url != null ? String(body.url).trim() || null : null;
+    }
+    if (body.notes !== undefined) {
+      patch.notes = body.notes != null ? String(body.notes).trim() || null : null;
     }
     if (body.issue_id !== undefined) {
       patch.issue_id = body.issue_id != null && body.issue_id !== '' ? +body.issue_id : null;
