@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api } from '../../api';
 import { useSubmitLock } from '../../hooks/useSubmitLock';
-import { EPBT_MODULES, resolveEpbtModules } from '../../lib/epbtModules.js';
+import { EPBT_MODULES, resolveEpbtModules } from '../../../lib/epbtModules.js';
 import { mapApiToForm } from './settingsStyles';
 
 export default function SettingsModules() {
