@@ -3,7 +3,8 @@ import {
   normalizeBacklogRef,
   cleanExternalTicketRef,
   nextModuleBacklogRef,
-  syncIssueBacklogLink,
+  nextBacklogRefNo,
+  slugBacklogRefPart,
   tryLinkIssueToBacklogByRef,
   promoteIssueToBacklog,
 } from '../lib/issueBacklogLink.js';
@@ -26,6 +27,7 @@ function makeStore() {
     people: data.people,
     async listIssues() { return data.issues; },
     async listBacklogs() { return data.backlogs; },
+    async getClientsForProject() { return data.clients; },
     findBacklogByIssueId(issueId) {
       return data.backlogs.find((b) => b.issue_id === +issueId) || null;
     },
@@ -78,9 +80,26 @@ describe('issueBacklogLink', () => {
     expect(cleanExternalTicketRef('Ticket #13203')).toBe('13203');
   });
 
-  it('generates module backlog refs', () => {
-    const backlogs = [{ ref_no: 'ABB-1350' }, { ref_no: 'ABB-1351' }];
-    expect(nextModuleBacklogRef(backlogs, 'ABB')).toBe('ABB-1352');
+  it('slugs ref parts', () => {
+    expect(slugBacklogRefPart('Bil Cukai')).toBe('BILCUKAI');
+    expect(slugBacklogRefPart('')).toBe('X');
+  });
+
+  it('generates menu-project-module running refs', () => {
+    const backlogs = [
+      { ref_no: 'CUKAI-MBIP-CK-0001' },
+      { ref_no: 'CUKAI-MBIP-CK-0002' },
+    ];
+    expect(nextBacklogRefNo({
+      backlogs,
+      menu: 'Cukai',
+      projectShortCode: 'MBIP',
+      moduleCode: 'CK',
+    })).toBe('CUKAI-MBIP-CK-0003');
+    expect(nextModuleBacklogRef(backlogs, 'CK', {
+      menu: 'Cukai',
+      projectShortCode: 'MBIP',
+    })).toBe('CUKAI-MBIP-CK-0003');
   });
 
   let store;
@@ -149,7 +168,7 @@ describe('issueBacklogLink', () => {
     });
     const result = await promoteIssueToBacklog(store, issueId, 1, { assigneePersonId: assigneeId });
     expect(result.created).toBe(true);
-    expect(result.backlog.ref_no).toMatch(/^ABB-\d+$/);
+    expect(result.backlog.ref_no).toMatch(/^HD-MBIP-ABB-\d{4}$/);
     expect(result.backlog.assignee_person_id).toBe(assigneeId);
     expect(store.issues[0].backlog_ref).toBe(result.backlog.ref_no);
     expect(store.issues[0].assignee_person_id).toBe(assigneeId);

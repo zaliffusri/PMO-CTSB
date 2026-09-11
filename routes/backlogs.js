@@ -22,7 +22,7 @@ import { normalizeModuleCode } from '../lib/epbtModules.js';
 import {
   tryLinkBacklogToIssueByRef,
   syncIssueBacklogLink,
-  nextModuleBacklogRef,
+  nextBacklogRefNo,
 } from '../lib/issueBacklogLink.js';
 import { normalizeTaskStatus } from '../lib/taskStatus.js';
 import { copyAttachments } from '../lib/attachmentCopy.js';
@@ -341,9 +341,21 @@ backlogsRouter.post('/', async (req, res) => {
     const settings = await store.getSettings().catch(() => null);
     const modules = settings?.epbt_modules;
     let refNo = body.ref_no ? String(body.ref_no).trim() : '';
-    if (!refNo && body.module_code) {
+    if (!refNo) {
       const refRows = await store.listBacklogs({ columns: 'ref_no' }).catch(() => []);
-      refNo = nextModuleBacklogRef(refRows, body.module_code);
+      let projectShortCode = null;
+      try {
+        const clients = await store.getClientsForProject(projectId);
+        projectShortCode = String(clients?.[0]?.short_code || '').trim() || null;
+      } catch (e) {
+        console.warn('backlog ref project short code:', e?.message || e);
+      }
+      refNo = nextBacklogRefNo({
+        backlogs: refRows,
+        menu: body.menu,
+        projectShortCode,
+        moduleCode: body.module_code != null ? normalizeModuleCode(body.module_code, modules) : 'XXX',
+      });
     }
 
     const saved = await store.addBacklog({

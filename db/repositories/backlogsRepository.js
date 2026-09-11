@@ -83,9 +83,8 @@ export function createBacklogsRepository(ctx, getStore) {
 
     listBacklogs,
 
-    async nextBacklogRefNo() {
-      const year = new Date().getFullYear();
-      const prefix = `BLG-${year}-`;
+    async nextBacklogRefNo(opts = {}) {
+      const { nextBacklogRefNo: buildRef } = await import('../../lib/issueBacklogLink.js');
       let backlogs;
       if (!isDbMode()) {
         const data = getData();
@@ -94,12 +93,12 @@ export function createBacklogsRepository(ctx, getStore) {
       } else {
         backlogs = await dbSelect('backlogs_app', { columns: 'ref_no' });
       }
-      const nums = backlogs
-        .filter((b) => b.ref_no && String(b.ref_no).startsWith(prefix))
-        .map((b) => parseInt(String(b.ref_no).slice(prefix.length), 10))
-        .filter((n) => Number.isFinite(n));
-      const next = nums.length ? Math.max(...nums) + 1 : 1;
-      return `${prefix}${String(next).padStart(4, '0')}`;
+      return buildRef({
+        backlogs,
+        menu: opts.menu,
+        projectShortCode: opts.projectShortCode,
+        moduleCode: opts.moduleCode || 'XXX',
+      });
     },
 
     async findBacklogById(id) {

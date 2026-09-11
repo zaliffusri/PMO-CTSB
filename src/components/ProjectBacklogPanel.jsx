@@ -186,6 +186,10 @@ export default function ProjectBacklogPanel({
       alert('Assignee is required.');
       return;
     }
+    if (!form.menu.trim()) {
+      alert('Menu is required (used in the reference ID).');
+      return;
+    }
     await run(async () => {
       try {
         const created = await api.backlogs.create({
@@ -541,12 +545,14 @@ export default function ProjectBacklogPanel({
                 </div>
                 <div className="form-row form-row-2">
                   <div className="form-field">
-                    <label className="form-field__label">Menu</label>
+                    <label className="form-field__label">Menu <span className="form-field__required">*</span></label>
                     <input
                       className="form-field__input"
                       value={form.menu}
                       onChange={(e) => setForm((f) => ({ ...f, menu: e.target.value }))}
                       placeholder="e.g. Cukai"
+                      required
+                      title="Used in reference ID: MENU-PROJECT-MODULE-0001"
                     />
                   </div>
                   <div className="form-field">
