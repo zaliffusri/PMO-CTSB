@@ -6735,7 +6735,7 @@ button.project-tasks-kpi:hover {
   max-width: none;
 }
 .backlog-table col.col-ticket { width: 8.25rem; }
-.backlog-table col.col-module { width: 5.5rem; }
+.backlog-table col.col-module { width: 11rem; }
 .backlog-table col.col-issue { width: 28rem; }
 .backlog-table col.col-type { width: 8.5rem; }
 .backlog-table col.col-package { width: 12rem; }
@@ -6816,7 +6816,16 @@ button.project-tasks-kpi:hover {
   text-align: center;
 }
 .backlog-table__module {
-  text-align: center;
+  text-align: left;
+}
+.backlog-table__module-name {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  white-space: normal;
+  word-break: break-word;
 }
 .backlog-module-chip {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);

@@ -418,8 +418,8 @@ export default function ProjectBacklogPanel({
                   </td>
                   <td className="backlog-table__module">
                     {moduleCode ? (
-                      <span className="project-meta-chip backlog-module-chip" title={moduleTitle}>
-                        {moduleCode}
+                      <span className="backlog-table__module-name" title={moduleCode}>
+                        {moduleTitle || moduleCode}
                       </span>
                     ) : (
                       <span className="backlog-table__cell-text">—</span>
