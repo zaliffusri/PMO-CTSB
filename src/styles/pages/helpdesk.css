@@ -82,11 +82,27 @@
   flex-wrap: wrap;
   gap: 0.35rem;
 }
-.entity-attachments__upload-btn { cursor: pointer; margin: 0; }
+.entity-attachments__actions--below {
+  margin-top: 0.65rem;
+}
+.entity-attachments__upload-btn { cursor: pointer; margin: 0; display: inline-flex; }
 .entity-attachments__link-form {
   display: grid;
   gap: 0.4rem;
-  margin-bottom: 0.65rem;
+  margin-top: 0.65rem;
+}
+.entity-attachments__thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg);
+  cursor: default;
+}
+.backlog-pending-attachments {
+  margin-bottom: 0.35rem;
 }
 .entity-attachments__link-actions {
   display: flex;

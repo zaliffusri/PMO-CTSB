@@ -244,7 +244,7 @@ export const api = {
     list: (entityType, entityId) => request(`/attachments?entity_type=${encodeURIComponent(entityType)}&entity_id=${entityId}`),
     create: (body) => request('/attachments', { method: 'POST', body: JSON.stringify(body) }),
     remove: (id) => request(`/attachments/${id}`, { method: 'DELETE' }),
-    async openFile(id) {
+    async fetchFileBlob(id) {
       const headers = {};
       const token = getAuthToken();
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -253,7 +253,10 @@ export const api = {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Download failed');
       }
-      const blob = await res.blob();
+      return res.blob();
+    },
+    async openFile(id) {
+      const blob = await api.attachments.fetchFileBlob(id);
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank', 'noopener,noreferrer');
       setTimeout(() => URL.revokeObjectURL(url), 60000);

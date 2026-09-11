@@ -67,6 +67,18 @@ function fileToDataUrl(file) {
   });
 }
 
+function formatPendingBytes(n) {
+  if (!n) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImageFile(file) {
+  if (file?.type?.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp)$/i.test(String(file?.name || ''));
+}
+
 export default function ProjectBacklogPanel({
   projectId,
   people = [],
@@ -89,7 +101,26 @@ export default function ProjectBacklogPanel({
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(() => emptyBacklogForm(workPackageFilter));
   const [pendingFiles, setPendingFiles] = useState([]);
+  const [pendingPreviews, setPendingPreviews] = useState([]);
   const { pending: busy, run } = useSubmitLock();
+
+  useEffect(() => {
+    const next = pendingFiles.map((file, idx) => {
+      const image = isImageFile(file);
+      return {
+        idx,
+        file,
+        image,
+        url: image ? URL.createObjectURL(file) : null,
+      };
+    });
+    setPendingPreviews(next);
+    return () => {
+      next.forEach((p) => {
+        if (p.url) URL.revokeObjectURL(p.url);
+      });
+    };
+  }, [pendingFiles]);
 
   const load = () => {
     setLoading(true);
@@ -544,6 +575,54 @@ export default function ProjectBacklogPanel({
                   />
                 </div>
                 <div className="form-field">
+                  <label className="form-field__label">Attachment</label>
+                  {pendingPreviews.length > 0 && (
+                    <ul className="entity-attachments__list backlog-pending-attachments">
+                      {pendingPreviews.map(({ idx, file, image, url }) => (
+                        <li key={`${file.name}-${idx}-${file.size}`} className="entity-attachments__item">
+                          {image && url ? (
+                            <img className="entity-attachments__thumb" src={url} alt={file.name} />
+                          ) : (
+                            <span className="entity-attachments__icon" aria-hidden>📎</span>
+                          )}
+                          <div className="entity-attachments__meta">
+                            <span className="pmo-link-strong">{file.name}</span>
+                            <span className="pmo-table-muted">{formatPendingBytes(file.size)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            title="Remove"
+                          >
+                            ×
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <label className="btn btn-secondary btn-sm entity-attachments__upload-btn" style={{ marginTop: pendingPreviews.length ? '0.5rem' : 0 }}>
+                    + Add file
+                    <input
+                      type="file"
+                      accept={ATTACHMENT_ACCEPT}
+                      multiple
+                      className="sr-only"
+                      onChange={(e) => {
+                        const files = [...(e.target.files || [])];
+                        e.target.value = '';
+                        if (!files.length) return;
+                        setPendingFiles((prev) => [...prev, ...files]);
+                      }}
+                    />
+                  </label>
+                  {!pendingPreviews.length && (
+                    <p className="pmo-table-muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+                      Screenshots, PDF, Office, or zip — shown here after you select them.
+                    </p>
+                  )}
+                </div>
+                <div className="form-field">
                   <label className="form-field__label">URL</label>
                   <input
                     className="form-field__input"
@@ -598,37 +677,6 @@ export default function ProjectBacklogPanel({
                     onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                     placeholder="Internal notes…"
                   />
-                </div>
-                <div className="form-field">
-                  <label className="form-field__label">Attachment</label>
-                  <input
-                    className="form-field__input"
-                    type="file"
-                    accept={ATTACHMENT_ACCEPT}
-                    multiple
-                    onChange={(e) => {
-                      const files = [...(e.target.files || [])];
-                      e.target.value = '';
-                      if (!files.length) return;
-                      setPendingFiles((prev) => [...prev, ...files]);
-                    }}
-                  />
-                  {pendingFiles.length > 0 && (
-                    <ul className="pmo-table-muted" style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
-                      {pendingFiles.map((f, idx) => (
-                        <li key={`${f.name}-${idx}`}>
-                          {f.name}{' '}
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
-                          >
-                            Remove
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
                 </div>
               </div>
               <div className="project-create-footer">
