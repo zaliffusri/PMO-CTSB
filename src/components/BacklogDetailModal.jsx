@@ -319,17 +319,22 @@ export default function BacklogDetailModal({
                 </dd>
               </div>
               <div>
-                <dt>Assignee</dt>
+                <dt>Assignee *</dt>
                 <dd>
                   {canManage ? (
                     <select
                       className="form-field__input"
                       value={item.assignee_person_id || ''}
-                      onChange={(e) => patchItem({
-                        assignee_person_id: e.target.value ? +e.target.value : null,
-                      })}
+                      required
+                      onChange={(e) => {
+                        if (!e.target.value) {
+                          alert('Assignee is required.');
+                          return;
+                        }
+                        patchItem({ assignee_person_id: +e.target.value });
+                      }}
                     >
-                      <option value="">Unassigned</option>
+                      {!item.assignee_person_id && <option value="">Select assignee…</option>}
                       {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   ) : (item.assignee_name || 'Unassigned')}

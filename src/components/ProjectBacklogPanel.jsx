@@ -158,6 +158,10 @@ export default function ProjectBacklogPanel({
   const submit = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) return;
+    if (!form.assignee_person_id) {
+      alert('Assignee is required.');
+      return;
+    }
     await run(async () => {
       try {
         const created = await api.backlogs.create({
@@ -173,7 +177,7 @@ export default function ProjectBacklogPanel({
           status: form.status,
           priority: form.priority,
           source: form.source || 'manual',
-          assignee_person_id: form.assignee_person_id || null,
+          assignee_person_id: +form.assignee_person_id,
           estimated_hours: form.estimated_hours || null,
           actual_hours: form.actual_hours || null,
           phase_id: form.phase_id || null,
@@ -408,11 +412,16 @@ export default function ProjectBacklogPanel({
                       <select
                         className="pmo-cell-select gantt-input gantt-input--select helpdesk-select"
                         value={item.assignee_person_id || ''}
-                        onChange={(e) => patchItem(item.id, {
-                          assignee_person_id: e.target.value ? +e.target.value : null,
-                        })}
+                        required
+                        onChange={(e) => {
+                          if (!e.target.value) {
+                            alert('Assignee is required.');
+                            return;
+                          }
+                          patchItem(item.id, { assignee_person_id: +e.target.value });
+                        }}
                       >
-                        <option value="">—</option>
+                        {!item.assignee_person_id && <option value="">Select assignee…</option>}
                         {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     ) : (item.assignee_name || '—')}
@@ -546,13 +555,14 @@ export default function ProjectBacklogPanel({
                 </div>
                 <div className="form-row form-row-2">
                   <div className="form-field">
-                    <label className="form-field__label">Assignee</label>
+                    <label className="form-field__label">Assignee <span className="form-field__required">*</span></label>
                     <select
                       className="form-field__input"
                       value={form.assignee_person_id}
                       onChange={(e) => setForm((f) => ({ ...f, assignee_person_id: e.target.value }))}
+                      required
                     >
-                      <option value="">— Later —</option>
+                      <option value="">Select assignee…</option>
                       {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>

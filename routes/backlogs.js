@@ -330,6 +330,12 @@ backlogsRouter.post('/', async (req, res) => {
     if (!body.project_id || !body.title) {
       return res.status(400).json({ error: 'project_id and title are required' });
     }
+    const assigneePersonId = body.assignee_person_id != null && body.assignee_person_id !== ''
+      ? +body.assignee_person_id
+      : null;
+    if (!Number.isFinite(assigneePersonId) || assigneePersonId <= 0) {
+      return res.status(400).json({ error: 'assignee_person_id is required' });
+    }
 
     const projectId = +body.project_id;
     const settings = await store.getSettings().catch(() => null);
@@ -352,7 +358,7 @@ backlogsRouter.post('/', async (req, res) => {
       status: BACKLOG_STATUS_SET.has(body.status) ? body.status : 'open',
       priority: BACKLOG_PRIORITY_SET.has(body.priority) ? body.priority : 'medium',
       issue_id: body.issue_id != null && body.issue_id !== '' ? +body.issue_id : null,
-      assignee_person_id: body.assignee_person_id != null && body.assignee_person_id !== '' ? +body.assignee_person_id : null,
+      assignee_person_id: assigneePersonId,
       created_by_user_id: req.user.id,
       module_code: body.module_code != null ? normalizeModuleCode(body.module_code, modules) : null,
       client_id: body.client_id != null && body.client_id !== '' ? +body.client_id : null,
@@ -437,7 +443,13 @@ backlogsRouter.put('/:id', async (req, res) => {
     if (body.source != null && BACKLOG_SOURCE_SET.has(body.source)) patch.source = body.source;
     if (body.priority != null && BACKLOG_PRIORITY_SET.has(body.priority)) patch.priority = body.priority;
     if (body.assignee_person_id !== undefined) {
-      patch.assignee_person_id = body.assignee_person_id != null && body.assignee_person_id !== '' ? +body.assignee_person_id : null;
+      const nextAssignee = body.assignee_person_id != null && body.assignee_person_id !== ''
+        ? +body.assignee_person_id
+        : null;
+      if (!Number.isFinite(nextAssignee) || nextAssignee <= 0) {
+        return res.status(400).json({ error: 'assignee_person_id is required' });
+      }
+      patch.assignee_person_id = nextAssignee;
     }
     if (body.effort_days !== undefined) {
       patch.effort_days = body.effort_days != null && body.effort_days !== '' ? +body.effort_days : null;
