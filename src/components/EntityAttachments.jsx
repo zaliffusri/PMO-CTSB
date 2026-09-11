@@ -1,21 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { ATTACHMENT_ACCEPT } from '../../lib/attachmentConstants.js';
+import { prepareAttachmentUpload } from '../lib/attachmentUpload.js';
 
 function formatBytes(n) {
   if (!n) return '';
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
 }
 
 function isImageAttachment(att) {
@@ -109,14 +101,14 @@ export default function EntityAttachments({
       ...prev,
     ]);
     try {
-      const data_url = await fileToDataUrl(file);
+      const prepared = await prepareAttachmentUpload(file);
       await api.attachments.create({
         entity_type: entityType,
         entity_id: entityId,
         kind: 'file',
-        file_name: file.name,
-        mime_type: file.type || undefined,
-        data_url,
+        file_name: prepared.file_name,
+        mime_type: prepared.mime_type,
+        data_url: prepared.data_url,
       });
       load();
     } catch (err) {
@@ -195,7 +187,7 @@ export default function EntityAttachments({
       {loading && items.length === 0 ? (
         <p className="pmo-table-muted">Loading attachments…</p>
       ) : items.length === 0 ? (
-        <p className="pmo-table-muted entity-attachments__empty">No attachments — upload screenshot, PDF, or paste a reference link.</p>
+        <p className="pmo-table-muted entity-attachments__empty">No attachments — upload screenshot or PDF (max 2.5 MB), or paste a reference link.</p>
       ) : (
         <ul className="entity-attachments__list">
           {items.map((att) => (

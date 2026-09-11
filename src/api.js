@@ -78,6 +78,9 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     let msg = data.error || res.statusText || `Request failed (${res.status})`;
+    if (res.status === 413) {
+      msg = 'File too large for the server (max ~2.5 MB). Compress images or upload a smaller file.';
+    }
     if (Array.isArray(data.details) && data.details.length) {
       const detailText = data.details
         .map((d) => d.message || [d.path, d.message].filter(Boolean).join(': '))

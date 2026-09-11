@@ -24,7 +24,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 
 export { publicBrandingPayload };
 
-export function registerApiRoutes(app, { jsonLimitAttachments = '12mb' } = {}) {
+export function registerApiRoutes(app, { jsonLimitAttachments = '4mb' } = {}) {
   app.use('/api/auth', authRouter);
   app.get('/api/health', (req, res) => res.json({ ok: true }));
   app.get('/api/settings/public', async (req, res) => res.json(await publicBrandingPayload()));

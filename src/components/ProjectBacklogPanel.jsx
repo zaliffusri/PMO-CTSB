@@ -21,6 +21,7 @@ import {
   normalizeBacklogType,
 } from '../../lib/backlogConstants.js';
 import { ATTACHMENT_ACCEPT } from '../../lib/attachmentConstants.js';
+import { prepareAttachmentUpload } from '../lib/attachmentUpload.js';
 import { personIdForUser } from '../../lib/permissions.js';
 import { sumHours, formatHours } from '../../lib/hoursUtils.js';
 import { useEpbtModules } from '../hooks/useEpbtModules.js';
@@ -56,15 +57,6 @@ function emptyBacklogForm(workPackageFilter = '') {
     phase_id: '',
     work_package_id: workPackageFilter || '',
   };
-}
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
 }
 
 function formatPendingBytes(n) {
@@ -218,17 +210,18 @@ export default function ProjectBacklogPanel({
         if (backlogId && pendingFiles.length) {
           for (const file of pendingFiles) {
             try {
-              const data_url = await fileToDataUrl(file);
+              const prepared = await prepareAttachmentUpload(file);
               await api.attachments.create({
                 entity_type: 'backlog',
                 entity_id: backlogId,
                 kind: 'file',
-                file_name: file.name,
-                mime_type: file.type || undefined,
-                data_url,
+                file_name: prepared.file_name,
+                mime_type: prepared.mime_type,
+                data_url: prepared.data_url,
               });
             } catch (attachErr) {
               console.warn('backlog attachment upload failed', attachErr);
+              alert(attachErr?.message || 'Attachment upload failed');
             }
           }
         }
@@ -618,7 +611,7 @@ export default function ProjectBacklogPanel({
                   </label>
                   {!pendingPreviews.length && (
                     <p className="pmo-table-muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
-                      Screenshots, PDF, Office, or zip — shown here after you select them.
+                      Screenshots, PDF, Office, or zip — max 2.5 MB (images are compressed automatically).
                     </p>
                   )}
                 </div>
