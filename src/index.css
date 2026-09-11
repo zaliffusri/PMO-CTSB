@@ -6730,12 +6730,13 @@ button.project-tasks-kpi:hover {
 /* Backlog workflow — status badges, detail modal, comments */
 .backlog-table {
   table-layout: fixed;
-  width: 112rem;
-  min-width: 112rem;
+  width: 118rem;
+  min-width: 118rem;
   max-width: none;
 }
 .backlog-table col.col-ticket { width: 8.25rem; }
-.backlog-table col.col-issue { width: 30rem; }
+.backlog-table col.col-module { width: 5.5rem; }
+.backlog-table col.col-issue { width: 28rem; }
 .backlog-table col.col-type { width: 8.5rem; }
 .backlog-table col.col-package { width: 12rem; }
 .backlog-table col.col-status { width: 10rem; }
@@ -6813,6 +6814,16 @@ button.project-tasks-kpi:hover {
   max-width: 100%;
   justify-content: center;
   text-align: center;
+}
+.backlog-table__module {
+  text-align: center;
+}
+.backlog-module-chip {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  justify-content: center;
+  max-width: 100%;
 }
 .backlog-table__status .helpdesk-select,
 .backlog-table__assignee .helpdesk-select {

@@ -24,6 +24,7 @@ import { ATTACHMENT_ACCEPT } from '../../lib/attachmentConstants.js';
 import { prepareAttachmentUpload } from '../lib/attachmentUpload.js';
 import { personIdForUser } from '../../lib/permissions.js';
 import { sumHours, formatHours } from '../../lib/hoursUtils.js';
+import { moduleLabelForCode } from '../../lib/epbtModules.js';
 import { useEpbtModules } from '../hooks/useEpbtModules.js';
 
 function typeLabel(id) {
@@ -363,6 +364,7 @@ export default function ProjectBacklogPanel({
           <table className="pmo-data-list pmo-portfolio-table backlog-table">
             <colgroup>
               <col className="col-ticket" />
+              <col className="col-module" />
               <col className="col-issue" />
               <col className="col-type" />
               {workPackages.length > 0 && <col className="col-package hide-mobile" />}
@@ -375,6 +377,7 @@ export default function ProjectBacklogPanel({
             <thead>
               <tr>
                 <th scope="col">Ref</th>
+                <th scope="col">Module</th>
                 <th scope="col" className="pmo-data-list__col-primary">Item</th>
                 <th scope="col">Type</th>
                 {workPackages.length > 0 && <th scope="col" className="hide-mobile">Work package</th>}
@@ -393,7 +396,6 @@ export default function ProjectBacklogPanel({
             <tbody>
               {visible.map((item) => {
                 const metaBits = [];
-                if (item.module_code) metaBits.push({ key: 'mod', label: item.module_code, tone: 'code' });
                 if (item.menu || item.submenu) {
                   metaBits.push({
                     key: 'menu',
@@ -404,11 +406,24 @@ export default function ProjectBacklogPanel({
                 if (item.client_name) metaBits.push({ key: 'client', label: item.client_name, tone: 'plain' });
                 if (item.task_name) metaBits.push({ key: 'task', label: `Task: ${item.task_name}`, tone: 'plain' });
                 if (item.phase_name) metaBits.push({ key: 'phase', label: `Phase: ${item.phase_name}`, tone: 'plain' });
+                const moduleCode = item.module_code || '';
+                const moduleTitle = moduleCode
+                  ? moduleLabelForCode(moduleCode, epbtModules)
+                  : '';
 
                 return (
                 <tr key={item.id} className="backlog-table__row">
                   <td className="helpdesk-ticket backlog-table__ref">
                     <span className="backlog-table__ref-code">{item.ref_no || '—'}</span>
+                  </td>
+                  <td className="backlog-table__module">
+                    {moduleCode ? (
+                      <span className="project-meta-chip backlog-module-chip" title={moduleTitle}>
+                        {moduleCode}
+                      </span>
+                    ) : (
+                      <span className="backlog-table__cell-text">—</span>
+                    )}
                   </td>
                   <td className="pmo-data-list__primary backlog-table__item">
                     <button type="button" className="helpdesk-title helpdesk-title--link" onClick={() => setDetailItem(item)}>
