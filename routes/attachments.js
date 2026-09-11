@@ -114,6 +114,14 @@ attachmentsRouter.post('/', async (req, res) => {
     res.status(201).json(att);
   } catch (e) {
     console.error('attachments POST failed', e);
+    const msg = String(e?.message || e || '');
+    if (/attachments_app|schema cache|Could not find the table/i.test(msg)) {
+      return res.status(503).json({
+        error: msg.includes('SUPABASE_DB')
+          ? msg
+          : 'attachments_app table missing. Run migration 20260911150000_ensure_attachments_app.sql (or set SUPABASE_DB_URL).',
+      });
+    }
     res.status(500).json({ error: e?.message || 'Failed to create attachment' });
   }
 });

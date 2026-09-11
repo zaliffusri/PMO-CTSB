@@ -17,6 +17,27 @@ function buildAttachmentPayload(row, { now = new Date().toISOString() } = {}) {
   };
 }
 
+function attachmentsTableMissing(err) {
+  const msg = String(err?.message || err || '');
+  return /attachments_app/i.test(msg)
+    && /schema cache|Could not find|does not exist|PGRST204|PGRST205/i.test(msg);
+}
+
+async function withAttachmentsTable(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!attachmentsTableMissing(e)) throw e;
+    const {
+      ensureAttachmentsAppTable,
+      attachmentsAppMissingMessage,
+    } = await import('../runtime/supabaseSync.js');
+    const ok = await ensureAttachmentsAppTable();
+    if (!ok) throw new Error(attachmentsAppMissingMessage());
+    return fn();
+  }
+}
+
 export function createAttachmentsRepository(ctx, getStore) {
   const { getData, save } = ctx;
 
@@ -34,12 +55,11 @@ export function createAttachmentsRepository(ctx, getStore) {
           .filter((a) => a.entity_type === entityType && a.entity_id === +entityId)
           .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       }
-      const rows = await dbSelect('attachments_app', {
+      return withAttachmentsTable(() => dbSelect('attachments_app', {
         filters: { entity_type: entityType, entity_id: +entityId },
         order: 'created_at',
         ascending: false,
-      });
-      return rows;
+      }));
     },
 
     async findAttachment(id) {
@@ -48,7 +68,10 @@ export function createAttachmentsRepository(ctx, getStore) {
         if (!data.attachments) return null;
         return data.attachments.find((a) => a.id === +id) || null;
       }
-      return dbSelect('attachments_app', { filters: { id: +id }, maybeSingle: true });
+      return withAttachmentsTable(() => dbSelect('attachments_app', {
+        filters: { id: +id },
+        maybeSingle: true,
+      }));
     },
 
     async addAttachment(row) {
@@ -62,7 +85,7 @@ export function createAttachmentsRepository(ctx, getStore) {
         save();
         return id;
       }
-      const saved = await dbInsert('attachments_app', payload);
+      const saved = await withAttachmentsTable(() => dbInsert('attachments_app', payload));
       return saved.id;
     },
 
@@ -76,13 +99,15 @@ export function createAttachmentsRepository(ctx, getStore) {
         save();
         return removed;
       }
-      const existing = await dbSelect('attachments_app', {
-        filters: { id: +id },
-        maybeSingle: true,
+      return withAttachmentsTable(async () => {
+        const existing = await dbSelect('attachments_app', {
+          filters: { id: +id },
+          maybeSingle: true,
+        });
+        if (!existing) return null;
+        await dbDelete('attachments_app', +id);
+        return existing;
       });
-      if (!existing) return null;
-      await dbDelete('attachments_app', +id);
-      return existing;
     },
   };
 }
