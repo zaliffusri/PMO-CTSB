@@ -384,86 +384,33 @@ export default function ProjectBacklogPanel({
                 <th scope="col">Status</th>
                 <th scope="col" className="hide-mobile">Source</th>
                 <th scope="col">Assignee</th>
-                <th scope="col" className="backlog-table__th-hours" title="Estimated / actual hours">
-                  <span className="backlog-table__th-stack">
-                    <span>Hours</span>
-                    <span className="backlog-table__th-sub">Est / Act</span>
-                  </span>
-                </th>
-                <th scope="col" className="backlog-table__th-actions">Actions</th>
+                <th scope="col" title="Estimated / actual hours">Hours</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((item) => {
-                const metaBits = [];
-                if (item.menu || item.submenu) {
-                  metaBits.push({
-                    key: 'menu',
-                    label: [item.menu, item.submenu].filter(Boolean).join(' / '),
-                    tone: 'path',
-                  });
-                }
-                if (item.client_name) metaBits.push({ key: 'client', label: item.client_name, tone: 'plain' });
-                if (item.task_name) metaBits.push({ key: 'task', label: `Task: ${item.task_name}`, tone: 'plain' });
-                if (item.phase_name) metaBits.push({ key: 'phase', label: `Phase: ${item.phase_name}`, tone: 'plain' });
                 const moduleCode = item.module_code || '';
                 const moduleTitle = moduleCode
                   ? moduleLabelForCode(moduleCode, epbtModules)
                   : '';
 
                 return (
-                <tr key={item.id} className="backlog-table__row">
-                  <td className="helpdesk-ticket backlog-table__ref">
-                    <span className="backlog-table__ref-code">{item.ref_no || '—'}</span>
+                <tr key={item.id}>
+                  <td className="backlog-table__ref">{item.ref_no || '—'}</td>
+                  <td className="backlog-table__module" title={moduleCode || undefined}>
+                    {moduleTitle || moduleCode || '—'}
                   </td>
-                  <td className="backlog-table__module">
-                    {moduleCode ? (
-                      <span className="backlog-table__module-name" title={moduleCode}>
-                        {moduleTitle || moduleCode}
-                      </span>
-                    ) : (
-                      <span className="backlog-table__cell-text">—</span>
-                    )}
-                  </td>
-                  <td className="pmo-data-list__primary backlog-table__item">
+                  <td className="pmo-data-list__primary">
                     <button type="button" className="helpdesk-title helpdesk-title--link" onClick={() => setDetailItem(item)}>
                       {item.title}
                     </button>
-                    {(item.issue_ticket_no || item.issue_external_ticket_ref || metaBits.length > 0) && (
-                      <div className="backlog-item-meta">
-                        {item.issue_ticket_no && (
-                          <Link
-                            to={`/helpdesk?issue=${item.issue_id}`}
-                            className="backlog-item-meta__chip backlog-item-meta__chip--link"
-                          >
-                            Helpdesk {item.issue_ticket_no}
-                          </Link>
-                        )}
-                        {item.issue_external_ticket_ref && (
-                          <span className="backlog-item-meta__chip" title="Client ticket ref">
-                            Client {item.issue_external_ticket_ref}
-                          </span>
-                        )}
-                        {metaBits.map((bit) => (
-                          <span
-                            key={bit.key}
-                            className={`backlog-item-meta__chip backlog-item-meta__chip--${bit.tone}`}
-                          >
-                            {bit.label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </td>
-                  <td className="backlog-table__type">
-                    <span className="project-meta-chip backlog-type-chip">{typeLabel(item.item_type)}</span>
-                  </td>
+                  <td>{typeLabel(item.item_type)}</td>
                   {workPackages.length > 0 && (
-                    <td className="hide-mobile backlog-table__package">
-                      <span className="backlog-table__cell-text">{item.work_package_name || '—'}</span>
-                    </td>
+                    <td className="hide-mobile">{item.work_package_name || '—'}</td>
                   )}
-                  <td className="backlog-table__status">
+                  <td>
                     {canUpdateItem(item) ? (
                       <select
                         className="pmo-cell-select gantt-input gantt-input--select helpdesk-select"
@@ -481,10 +428,8 @@ export default function ProjectBacklogPanel({
                       </span>
                     )}
                   </td>
-                  <td className="hide-mobile backlog-table__source">
-                    <span className="backlog-table__cell-text">{sourceLabel(item.source)}</span>
-                  </td>
-                  <td className="backlog-table__assignee">
+                  <td className="hide-mobile">{sourceLabel(item.source)}</td>
+                  <td>
                     {canManage ? (
                       <select
                         className="pmo-cell-select gantt-input gantt-input--select helpdesk-select"
@@ -503,10 +448,10 @@ export default function ProjectBacklogPanel({
                         {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     ) : (
-                      <span className="backlog-table__cell-text">{item.assignee_name || '—'}</span>
+                      item.assignee_name || '—'
                     )}
                   </td>
-                  <td className="backlog-table__hours">
+                  <td>
                     <HoursField
                       estimated={item.estimated_hours}
                       actual={item.actual_hours}
@@ -516,35 +461,30 @@ export default function ProjectBacklogPanel({
                       onActualChange={canUpdateItem(item) ? (v) => patchItem(item.id, { actual_hours: v }) : undefined}
                     />
                   </td>
-                  <td className="table-actions-col backlog-table__actions">
-                    <div className="backlog-row-actions">
-                      <div className="backlog-row-actions__icons" role="group" aria-label="Quick actions">
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetailItem(item)} title="Discussion">
-                          💬{item.comment_count > 0 ? ` ${item.comment_count}` : ''}
-                        </button>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAttachItem(item)} title="Attachments">
-                          📎
-                        </button>
-                      </div>
-                      {canManage && (
-                        <div className="backlog-row-actions__primary">
-                          {!item.task_id && item.status !== 'closed' && (
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => promoteTask(item)} disabled={busy}>
-                              → Task
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm backlog-row-actions__danger"
-                            onClick={() => deleteItem(item)}
-                            disabled={busy}
-                            title="Delete backlog item"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                  <td className="table-actions-col pmo-row-actions">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetailItem(item)} title="Discussion">
+                      💬{item.comment_count > 0 ? ` ${item.comment_count}` : ''}
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAttachItem(item)} title="Attachments">
+                      📎
+                    </button>
+                    {canManage && !item.task_id && item.status !== 'closed' && (
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => promoteTask(item)} disabled={busy}>
+                        → Task
+                      </button>
+                    )}
+                    {canManage && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: 'var(--danger)' }}
+                        onClick={() => deleteItem(item)}
+                        disabled={busy}
+                        title="Delete backlog item"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
                 );
