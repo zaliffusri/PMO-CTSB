@@ -129,6 +129,11 @@ export const api = {
   projects: {
     list: () => request('/projects'),
     get: (id) => request(`/projects/${id}`),
+    checkShortCode: (code, { excludeId } = {}) => {
+      const q = new URLSearchParams({ code: String(code || '') });
+      if (excludeId != null && excludeId !== '') q.set('exclude_id', String(excludeId));
+      return request(`/projects/check-short-code?${q}`);
+    },
     create: (body) => request('/projects', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     delete: (id) => request(`/projects/${id}`, { method: 'DELETE' }),

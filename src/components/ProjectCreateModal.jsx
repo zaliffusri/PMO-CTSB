@@ -4,6 +4,7 @@ import ClientMultiSelect from './ClientMultiSelect';
 
 import { PROJECT_ENGAGEMENT_TYPES } from '../../lib/projectConstants.js';
 import { normalizeProjectShortCode, suggestProjectShortCode } from '../../lib/projectShortCode.js';
+import { api } from '../api';
 
 export { PROJECT_ENGAGEMENT_TYPES };
 
@@ -46,7 +47,10 @@ export default function ProjectCreateModal({
   const [form, setForm] = useState(EMPTY_FORM);
   const [touched, setTouched] = useState({});
   const [shortCodeEdited, setShortCodeEdited] = useState(false);
+  /** @type {'idle'|'too_short'|'checking'|'available'|'taken'} */
+  const [shortCodeStatus, setShortCodeStatus] = useState('idle');
   const nameRef = useRef(null);
+  const checkSeq = useRef(0);
 
   const takenCodes = useMemo(() => {
     const set = new Set(
@@ -57,12 +61,15 @@ export default function ProjectCreateModal({
     return set;
   }, [existingShortCodes]);
 
+  const normalizedShortCode = normalizeProjectShortCode(form.short_code);
+
   useEffect(() => {
     if (!open) return undefined;
     setStep(1);
     setForm(EMPTY_FORM);
     setTouched({});
     setShortCodeEdited(false);
+    setShortCodeStatus('idle');
     const t = setTimeout(() => nameRef.current?.focus(), 120);
     const onKey = (e) => { if (e.key === 'Escape' && !saving) onClose(); };
     document.addEventListener('keydown', onKey);
@@ -72,23 +79,66 @@ export default function ProjectCreateModal({
     };
   }, [open, onClose, saving]);
 
+  // Live uniqueness: instant local check, then debounced server confirm.
+  useEffect(() => {
+    if (!open) return undefined;
+    const code = normalizedShortCode;
+    if (!code) {
+      setShortCodeStatus('idle');
+      return undefined;
+    }
+    if (code.length < 2) {
+      setShortCodeStatus('too_short');
+      return undefined;
+    }
+    if (takenCodes.has(code)) {
+      setShortCodeStatus('taken');
+      return undefined;
+    }
+
+    setShortCodeStatus('checking');
+    const seq = ++checkSeq.current;
+    const timer = setTimeout(() => {
+      api.projects
+        .checkShortCode(code)
+        .then((res) => {
+          if (seq !== checkSeq.current) return;
+          if (res?.available === false || res?.reason === 'taken') {
+            setShortCodeStatus('taken');
+          } else {
+            setShortCodeStatus('available');
+          }
+        })
+        .catch(() => {
+          if (seq !== checkSeq.current) return;
+          // Network/API soft-fail: local list already said free.
+          setShortCodeStatus('available');
+        });
+    }, 280);
+
+    return () => clearTimeout(timer);
+  }, [open, normalizedShortCode, takenCodes]);
+
   const errors = useMemo(() => {
     const e = {};
     if (touched.name && !form.name.trim()) e.name = 'Project name is required';
-    const code = normalizeProjectShortCode(form.short_code);
-    if (touched.short_code || form.name.trim()) {
-      if (!code || code.length < 2) e.short_code = 'Short code is required (at least 2 characters)';
-      else if (takenCodes.has(code)) e.short_code = `"${code}" is already used — choose a unique code`;
+    if (shortCodeStatus === 'taken') {
+      e.short_code = `"${normalizedShortCode}" is already used — choose a unique code`;
+    } else if (
+      (touched.short_code || form.name.trim() || normalizedShortCode)
+      && shortCodeStatus === 'too_short'
+    ) {
+      e.short_code = 'Short code is required (at least 2 characters)';
     }
     if (form.start_date && form.end_date && form.end_date < form.start_date) {
       e.end_date = 'End date must be on or after start date';
     }
     return e;
-  }, [form, touched, takenCodes]);
+  }, [form, touched, shortCodeStatus, normalizedShortCode]);
 
   const canContinue = form.name.trim().length > 0
-    && normalizeProjectShortCode(form.short_code).length >= 2
-    && !errors.short_code;
+    && shortCodeStatus === 'available'
+    && !errors.end_date;
 
   const clientNames = useMemo(() => {
     if (!form.client_ids.length) return [];
@@ -121,10 +171,46 @@ export default function ProjectCreateModal({
   const handleSubmit = (e) => {
     e.preventDefault();
     setTouched({ name: true, short_code: true, end_date: true });
-    const code = normalizeProjectShortCode(form.short_code);
-    if (!form.name.trim() || code.length < 2 || errors.short_code || errors.end_date) return;
-    onSubmit({ ...form, short_code: code });
+    if (!form.name.trim() || shortCodeStatus !== 'available' || errors.end_date) return;
+    onSubmit({ ...form, short_code: normalizedShortCode });
   };
+
+  const shortCodeInputClass = [
+    'form-field__input',
+    shortCodeStatus === 'taken' || errors.short_code ? 'form-field__input--error' : '',
+    shortCodeStatus === 'available' ? 'form-field__input--ok' : '',
+  ].filter(Boolean).join(' ');
+
+  let shortCodeFeedback = (
+    <span className="form-field__hint">
+      Unique code used in backlog refs (e.g. CUKAI-PKPJ-CK-0001). Suggested from the name — you can edit it.
+    </span>
+  );
+  if (shortCodeStatus === 'checking') {
+    shortCodeFeedback = (
+      <span className="form-field__status form-field__status--pending" role="status" aria-live="polite">
+        Checking availability…
+      </span>
+    );
+  } else if (shortCodeStatus === 'available') {
+    shortCodeFeedback = (
+      <span className="form-field__status form-field__status--ok" role="status" aria-live="polite">
+        <span className="form-field__status-icon" aria-hidden>✓</span>
+        Available
+      </span>
+    );
+  } else if (shortCodeStatus === 'taken') {
+    shortCodeFeedback = (
+      <span className="form-field__status form-field__status--err" role="status" aria-live="polite">
+        <span className="form-field__status-icon" aria-hidden>×</span>
+        Already used — choose another code
+      </span>
+    );
+  } else if (shortCodeStatus === 'too_short' && (touched.short_code || form.name.trim() || normalizedShortCode)) {
+    shortCodeFeedback = (
+      <span className="form-field__error">{errors.short_code || 'Short code is required (at least 2 characters)'}</span>
+    );
+  }
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={handleBackdrop}>
@@ -187,7 +273,7 @@ export default function ProjectCreateModal({
                 <input
                   id="project-create-short-code"
                   type="text"
-                  className={`form-field__input ${errors.short_code ? 'form-field__input--error' : ''}`}
+                  className={shortCodeInputClass}
                   placeholder="e.g. PKPJ"
                   value={form.short_code}
                   onChange={(e) => {
@@ -201,15 +287,12 @@ export default function ProjectCreateModal({
                   maxLength={16}
                   autoCapitalize="characters"
                   spellCheck={false}
+                  aria-describedby="project-create-short-code-status"
                   required
                 />
-                {errors.short_code
-                  ? <span className="form-field__error">{errors.short_code}</span>
-                  : (
-                    <span className="form-field__hint">
-                      Unique code used in backlog refs (e.g. CUKAI-PKPJ-CK-0001). Suggested from the name — you can edit it.
-                    </span>
-                  )}
+                <div id="project-create-short-code-status">
+                  {shortCodeFeedback}
+                </div>
               </div>
 
               <div className="form-field">
@@ -320,7 +403,7 @@ export default function ProjectCreateModal({
                 <h3 className="project-create-preview__title">Summary</h3>
                 <dl className="project-create-preview__list">
                   <div><dt>Name</dt><dd>{form.name.trim() || '—'}</dd></div>
-                  <div><dt>Short code</dt><dd>{normalizeProjectShortCode(form.short_code) || '—'}</dd></div>
+                  <div><dt>Short code</dt><dd>{normalizedShortCode || '—'}</dd></div>
                   <div><dt>Engagement</dt><dd>{PROJECT_ENGAGEMENT_TYPES.find((t) => t.id === form.engagement_type)?.label || 'Not set'}</dd></div>
                   <div><dt>Status</dt><dd>{STATUS_OPTIONS.find((s) => s.id === form.status)?.label}</dd></div>
                   <div><dt>Timeline</dt><dd>{formatPreviewDate(form.start_date)} → {formatPreviewDate(form.end_date)}</dd></div>

@@ -46,6 +46,35 @@ projectsRouter.get('/', async (req, res) => {
   }
 });
 
+/** Live uniqueness check for create form — must be registered before /:id. */
+projectsRouter.get('/check-short-code', async (req, res) => {
+  try {
+    const code = normalizeProjectShortCode(req.query.code);
+    if (!code || code.length < 2) {
+      return res.json({ code: code || '', available: false, reason: 'too_short' });
+    }
+    const excludeId = req.query.exclude_id != null && req.query.exclude_id !== ''
+      ? Number(req.query.exclude_id)
+      : null;
+    const taken = await store.findProjectByShortCode(code, {
+      excludeId: Number.isFinite(excludeId) ? excludeId : null,
+    });
+    return res.json({
+      code,
+      available: !taken,
+      reason: taken ? 'taken' : 'available',
+    });
+  } catch (e) {
+    console.warn('projects check-short-code failed', e?.message || e);
+    // Soft-fail: do not block typing UX if probe fails.
+    return res.json({
+      code: normalizeProjectShortCode(req.query.code),
+      available: true,
+      reason: 'check_failed',
+    });
+  }
+});
+
 projectsRouter.get('/:id', async (req, res) => {
   const id = +req.params.id;
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid project id' });
