@@ -53,5 +53,9 @@ export function requireAuth(req, res, next) {
       person_id: personId,
     };
     next();
-  })().catch(() => res.status(401).json({ error: 'Unauthorized' }));
+  })().catch((err) => {
+    console.error('requireAuth failed:', err?.message || err);
+    // DB/transient failures must not look like "logged out" — that clears the client session.
+    return res.status(503).json({ error: 'Authentication temporarily unavailable' });
+  });
 }

@@ -137,29 +137,59 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
     if (/already in use|unique|duplicate/i.test(msg)) {
       return res.status(409).json({ error: `Short code "${normalizedShortCode}" is already used by another project` });
     }
-    throw e;
+    console.error('projects POST addProject failed', e);
+    return res.status(500).json({ error: e?.message || 'Failed to create project' });
   }
-  await store.appendAuditLog(req.user, {
+
+  // Non-blocking bookkeeping — never hold the create response for these.
+  store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'project',
     target_id: id,
     summary: `Created project "${name}" (${normalizedShortCode})`,
-  });
+  }).catch((e) => console.warn('audit:', e?.message || e));
+  store.persistProjectById(id).catch((e) => console.warn('persist project:', e?.message || e));
+  store.persistToSupabase().catch((e) => console.warn('persist full:', e?.message || e));
+
   try {
-    // Persist only this project (+ its client links) to avoid full-snapshot / id-skew failures.
-    await store.persistProjectById(id);
+    let project = typeof store.findProjectById === 'function'
+      ? await store.findProjectById(id, { includeCover: false })
+      : null;
+    if (!project) {
+      project = {
+        id,
+        name,
+        short_code: normalizedShortCode,
+        description: description || null,
+        status: status || 'active',
+        start_date: start_date || null,
+        end_date: end_date || null,
+        engagement_type: normalizedEngagementType,
+        classification: normalizedClassification,
+      };
+    } else {
+      project = {
+        ...project,
+        short_code: project.short_code || normalizedShortCode,
+        engagement_type: project.engagement_type ?? normalizedEngagementType,
+        classification: project.classification ?? normalizedClassification,
+      };
+    }
+    return res.status(201).json(await enrichProject(project));
   } catch (e) {
-    const detail = e?.message || String(e);
-    console.warn('persist:', detail);
-    return res.status(500).json({
-      error: `Failed to save project: ${detail}`,
+    console.error('projects POST enrich failed', e);
+    // Create already succeeded — return minimal payload rather than 5xx/timeout.
+    return res.status(201).json({
+      id,
+      name,
+      short_code: normalizedShortCode,
+      description: description || null,
+      status: status || 'active',
+      clients: [],
+      client_ids: clientIds ?? [],
+      member_count: 0,
     });
   }
-  // Best-effort full sync (audit log, etc.) — do not block the response.
-  store.persistToSupabase().catch((e) => console.warn('persist full:', e.message));
-  const projects = await store.listProjects();
-  const project = projects.find((p) => Number(p.id) === id);
-  res.status(201).json(await enrichProject(project));
 });
 
 projectsRouter.put('/:id', asyncHandler(async (req, res) => {

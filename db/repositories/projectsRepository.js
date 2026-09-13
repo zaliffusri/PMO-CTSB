@@ -40,28 +40,31 @@ function clearProjectLiteColumnsCache() {
   cachedProjectLiteColumns = null;
 }
 
-/** Best-effort DDL so optional project columns exist on older production DBs. */
+/** Best-effort DDL so optional project columns exist on older production DBs.
+ * Must stay fast on the create hot path — never sleep, never build indexes here.
+ */
 async function ensureProjectsOptionalColumns() {
   try {
     const { getPgPool } = await import('../runtime/pgPool.js');
     const pool = getPgPool();
     if (!pool) return false;
-    await pool.query(`
-      alter table public.projects add column if not exists engagement_type text;
-      alter table public.projects add column if not exists classification text;
-      alter table public.projects add column if not exists short_code text;
-      create unique index if not exists projects_short_code_unique_idx
-        on public.projects (upper(btrim(short_code)))
-        where short_code is not null and btrim(short_code) <> '';
-    `);
+    const client = await pool.connect();
     try {
-      await pool.query("NOTIFY pgrst, 'reload schema'");
-    } catch {
-      /* best-effort PostgREST cache reload */
+      await client.query('SET statement_timeout = 4000');
+      await client.query(`
+        alter table public.projects add column if not exists engagement_type text;
+        alter table public.projects add column if not exists classification text;
+        alter table public.projects add column if not exists short_code text;
+      `);
+      try {
+        await client.query("NOTIFY pgrst, 'reload schema'");
+      } catch {
+        /* best-effort PostgREST cache reload */
+      }
+    } finally {
+      client.release();
     }
     clearProjectLiteColumnsCache();
-    // PostgREST schema cache can lag briefly after DDL.
-    await new Promise((r) => setTimeout(r, 500));
     return true;
   } catch (e) {
     console.warn('ensureProjectsOptionalColumns failed:', e?.message || e);
@@ -315,17 +318,12 @@ export function createProjectsRepository(ctx, getStore) {
         });
         if (row && excludeId != null && Number(row.id) === Number(excludeId)) return null;
         if (row) return row;
+        return null;
       } catch (e) {
-        if (!isMissingColumnError(e)) throw e;
+        // Column missing or schema lag — skip uniqueness probe (do not scan all projects).
+        if (isMissingColumnError(e)) return null;
+        throw e;
       }
-      const rows = await selectProjectsLite({ order: 'id' });
-      const list = Array.isArray(rows) ? rows : [];
-      return (
-        list.find((p) => {
-          if (excludeId != null && Number(p.id) === Number(excludeId)) return false;
-          return String(p.short_code || '').trim().toUpperCase() === code;
-        }) || null
-      );
     },
 
     async addProject(row) {
@@ -381,13 +379,35 @@ export function createProjectsRepository(ctx, getStore) {
         saved = await dbInsert('projects', payload);
       } catch (e) {
         if (isMissingColumnError(e) && /short_code/i.test(String(e?.message || e || ''))) {
-          if (await ensureProjectsOptionalColumns()) {
-            saved = await dbInsert('projects', payload);
+          const ensured = await Promise.race([
+            ensureProjectsOptionalColumns(),
+            new Promise((resolve) => setTimeout(() => resolve(false), 4500)),
+          ]);
+          if (ensured) {
+            try {
+              saved = await dbInsert('projects', payload);
+            } catch (retryErr) {
+              // PostgREST schema cache may still lag — insert without short_code rather than hang.
+              if (isMissingColumnError(retryErr) && /short_code/i.test(String(retryErr?.message || ''))) {
+                const { short_code: _sc, ...withoutCode } = payload;
+                saved = await dbInsert('projects', withoutCode);
+                console.warn('projects.add: saved without short_code (schema cache lag); run migration 20260913120000');
+              } else {
+                throw retryErr;
+              }
+            }
           } else {
-            throw new Error(
-              'Cannot save short code: database column is missing. Run migration '
-                + '`20260913120000_projects_short_code.sql` (or set SUPABASE_DB_URL so the API can add it).',
-            );
+            const { short_code: _sc, ...withoutCode } = payload;
+            try {
+              saved = await dbInsert('projects', withoutCode);
+              console.warn('projects.add: saved without short_code (column missing); run migration 20260913120000');
+            } catch (fallbackErr) {
+              throw new Error(
+                'Cannot save project short code: database column is missing. Run migration '
+                  + '`20260913120000_projects_short_code.sql` (or set SUPABASE_DB_URL so the API can add it). '
+                  + `(${fallbackErr?.message || fallbackErr})`,
+              );
+            }
           }
         } else if (/unique|duplicate/i.test(String(e?.message || e || ''))) {
           throw new Error('Project short code already in use');

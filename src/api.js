@@ -69,7 +69,9 @@ async function request(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     // Do not wipe session on failed login attempt — only when an authenticated call is rejected.
-    if (token && !String(path).startsWith('/auth/login')) {
+    // Background notification polls must not log the user out (transient 401s during overload).
+    const isBackgroundPoll = String(path).startsWith('/notifications');
+    if (token && !String(path).startsWith('/auth/login') && !isBackgroundPoll) {
       setAuthToken('');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
