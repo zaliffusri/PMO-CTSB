@@ -467,6 +467,7 @@ export default function Projects() {
         clients={clients}
         clientsLoading={clientsLoading}
         clientsError={clientsError}
+        existingShortCodes={projects.map((p) => p.short_code).filter(Boolean)}
         onRetryClients={() => {
           setClientsLoading(true);
           setClientsError('');

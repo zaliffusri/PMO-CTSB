@@ -19,6 +19,7 @@ const MAX_PROJECTS_LIMIT = 2000;
 
 /** Prefer richer columns; fall back when production schema is behind migrations. */
 const PROJECT_LITE_COLUMN_CANDIDATES = [
+  'id,name,short_code,description,classification,engagement_type,status,start_date,end_date,tags,created_at',
   'id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at',
   'id,name,description,engagement_type,status,start_date,end_date,tags,created_at',
   'id,name,description,classification,status,start_date,end_date,tags,created_at',
@@ -48,6 +49,10 @@ async function ensureProjectsOptionalColumns() {
     await pool.query(`
       alter table public.projects add column if not exists engagement_type text;
       alter table public.projects add column if not exists classification text;
+      alter table public.projects add column if not exists short_code text;
+      create unique index if not exists projects_short_code_unique_idx
+        on public.projects (upper(btrim(short_code)))
+        where short_code is not null and btrim(short_code) <> '';
     `);
     try {
       await pool.query("NOTIFY pgrst, 'reload schema'");
@@ -248,7 +253,7 @@ export function createProjectsRepository(ctx, getStore) {
       try {
         ({ data: projects, error } = await sb
           .from('projects')
-          .select('id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at')
+          .select('id,name,short_code,description,classification,engagement_type,status,start_date,end_date,tags,created_at')
           .order('created_at', { ascending: false })
           .order('id', { ascending: false })
           .range(off, off + lim - 1));
@@ -290,9 +295,42 @@ export function createProjectsRepository(ctx, getStore) {
       return selectProjectsLite({ filters: { id: pid }, maybeSingle: true });
     },
 
+    async findProjectByShortCode(shortCode, { excludeId = null } = {}) {
+      const code = String(shortCode || '').trim().toUpperCase();
+      if (!code) return null;
+      if (!isDbMode()) {
+        const data = getData();
+        return (
+          (data.projects || []).find((p) => {
+            if (excludeId != null && Number(p.id) === Number(excludeId)) return false;
+            return String(p.short_code || '').trim().toUpperCase() === code;
+          }) || null
+        );
+      }
+      try {
+        const row = await dbSelect('projects', {
+          columns: 'id,name,short_code',
+          filters: { short_code: code },
+          maybeSingle: true,
+        });
+        if (row && excludeId != null && Number(row.id) === Number(excludeId)) return null;
+        if (row) return row;
+      } catch (e) {
+        if (!isMissingColumnError(e)) throw e;
+      }
+      const rows = await selectProjectsLite({ order: 'id' });
+      const list = Array.isArray(rows) ? rows : [];
+      return (
+        list.find((p) => {
+          if (excludeId != null && Number(p.id) === Number(excludeId)) return false;
+          return String(p.short_code || '').trim().toUpperCase() === code;
+        }) || null
+      );
+    },
+
     async addProject(row) {
       const created_at = new Date().toISOString();
-      const { client_id, client_ids, tags: _tags, classification, engagement_type, ...rest } = row;
+      const { client_id, client_ids, tags: _tags, classification, engagement_type, short_code, ...rest } = row;
       const normalizedClassification =
         classification != null && String(classification).trim()
           ? String(classification).trim()
@@ -301,10 +339,15 @@ export function createProjectsRepository(ctx, getStore) {
         engagement_type != null && String(engagement_type).trim()
           ? String(engagement_type).trim()
           : null;
+      const normalizedShortCode =
+        short_code != null && String(short_code).trim()
+          ? String(short_code).trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
+          : null;
       const projectFields = {
         status: 'active',
         classification: normalizedClassification,
         engagement_type: normalizedEngagementType,
+        short_code: normalizedShortCode,
         ...rest,
         created_at,
       };
@@ -318,6 +361,12 @@ export function createProjectsRepository(ctx, getStore) {
 
       if (!isDbMode()) {
         const data = getData();
+        if (normalizedShortCode) {
+          const taken = (data.projects || []).some(
+            (p) => String(p.short_code || '').trim().toUpperCase() === normalizedShortCode,
+          );
+          if (taken) throw new Error('Project short code already in use');
+        }
         const id = nextId(data.projects);
         data.projects.push({ id, ...projectFields });
         if (ids.length) await getStore().setProjectClients(id, ids);
@@ -327,7 +376,25 @@ export function createProjectsRepository(ctx, getStore) {
 
       const payload = projectRowForDb(projectFields);
       delete payload.id;
-      const saved = await dbInsert('projects', payload);
+      let saved;
+      try {
+        saved = await dbInsert('projects', payload);
+      } catch (e) {
+        if (isMissingColumnError(e) && /short_code/i.test(String(e?.message || e || ''))) {
+          if (await ensureProjectsOptionalColumns()) {
+            saved = await dbInsert('projects', payload);
+          } else {
+            throw new Error(
+              'Cannot save short code: database column is missing. Run migration '
+                + '`20260913120000_projects_short_code.sql` (or set SUPABASE_DB_URL so the API can add it).',
+            );
+          }
+        } else if (/unique|duplicate/i.test(String(e?.message || e || ''))) {
+          throw new Error('Project short code already in use');
+        } else {
+          throw e;
+        }
+      }
       if (ids.length) await getStore().setProjectClients(saved.id, ids);
       return saved.id;
     },
@@ -344,6 +411,12 @@ export function createProjectsRepository(ctx, getStore) {
         patch.engagement_type =
           patch.engagement_type != null && String(patch.engagement_type).trim()
             ? String(patch.engagement_type).trim()
+            : null;
+      }
+      if (patch.short_code !== undefined) {
+        patch.short_code =
+          patch.short_code != null && String(patch.short_code).trim()
+            ? String(patch.short_code).trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
             : null;
       }
       delete patch.tags;
@@ -379,6 +452,7 @@ export function createProjectsRepository(ctx, getStore) {
       const forDb = {};
       for (const key of [
         'name',
+        'short_code',
         'description',
         'status',
         'start_date',
@@ -396,7 +470,7 @@ export function createProjectsRepository(ctx, getStore) {
         // Never silently drop engagement_type / classification when the user sent them.
         let pending = { ...forDb };
         const softDropKeys = ['tags'];
-        const identityKeys = ['engagement_type', 'classification'];
+        const identityKeys = ['engagement_type', 'classification', 'short_code'];
         let ensuredSchema = false;
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
@@ -421,10 +495,16 @@ export function createProjectsRepository(ctx, getStore) {
               (key) => pending[key] !== undefined && msg.includes(key),
             );
             if (namedKey && identityKeys.includes(namedKey)) {
+              const label =
+                namedKey === 'engagement_type'
+                  ? 'engagement type'
+                  : namedKey === 'short_code'
+                    ? 'short code'
+                    : 'classification';
               throw new Error(
-                `Cannot save ${namedKey === 'engagement_type' ? 'engagement type' : 'classification'}: `
+                `Cannot save ${label}: `
                   + 'database column is missing. Run migration '
-                  + '`20260627170000_project_engagement_type.sql` (or set SUPABASE_DB_URL so the API can add it).',
+                  + '`20260913120000_projects_short_code.sql` (or set SUPABASE_DB_URL so the API can add it).',
               );
             }
             if (namedKey) {

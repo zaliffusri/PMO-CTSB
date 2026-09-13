@@ -13,7 +13,7 @@ function makeStore() {
   const data = {
     issues: [],
     backlogs: [],
-    projects: [{ id: 1, name: 'EPBT3.0' }],
+    projects: [{ id: 1, name: 'EPBT3.0', short_code: 'PKPJ' }],
     clients: [{ id: 10, name: 'MBIP', short_code: 'MBIP' }],
     people: [],
   };
@@ -27,6 +27,9 @@ function makeStore() {
     people: data.people,
     async listIssues() { return data.issues; },
     async listBacklogs() { return data.backlogs; },
+    async findProjectById(id) {
+      return data.projects.find((p) => Number(p.id) === Number(id)) || null;
+    },
     async getClientsForProject() { return data.clients; },
     findBacklogByIssueId(issueId) {
       return data.backlogs.find((b) => b.issue_id === +issueId) || null;
@@ -168,7 +171,7 @@ describe('issueBacklogLink', () => {
     });
     const result = await promoteIssueToBacklog(store, issueId, 1, { assigneePersonId: assigneeId });
     expect(result.created).toBe(true);
-    expect(result.backlog.ref_no).toMatch(/^HD-MBIP-ABB-\d{4}$/);
+    expect(result.backlog.ref_no).toMatch(/^HD-PKPJ-ABB-\d{4}$/);
     expect(result.backlog.assignee_person_id).toBe(assigneeId);
     expect(store.issues[0].backlog_ref).toBe(result.backlog.ref_no);
     expect(store.issues[0].assignee_person_id).toBe(assigneeId);

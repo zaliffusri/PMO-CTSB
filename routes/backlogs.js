@@ -345,8 +345,14 @@ backlogsRouter.post('/', async (req, res) => {
       const refRows = await store.listBacklogs({ columns: 'ref_no' }).catch(() => []);
       let projectShortCode = null;
       try {
-        const clients = await store.getClientsForProject(projectId);
-        projectShortCode = String(clients?.[0]?.short_code || '').trim() || null;
+        const project = typeof store.findProjectById === 'function'
+          ? await store.findProjectById(projectId)
+          : null;
+        projectShortCode = String(project?.short_code || '').trim() || null;
+        if (!projectShortCode) {
+          const clients = await store.getClientsForProject(projectId);
+          projectShortCode = String(clients?.[0]?.short_code || '').trim() || null;
+        }
       } catch (e) {
         console.warn('backlog ref project short code:', e?.message || e);
       }

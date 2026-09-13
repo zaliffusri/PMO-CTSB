@@ -10,6 +10,7 @@ import { requireAdmin } from '../middleware/requireAuth.js';
 import { validateBody } from '../middleware/validate.js';
 import { createProjectSchema } from '../lib/validationSchemas.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { normalizeProjectShortCode } from '../lib/projectShortCode.js';
 
 export const projectsRouter = Router();
 const DELIVERY_SCOPE_SET = new Set(PROJECT_CLASSIFICATION_IDS);
@@ -92,8 +93,20 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO officers can create projects' });
   }
-  const { name, description, status, start_date, end_date, classification, engagement_type } = req.body;
+  const { name, description, status, start_date, end_date, classification, engagement_type, short_code } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  const normalizedShortCode = normalizeProjectShortCode(short_code);
+  if (!normalizedShortCode || normalizedShortCode.length < 2) {
+    return res.status(400).json({ error: 'Unique short code is required (at least 2 characters)' });
+  }
+  try {
+    const taken = await store.findProjectByShortCode(normalizedShortCode);
+    if (taken) {
+      return res.status(409).json({ error: `Short code "${normalizedShortCode}" is already used by another project` });
+    }
+  } catch (e) {
+    console.warn('project short code check:', e?.message || e);
+  }
   const clientIds = parseClientIds(req.body);
   const normalizedEngagementType = normalizeEngagementType(engagement_type);
   if (engagement_type != null && String(engagement_type).trim() && !normalizedEngagementType) {
@@ -103,21 +116,31 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
   if (classification != null && String(classification).trim() && !normalizedClassification) {
     return res.status(400).json({ error: 'Invalid delivery scope value' });
   }
-  const id = await store.addProject({
-    name,
-    description: description || null,
-    status: status || 'active',
-    start_date: start_date || null,
-    end_date: end_date || null,
-    engagement_type: normalizedEngagementType,
-    classification: normalizedClassification,
-    client_ids: clientIds ?? [],
-  });
+  let id;
+  try {
+    id = await store.addProject({
+      name,
+      short_code: normalizedShortCode,
+      description: description || null,
+      status: status || 'active',
+      start_date: start_date || null,
+      end_date: end_date || null,
+      engagement_type: normalizedEngagementType,
+      classification: normalizedClassification,
+      client_ids: clientIds ?? [],
+    });
+  } catch (e) {
+    const msg = String(e?.message || e || '');
+    if (/already in use|unique|duplicate/i.test(msg)) {
+      return res.status(409).json({ error: `Short code "${normalizedShortCode}" is already used by another project` });
+    }
+    throw e;
+  }
   await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'project',
     target_id: id,
-    summary: `Created project "${name}"`,
+    summary: `Created project "${name}" (${normalizedShortCode})`,
   });
   try {
     // Persist only this project (+ its client links) to avoid full-snapshot / id-skew failures.
@@ -138,7 +161,7 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
 
 projectsRouter.put('/:id', asyncHandler(async (req, res) => {
   try {
-    const { name, description, status, start_date, end_date, classification, engagement_type } = req.body || {};
+    const { name, description, status, start_date, end_date, classification, engagement_type, short_code } = req.body || {};
     const id = +req.params.id;
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid project id' });
 
@@ -160,6 +183,21 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     if (classification !== undefined && classification != null && String(classification).trim() && !nextClassification) {
       return res.status(400).json({ error: 'Invalid delivery scope value' });
     }
+    let nextShortCode;
+    if (short_code !== undefined) {
+      nextShortCode = normalizeProjectShortCode(short_code);
+      if (!nextShortCode || nextShortCode.length < 2) {
+        return res.status(400).json({ error: 'Short code must be at least 2 characters' });
+      }
+      try {
+        const taken = await store.findProjectByShortCode(nextShortCode, { excludeId: id });
+        if (taken) {
+          return res.status(409).json({ error: `Short code "${nextShortCode}" is already used by another project` });
+        }
+      } catch (e) {
+        console.warn('project short code check:', e?.message || e);
+      }
+    }
 
     // Only include fields the client actually sent — avoids wiping / rewriting heavy columns.
     const patch = {};
@@ -170,6 +208,7 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     if (end_date !== undefined) patch.end_date = end_date;
     if (engagement_type !== undefined) patch.engagement_type = nextEngagementType;
     if (classification !== undefined) patch.classification = nextClassification;
+    if (short_code !== undefined) patch.short_code = nextShortCode;
     if (clientIds !== null) patch.client_ids = clientIds;
 
     const ok = await store.updateProject(id, patch);
@@ -194,9 +233,14 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     // Keep fields we just persisted even if a lite-column select cache omits them briefly.
     if (patch.engagement_type !== undefined) project = { ...project, engagement_type: patch.engagement_type };
     if (patch.classification !== undefined) project = { ...project, classification: patch.classification };
+    if (patch.short_code !== undefined) project = { ...project, short_code: patch.short_code };
     res.json(await enrichProject(project));
   } catch (e) {
     console.error('projects PUT/:id failed', e);
+    const msg = String(e?.message || e || '');
+    if (/already in use|unique|duplicate/i.test(msg)) {
+      return res.status(409).json({ error: 'Short code is already used by another project' });
+    }
     res.status(500).json({ error: e?.message || 'Failed to save project changes' });
   }
 }));

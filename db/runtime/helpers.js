@@ -112,6 +112,11 @@ export function projectRowForDb(p) {
     tags: Array.isArray(p.tags) ? p.tags : [],
     created_at: p.created_at || new Date().toISOString(),
   };
+  if (p.short_code !== undefined) {
+    row.short_code = p.short_code != null && String(p.short_code).trim()
+      ? String(p.short_code).trim().toUpperCase()
+      : null;
+  }
   return row;
 }
 
