@@ -10,7 +10,7 @@ import { requireAdmin } from '../middleware/requireAuth.js';
 import { validateBody } from '../middleware/validate.js';
 import { createProjectSchema } from '../lib/validationSchemas.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { normalizeProjectShortCode } from '../lib/projectShortCode.js';
+import { normalizeProjectShortCode, suggestProjectShortCode } from '../lib/projectShortCode.js';
 
 export const projectsRouter = Router();
 const DELIVERY_SCOPE_SET = new Set(PROJECT_CLASSIFICATION_IDS);
@@ -95,7 +95,10 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
   }
   const { name, description, status, start_date, end_date, classification, engagement_type, short_code } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
-  const normalizedShortCode = normalizeProjectShortCode(short_code);
+  let normalizedShortCode = normalizeProjectShortCode(short_code);
+  if (!normalizedShortCode) {
+    normalizedShortCode = suggestProjectShortCode(name);
+  }
   if (!normalizedShortCode || normalizedShortCode.length < 2) {
     return res.status(400).json({ error: 'Unique short code is required (at least 2 characters)' });
   }

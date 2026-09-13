@@ -289,10 +289,25 @@ export default function Projects() {
   };
 
   const submit = async (form) => {
-    if (!form.name.trim()) return;
+    const name = String(form?.name || '').trim();
+    const shortCode = String(form?.short_code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!name) return;
+    if (shortCode.length < 2) {
+      alert('Project short code is required (at least 2 characters).');
+      return;
+    }
     await run(async () => {
       try {
-        const created = await api.projects.create({ ...form, client_ids: form.client_ids });
+        const created = await api.projects.create({
+          name,
+          short_code: shortCode,
+          description: form.description || null,
+          engagement_type: form.engagement_type || null,
+          status: form.status || 'active',
+          start_date: form.start_date || null,
+          end_date: form.end_date || null,
+          client_ids: Array.isArray(form.client_ids) ? form.client_ids : [],
+        });
         setShowForm(false);
         load();
         navigate(`/projects/${created.id}`);
