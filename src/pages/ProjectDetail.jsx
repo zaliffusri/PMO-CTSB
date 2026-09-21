@@ -423,14 +423,9 @@ function ProjectDetail() {
               {project.engagement_type && (
                 <span className="project-meta-chip">{engagementTypeLabel(project.engagement_type)}</span>
               )}
-              {project.classification && workPackages.length === 0 && (
+              {project.classification && (
                 <span className="project-meta-chip" title="Primary delivery scope">{deliveryScopeLabel(project.classification)}</span>
               )}
-              {workPackages.map((wp) => (
-                <span key={wp.id} className="project-meta-chip project-meta-chip--package" title={deliveryScopeLabel(wp.classification)}>
-                  {wp.name}
-                </span>
-              ))}
               {project.client_name && (
                 <span className="project-meta-chip">Client: {project.client_name}</span>
               )}
