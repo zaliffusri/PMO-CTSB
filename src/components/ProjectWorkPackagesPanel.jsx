@@ -47,6 +47,11 @@ export default function ProjectWorkPackagesPanel({
 
   useEffect(() => { load(); }, [projectId]);
 
+  const packageId = (wp) => {
+    const id = Number(wp?.id);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  };
+
   const openCreate = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
@@ -54,7 +59,12 @@ export default function ProjectWorkPackagesPanel({
   };
 
   const openEdit = (wp) => {
-    setEditingId(wp.id);
+    const id = packageId(wp);
+    if (!id) {
+      alert('Cannot edit: work package id is missing. Refresh the page and try again.');
+      return;
+    }
+    setEditingId(id);
     setForm({
       name: wp.name || '',
       description: wp.description || '',
@@ -86,8 +96,8 @@ export default function ProjectWorkPackagesPanel({
           start_date: form.start_date || null,
           end_date: form.end_date || null,
         };
-        if (editingId) {
-          await api.workPackages.update(editingId, body);
+        if (editingId != null && Number.isFinite(Number(editingId))) {
+          await api.workPackages.update(Number(editingId), body);
         } else {
           await api.workPackages.create(body);
         }
@@ -100,10 +110,15 @@ export default function ProjectWorkPackagesPanel({
   };
 
   const initPhases = async (wp) => {
+    const id = packageId(wp);
+    if (!id) {
+      alert('Cannot initialize phases: work package id is missing. Refresh the page and try again.');
+      return;
+    }
     if (!confirm(`Initialize delivery phases for "${wp.name}" (${deliveryScopeLabel(wp.classification)})?`)) return;
     await run(async () => {
       try {
-        await api.workPackages.initPhases(wp.id);
+        await api.workPackages.initPhases(id);
         load();
       } catch (err) {
         alert(err.message);
@@ -112,10 +127,15 @@ export default function ProjectWorkPackagesPanel({
   };
 
   const removePackage = async (wp) => {
+    const id = packageId(wp);
+    if (!id) {
+      alert('Cannot delete: work package id is missing. Refresh the page and try again.');
+      return;
+    }
     if (!confirm(`Delete work package "${wp.name}"? Delivery phases for this line will be removed. Tasks and backlog items will be unassigned.`)) return;
     await run(async () => {
       try {
-        await api.workPackages.delete(wp.id);
+        await api.workPackages.delete(id);
         load();
       } catch (err) {
         alert(err.message);
@@ -155,7 +175,7 @@ export default function ProjectWorkPackagesPanel({
         />
       ) : (
         <div className="work-packages-grid">
-          {packages.map((wp) => (
+          {packages.filter((wp) => packageId(wp)).map((wp) => (
             <article key={wp.id} className={`work-package-card work-package-card--${wp.status}`}>
               <div className="work-package-card__head">
                 <div>

@@ -235,8 +235,18 @@ export const api = {
     get: (id) => request(`/work-packages/${id}`),
     create: (body) => request('/work-packages', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/work-packages/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-    delete: (id) => request(`/work-packages/${id}`, { method: 'DELETE' }),
-    initPhases: (id) => request(`/work-packages/${id}/init-phases`, { method: 'POST', body: '{}' }),
+    delete: (id) => {
+      if (id == null || id === '' || id === 'undefined' || !Number.isFinite(Number(id))) {
+        return Promise.reject(new Error('Invalid work package id'));
+      }
+      return request(`/work-packages/${id}`, { method: 'DELETE' });
+    },
+    initPhases: (id) => {
+      if (id == null || id === '' || id === 'undefined' || !Number.isFinite(Number(id))) {
+        return Promise.reject(new Error('Invalid work package id'));
+      }
+      return request(`/work-packages/${id}/init-phases`, { method: 'POST', body: '{}' });
+    },
   },
   notifications: {
     list: (params) => {

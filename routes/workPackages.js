@@ -15,13 +15,16 @@ function isMissingRelationError(err) {
   return /does not exist|schema cache|PGRST204|PGRST205|Could not find the table/i.test(msg);
 }
 
-async function enrichWorkPackage(wp, preloaded = null) {
+/** Sync enricher — must not be async (callers JSON-serialize the return value directly). */
+function enrichWorkPackage(wp, preloaded = null) {
+  if (!wp || typeof wp !== 'object') return wp;
   const tasks = preloaded?.tasks ?? [];
   const phases = preloaded?.phases ?? [];
   const backlogs = preloaded?.backlogs ?? [];
-  const wpTasks = tasks.filter((t) => Number(t.work_package_id) === Number(wp.id));
-  const wpPhases = phases.filter((p) => Number(p.work_package_id) === Number(wp.id));
-  const wpBacklogs = backlogs.filter((b) => Number(b.work_package_id) === Number(wp.id));
+  const wpId = Number(wp.id);
+  const wpTasks = tasks.filter((t) => Number(t.work_package_id) === wpId);
+  const wpPhases = phases.filter((p) => Number(p.work_package_id) === wpId);
+  const wpBacklogs = backlogs.filter((b) => Number(b.work_package_id) === wpId);
   const currentPhase = wpPhases.find((p) => p.status === 'in_progress')
     || wpPhases.find((p) => p.status === 'pending');
   const totalContract = wpPhases.reduce((s, p) => s + (+p.payment_amount || 0), 0);
@@ -30,6 +33,7 @@ async function enrichWorkPackage(wp, preloaded = null) {
     .reduce((s, p) => s + (+p.payment_amount || 0), 0);
   return {
     ...wp,
+    id: Number.isFinite(wpId) ? wpId : wp.id,
     task_count: wpTasks.length,
     phase_count: wpPhases.length,
     backlog_count: wpBacklogs.length,
@@ -80,7 +84,9 @@ workPackagesRouter.get('/', async (req, res) => {
     if (!packages?.length) return res.json([]);
 
     const ctx = await loadWorkPackageMetaContext(Number.isFinite(projectId) ? projectId : null);
-    const list = packages.map((w) => enrichWorkPackage(w, ctx));
+    const list = packages
+      .map((w) => enrichWorkPackage(w, ctx))
+      .filter((w) => w && Number.isFinite(Number(w.id)));
     list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
     res.json(list);
   } catch (e) {
@@ -203,6 +209,9 @@ workPackagesRouter.delete('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Only PMO can delete work packages' });
     }
     const id = +req.params.id;
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid work package id' });
+    }
     const cur = typeof store.findWorkPackageById === 'function'
       ? await store.findWorkPackageById(id)
       : (await store.listWorkPackages()).find((w) => Number(w.id) === id) || null;
