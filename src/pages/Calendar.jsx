@@ -105,6 +105,8 @@ export default function Calendar() {
   /** Day of month (1–31) when the "all activities for this day" sheet is open. */
   const [dayListDay, setDayListDay] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
+  /** '' = all people; otherwise people.id of an assignee who joined the activity. */
+  const [personFilter, setPersonFilter] = useState('');
   const { pending: mutating, run: runMutation } = useSubmitLock();
 
   const { rangeStartIso, rangeEndExclusiveIso } = useMemo(() => getMonthRange(year, month), [year, month]);
@@ -206,13 +208,62 @@ export default function Calendar() {
 
   const groupedCalendarActivities = useMemo(() => groupActivitiesForCalendar(activities), [activities]);
 
+  const activityIncludesPerson = useCallback((activity, personId) => {
+    if (personId == null || personId === '') return true;
+    const wanted = Number(personId);
+    if (!Number.isFinite(wanted)) return true;
+    const ids = Array.isArray(activity.person_ids) && activity.person_ids.length
+      ? activity.person_ids
+      : (activity.person_id != null ? [activity.person_id] : []);
+    if (ids.some((id) => Number(id) === wanted)) return true;
+    // Legacy rows may store users_app.id; match via roster user_id.
+    const person = people.find((p) => Number(p.id) === wanted);
+    if (person?.user_id != null && ids.some((id) => Number(id) === Number(person.user_id))) return true;
+    return false;
+  }, [people]);
+
+  const personFilteredActivities = useMemo(() => {
+    if (!personFilter) return groupedCalendarActivities;
+    return groupedCalendarActivities.filter((a) => activityIncludesPerson(a, personFilter));
+  }, [groupedCalendarActivities, personFilter, activityIncludesPerson]);
+
   const filteredCalendarActivities = useMemo(() => {
-    if (typeFilter === 'all') return groupedCalendarActivities;
-    return groupedCalendarActivities.filter((a) => {
+    if (typeFilter === 'all') return personFilteredActivities;
+    return personFilteredActivities.filter((a) => {
       const css = activityCssClass(a.type);
       return a.type === typeFilter || css === typeFilter;
     });
-  }, [groupedCalendarActivities, typeFilter]);
+  }, [personFilteredActivities, typeFilter]);
+
+  const personFilterOptions = useMemo(() => {
+    const byId = new Map();
+    people.forEach((p) => {
+      if (p?.id == null) return;
+      byId.set(Number(p.id), p);
+    });
+    // Also surface assignees present this month even if not in current roster snapshot.
+    groupedCalendarActivities.forEach((a) => {
+      const ids = Array.isArray(a.person_ids) && a.person_ids.length
+        ? a.person_ids
+        : (a.person_id != null ? [a.person_id] : []);
+      const names = String(a.person_name || '')
+        .split(/[,;]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      ids.forEach((id, idx) => {
+        const n = Number(id);
+        if (!Number.isFinite(n) || byId.has(n)) return;
+        byId.set(n, { id: n, name: names[idx] || names[0] || `Person #${n}` });
+      });
+    });
+    return [...byId.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }, [people, groupedCalendarActivities]);
+
+  const selectedPersonLabel = useMemo(() => {
+    if (!personFilter) return '';
+    const match = personFilterOptions.find((p) => String(p.id) === String(personFilter));
+    return match?.name || 'selected person';
+  }, [personFilter, personFilterOptions]);
 
   const monthStats = useMemo(() => {
     const total = groupedCalendarActivities.length;
@@ -341,6 +392,7 @@ export default function Calendar() {
   useEffect(() => {
     setDayListDay(null);
     setTypeFilter('all');
+    setPersonFilter('');
   }, [year, month]);
 
   const submit = async (e) => {
@@ -1291,7 +1343,11 @@ export default function Calendar() {
         detailActivityId={detailActivityId}
         typeFilter={typeFilter}
         setTypeFilter={setTypeFilter}
-        groupedCalendarActivities={groupedCalendarActivities}
+        personFilter={personFilter}
+        setPersonFilter={setPersonFilter}
+        personFilterOptions={personFilterOptions}
+        selectedPersonLabel={selectedPersonLabel}
+        groupedCalendarActivities={personFilteredActivities}
         filteredCalendarActivities={filteredCalendarActivities}
         isToday={isToday}
         today={today}

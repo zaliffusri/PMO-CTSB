@@ -21,6 +21,10 @@ export default function CalendarMonthGrid({
   detailActivityId,
   typeFilter,
   setTypeFilter,
+  personFilter = '',
+  setPersonFilter,
+  personFilterOptions = [],
+  selectedPersonLabel = '',
   groupedCalendarActivities,
   filteredCalendarActivities,
   isToday,
@@ -52,6 +56,25 @@ export default function CalendarMonthGrid({
         <button type="button" className="btn btn-secondary btn-sm calendar-nav__today" onClick={goToToday}>
           Today
         </button>
+      </div>
+
+      <div className="calendar-filters">
+        <label className="calendar-person-filter">
+          <span className="calendar-person-filter__label">Person</span>
+          <select
+            value={personFilter}
+            onChange={(e) => setPersonFilter?.(e.target.value)}
+            aria-label="Filter activities by person who joined"
+          >
+            <option value="">All people</option>
+            {personFilterOptions.map((p) => (
+              <option key={p.id} value={String(p.id)}>
+                {p.name || `Person #${p.id}`}
+                {p.email ? ` (${p.email})` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="calendar-type-bar" role="toolbar" aria-label="Filter by activity type">
@@ -170,11 +193,22 @@ export default function CalendarMonthGrid({
               ))}
             </div>
           </details>
-          {typeFilter !== 'all' && filteredCalendarActivities.length === 0 && (
+          {filteredCalendarActivities.length === 0 && (typeFilter !== 'all' || personFilter) && (
             <p className="calendar-filter-empty">
-              No {activityTypeLabel(typeFilter)} activities this month.
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setTypeFilter('all')}>
-                Show all
+              {personFilter && typeFilter !== 'all'
+                ? `No ${activityTypeLabel(typeFilter)} activities for ${selectedPersonLabel || 'this person'} this month.`
+                : personFilter
+                  ? `No activities for ${selectedPersonLabel || 'this person'} this month.`
+                  : `No ${activityTypeLabel(typeFilter)} activities this month.`}
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setTypeFilter('all');
+                  setPersonFilter?.('');
+                }}
+              >
+                Clear filters
               </button>
             </p>
           )}

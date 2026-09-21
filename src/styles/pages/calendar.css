@@ -129,6 +129,41 @@
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
+.calendar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.65rem 1.15rem 0.15rem;
+  background: var(--surface);
+}
+.calendar-person-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.calendar-person-filter__label {
+  white-space: nowrap;
+}
+.calendar-person-filter select {
+  min-width: min(220px, 70vw);
+  max-width: min(320px, 90vw);
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.calendar-person-filter select:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
 .calendar-type-chip {
   display: inline-flex;
   align-items: center;
