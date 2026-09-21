@@ -17,6 +17,15 @@ function formatMoney(amount, currency = 'MYR') {
   return `${currency} ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+const EMPTY_PHASE_FORM = {
+  name: '',
+  work_package_id: '',
+  status: 'pending',
+  payment_status: 'pending',
+  target_date: '',
+  payment_amount: '',
+};
+
 function PhaseCard({ phase, idx, canManage, canFinance, patchPhase }) {
   return (
     <div className={`delivery-phase-card delivery-phase-card--${phase.status}`}>
@@ -108,6 +117,8 @@ export default function ProjectDeliveryPanel({
 }) {
   const [phases, setPhases] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_PHASE_FORM);
   const { pending: busy, run } = useSubmitLock();
   const usesPackages = workPackages.length > 0;
 
@@ -141,20 +152,56 @@ export default function ProjectDeliveryPanel({
       key: String(wp.id),
       title: wp.name,
       subtitle: deliveryScopeLabel(wp.classification),
-      phases: phases.filter((p) => p.work_package_id === wp.id),
+      phases: phases.filter((p) => Number(p.work_package_id) === Number(wp.id)),
     }));
     const unassigned = phases.filter((p) => !p.work_package_id);
     if (unassigned.length) {
       groups.push({ key: 'unassigned', title: 'Unassigned phases', subtitle: 'Not linked to a work package', phases: unassigned });
     }
-    return groups.filter((g) => g.phases.length > 0);
+    return groups;
   }, [phases, usesPackages, workPackageFilter, workPackages]);
 
-  const initTemplate = async () => {
-    if (!confirm(`Initialize delivery phases for "${deliveryScopeLabel(classification) || 'this project'}"?`)) return;
+  const openAddPhase = (presetPackageId = '') => {
+    const defaultWp = presetPackageId
+      || workPackageFilter
+      || (workPackages.length === 1 ? String(workPackages[0].id) : '');
+    setForm({
+      ...EMPTY_PHASE_FORM,
+      work_package_id: defaultWp,
+    });
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setForm(EMPTY_PHASE_FORM);
+  };
+
+  const submitPhase = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    if (usesPackages && !form.work_package_id) {
+      alert('Select a work package for this phase.');
+      return;
+    }
     await run(async () => {
       try {
-        await api.projectPhases.initTemplate(projectId);
+        const siblings = usesPackages && form.work_package_id
+          ? phases.filter((p) => Number(p.work_package_id) === Number(form.work_package_id))
+          : phases;
+        const nextOrder = siblings.reduce((m, p) => Math.max(m, p.sort_order ?? 0), 0) + 1;
+        await api.projectPhases.create({
+          project_id: projectId,
+          work_package_id: form.work_package_id ? +form.work_package_id : null,
+          name: form.name.trim(),
+          phase_key: 'custom',
+          sort_order: nextOrder,
+          status: form.status,
+          payment_status: form.payment_status,
+          target_date: form.target_date || null,
+          payment_amount: form.payment_amount !== '' ? +form.payment_amount : null,
+        });
+        closeForm();
         load();
       } catch (err) {
         alert(err.message);
@@ -203,24 +250,31 @@ export default function ProjectDeliveryPanel({
           <h2 className="section-card__title">Delivery & payment milestones</h2>
           <p className="section-card__desc">
             {usesPackages
-              ? 'Phases are managed per work package — each line uses its own delivery template.'
-              : 'Project delivery phases — URS, UAT, go-live, and payment milestones for Finance.'}
+              ? 'Add phases manually for each work package — e.g. URS, UAT, go-live, and payment milestones.'
+              : 'Add delivery phases manually — URS, UAT, go-live, and payment milestones for Finance.'}
           </p>
         </div>
-        {canManage && phases.length === 0 && !usesPackages && (
-          <button type="button" className="btn btn-primary btn-sm" onClick={initTemplate} disabled={busy}>
-            Initialize template
+        {canManage && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openAddPhase()} disabled={busy}>
+            + Add phase
           </button>
         )}
       </div>
 
-      {phases.length === 0 ? (
+      {phases.length === 0 && (!usesPackages || workPackageFilter) ? (
         <UiEmptyState
-          title={usesPackages ? 'No phases for this selection' : 'No delivery phases yet'}
+          title={usesPackages ? 'No phases for this work package' : 'No delivery phases yet'}
           description={
             usesPackages
-              ? 'Open the Work packages tab and use Init phases on each delivery line.'
-              : `PMO can initialize a template for this delivery scope (${deliveryScopeLabel(classification) || 'general'}), or add work packages for mixed engagements.`
+              ? 'Add phases for this work package as needed (e.g. Development, UAT, Go-live).'
+              : `PMO can add phases for this delivery scope (${deliveryScopeLabel(classification) || 'general'}).`
+          }
+          action={
+            canManage ? (
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => openAddPhase()} disabled={busy}>
+                + Add phase
+              </button>
+            ) : null
           }
         />
       ) : (
@@ -229,24 +283,152 @@ export default function ProjectDeliveryPanel({
             <section key={group.key} className="delivery-phase-group">
               {group.title && (
                 <header className="delivery-phase-group__header">
-                  <h3 className="delivery-phase-group__title">{group.title}</h3>
-                  {group.subtitle && <span className="delivery-phase-group__subtitle">{group.subtitle}</span>}
+                  <div>
+                    <h3 className="delivery-phase-group__title">{group.title}</h3>
+                    {group.subtitle && <span className="delivery-phase-group__subtitle">{group.subtitle}</span>}
+                  </div>
+                  {canManage && group.key !== 'unassigned' && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => openAddPhase(group.key)}
+                      disabled={busy}
+                    >
+                      + Add phase
+                    </button>
+                  )}
                 </header>
               )}
-              <div className="delivery-phase-list">
-                {group.phases.map((phase, idx) => (
-                  <PhaseCard
-                    key={phase.id}
-                    phase={phase}
-                    idx={idx}
-                    canManage={canManage}
-                    canFinance={canFinance}
-                    patchPhase={patchPhase}
-                  />
-                ))}
-              </div>
+              {group.phases.length === 0 ? (
+                <p className="delivery-phase-empty">No phases yet for this work package.</p>
+              ) : (
+                <div className="delivery-phase-list">
+                  {group.phases.map((phase, idx) => (
+                    <PhaseCard
+                      key={phase.id}
+                      phase={phase}
+                      idx={idx}
+                      canManage={canManage}
+                      canFinance={canFinance}
+                      patchPhase={patchPhase}
+                    />
+                  ))}
+                </div>
+              )}
             </section>
           ))}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="modal-backdrop" role="presentation" onClick={(e) => e.target === e.currentTarget && closeForm()}>
+          <div className="modal-dialog" role="dialog" aria-modal="true">
+            <div className="modal-dialog-header project-create-header">
+              <div>
+                <p className="project-create-eyebrow">Delivery</p>
+                <h2 className="modal-dialog-title">Add phase</h2>
+              </div>
+              <button type="button" className="modal-dialog-close" onClick={closeForm} aria-label="Close">×</button>
+            </div>
+            <form className="project-create-form" onSubmit={submitPhase}>
+              <div className="project-create-panel form-stack">
+                <div className="form-field">
+                  <label className="form-field__label" htmlFor="phase-name">
+                    Phase name <span className="form-field__required">*</span>
+                  </label>
+                  <input
+                    id="phase-name"
+                    className="form-field__input ui-input"
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    required
+                    placeholder="e.g. UAT & sign-off"
+                    autoFocus
+                  />
+                </div>
+                {usesPackages && (
+                  <div className="form-field">
+                    <label className="form-field__label" htmlFor="phase-wp">
+                      Work package <span className="form-field__required">*</span>
+                    </label>
+                    <select
+                      id="phase-wp"
+                      className="form-field__input ui-input"
+                      value={form.work_package_id}
+                      onChange={(e) => setForm((f) => ({ ...f, work_package_id: e.target.value }))}
+                      required
+                    >
+                      <option value="">Select work package…</option>
+                      {workPackages.map((wp) => (
+                        <option key={wp.id} value={wp.id}>
+                          {wp.name} ({deliveryScopeLabel(wp.classification)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="form-row form-row-2">
+                  <div className="form-field">
+                    <label className="form-field__label" htmlFor="phase-status">Status</label>
+                    <select
+                      id="phase-status"
+                      className="form-field__input ui-input"
+                      value={form.status}
+                      onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                    >
+                      {PHASE_STATUSES.map((s) => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label className="form-field__label" htmlFor="phase-pay">Payment status</label>
+                    <select
+                      id="phase-pay"
+                      className="form-field__input ui-input"
+                      value={form.payment_status}
+                      onChange={(e) => setForm((f) => ({ ...f, payment_status: e.target.value }))}
+                    >
+                      {PAYMENT_STATUSES.map((s) => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="form-row form-row-2">
+                  <div className="form-field">
+                    <label className="form-field__label" htmlFor="phase-target">Target date</label>
+                    <input
+                      id="phase-target"
+                      type="date"
+                      className="form-field__input ui-input"
+                      value={form.target_date}
+                      onChange={(e) => setForm((f) => ({ ...f, target_date: e.target.value }))}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label className="form-field__label" htmlFor="phase-amount">Amount (MYR)</label>
+                    <input
+                      id="phase-amount"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="form-field__input ui-input"
+                      value={form.payment_amount}
+                      onChange={(e) => setForm((f) => ({ ...f, payment_amount: e.target.value }))}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="project-create-footer">
+                <button type="button" className="btn btn-secondary" onClick={closeForm}>Cancel</button>
+                <button type="submit" className="btn btn-primary project-create-footer__primary" disabled={busy}>
+                  {busy ? 'Saving…' : 'Add phase'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

@@ -251,9 +251,22 @@ projectPhasesRouter.post('/', async (req, res) => {
   if (!body.project_id || !body.name) {
     return res.status(400).json({ error: 'project_id and name are required' });
   }
+  const projectId = +body.project_id;
+  const workPackageId = body.work_package_id != null && body.work_package_id !== ''
+    ? +body.work_package_id
+    : null;
+  const projectPackages = await store.listWorkPackages(projectId).catch(() => []);
+  if (projectPackages.length > 0) {
+    if (!workPackageId) {
+      return res.status(400).json({ error: 'work_package_id is required when the project has work packages' });
+    }
+    const wp = projectPackages.find((w) => Number(w.id) === workPackageId);
+    if (!wp) return res.status(404).json({ error: 'Work package not found' });
+  }
+
   const id = await store.addProjectPhase({
-    project_id: +body.project_id,
-    work_package_id: body.work_package_id != null && body.work_package_id !== '' ? +body.work_package_id : null,
+    project_id: projectId,
+    work_package_id: workPackageId,
     name: String(body.name).trim(),
     phase_key: body.phase_key || 'custom',
     sort_order: body.sort_order != null ? +body.sort_order : 99,
@@ -270,7 +283,7 @@ projectPhasesRouter.post('/', async (req, res) => {
     notes: body.notes || null,
   });
   if (!(await persistStore(res))) return;
-  const phases = await store.listProjectPhases(+body.project_id);
+  const phases = await store.listProjectPhases(projectId);
   res.status(201).json(await enrichPhase(phases.find((p) => p.id === id)));
 });
 

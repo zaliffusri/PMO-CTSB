@@ -109,23 +109,6 @@ export default function ProjectWorkPackagesPanel({
     });
   };
 
-  const initPhases = async (wp) => {
-    const id = packageId(wp);
-    if (!id) {
-      alert('Cannot initialize phases: work package id is missing. Refresh the page and try again.');
-      return;
-    }
-    if (!confirm(`Initialize delivery phases for "${wp.name}" (${deliveryScopeLabel(wp.classification)})?`)) return;
-    await run(async () => {
-      try {
-        await api.workPackages.initPhases(id);
-        load();
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  };
-
   const removePackage = async (wp) => {
     const id = packageId(wp);
     if (!id) {
@@ -227,11 +210,6 @@ export default function ProjectWorkPackagesPanel({
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => onFocusPackage?.(wp.id)}>
                   View work
                 </button>
-                {canManage && wp.phase_count === 0 && (
-                  <button type="button" className="btn btn-primary btn-sm" onClick={() => initPhases(wp)} disabled={busy}>
-                    Init phases
-                  </button>
-                )}
                 {canManage && (
                   <>
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEdit(wp)} disabled={busy}>
