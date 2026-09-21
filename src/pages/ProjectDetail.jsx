@@ -474,7 +474,7 @@ function ProjectDetail() {
       </div>
 
       <div className="project-workspace-panels">
-      {workPackages.length > 0 && activeTab !== 'packages' && activeTab !== 'overview' && (
+      {workPackages.length > 0 && activeTab !== 'packages' && activeTab !== 'overview' && activeTab !== 'delivery' && (
         <div className="card section-card module-toolbar-card">
           <div className="module-toolbar">
             <div className="module-toolbar__field">
