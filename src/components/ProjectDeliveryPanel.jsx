@@ -231,6 +231,8 @@ export default function ProjectDeliveryPanel({
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_PHASE_FORM);
+  /** When true, work package was chosen by clicking Add on a specific lane — hide selector. */
+  const [packageLocked, setPackageLocked] = useState(false);
   const { pending: busy, run } = useSubmitLock();
   const usesPackages = workPackages.length > 0;
   const showFinance = canFinance || canManage;
@@ -277,18 +279,22 @@ export default function ProjectDeliveryPanel({
   const projectSummary = useMemo(() => summarizePhases(projectPhases), [projectPhases]);
 
   const openAddPhase = (presetPackageId = '') => {
-    const defaultWp = presetPackageId
-      || workPackageFilter
-      || (workPackages.length === 1 ? String(workPackages[0].id) : '');
+    const fromLane = presetPackageId != null && String(presetPackageId).trim() !== '';
+    const defaultWp = fromLane
+      ? String(presetPackageId)
+      : (workPackageFilter || (workPackages.length === 1 ? String(workPackages[0].id) : ''));
     setForm({
       ...EMPTY_PHASE_FORM,
       work_package_id: defaultWp,
     });
+    // Hide package picker when opened from a specific work package lane (or only one package exists).
+    setPackageLocked(fromLane || workPackages.length === 1);
     setShowForm(true);
   };
 
   const closeForm = () => {
     setShowForm(false);
+    setPackageLocked(false);
     setForm(EMPTY_PHASE_FORM);
   };
 
@@ -479,7 +485,7 @@ export default function ProjectDeliveryPanel({
           busy={busy}
           onClose={closeForm}
           onSubmit={submitPhase}
-          lockPackage={Boolean(form.work_package_id && workPackageFilter)}
+          hidePackageSelect={packageLocked}
         />
       )}
     </div>
@@ -494,8 +500,13 @@ function AddPhaseModal({
   busy,
   onClose,
   onSubmit,
-  lockPackage = false,
+  hidePackageSelect = false,
 }) {
+  const lockedPackage = useMemo(() => {
+    if (!form.work_package_id) return null;
+    return workPackages.find((wp) => String(wp.id) === String(form.work_package_id)) || null;
+  }, [form.work_package_id, workPackages]);
+
   return (
     <div className="modal-backdrop" role="presentation" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-dialog" role="dialog" aria-modal="true">
@@ -503,6 +514,12 @@ function AddPhaseModal({
           <div>
             <p className="project-create-eyebrow">Delivery</p>
             <h2 className="modal-dialog-title">Add phase</h2>
+            {hidePackageSelect && lockedPackage && (
+              <p className="project-create-subtitle">
+                For work package <strong>{lockedPackage.name}</strong>
+                {lockedPackage.classification ? ` · ${deliveryScopeLabel(lockedPackage.classification)}` : ''}
+              </p>
+            )}
           </div>
           <button type="button" className="modal-dialog-close" onClick={onClose} aria-label="Close">×</button>
         </div>
@@ -522,7 +539,7 @@ function AddPhaseModal({
                 autoFocus
               />
             </div>
-            {usesPackages && (
+            {usesPackages && !hidePackageSelect && (
               <div className="form-field">
                 <label className="form-field__label" htmlFor="phase-wp">
                   Work package <span className="form-field__required">*</span>
@@ -533,7 +550,6 @@ function AddPhaseModal({
                   value={form.work_package_id}
                   onChange={(e) => setForm((f) => ({ ...f, work_package_id: e.target.value }))}
                   required
-                  disabled={lockPackage}
                 >
                   <option value="">Select work package…</option>
                   {workPackages.map((wp) => (
@@ -543,6 +559,10 @@ function AddPhaseModal({
                   ))}
                 </select>
               </div>
+            )}
+            {/* Keep locked package id in form for submit without showing a selector */}
+            {usesPackages && hidePackageSelect && (
+              <input type="hidden" name="work_package_id" value={form.work_package_id || ''} readOnly />
             )}
             <div className="form-row form-row-2">
               <div className="form-field">
