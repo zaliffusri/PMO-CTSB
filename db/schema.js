@@ -1,13 +1,12 @@
 import { store, resetLocalDemoData } from './store.js';
 import { DEMO_SEED_VERSION, runRichDemoSeed } from './demoSeed.js';
-import { hasSupabase } from './runtime/config.js';
 
 export function initDb() {
   // No-op; store uses in-memory or Supabase
 }
 
 export async function seedDemo() {
-  if (hasSupabase) return;
+  // Local/dev only. ALLOW_LOCAL_STORE=1 uses in-memory data even if Supabase env exists.
   if (process.env.ALLOW_LOCAL_STORE !== '1') return;
 
   const force = process.env.SEED_DEMO_FORCE === '1';

@@ -147,6 +147,12 @@ export default function HelpdeskIssueDetail({
             <span className="project-meta-chip">{ISSUE_CATEGORIES.find((c) => c.id === issue.category)?.label}</span>
             {issue.assignee_name && <span className="project-meta-chip">Assignee: {issue.assignee_name}</span>}
             {issue.client_name && <span className="project-meta-chip">{issue.client_name}</span>}
+            {issue.sla_label && (
+              <span className={`sla-badge ${issue.sla_breached ? 'sla-badge--breach' : ''}`}>SLA: {issue.sla_label}</span>
+            )}
+            {issue.csat_score != null && (
+              <span className="project-meta-chip">CSAT {issue.csat_score}/5</span>
+            )}
           </div>
           {mayAssign && (
             <div className="form-row form-row-2 helpdesk-detail-edit">

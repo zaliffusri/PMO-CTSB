@@ -1,75 +1,91 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../AuthContext';
+import { api } from '../api';
 import { useBranding } from '../context/BrandingContext';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import PartnerLogos from '../components/PartnerLogos';
+import SystemLogo from '../components/SystemLogo';
+import { useLocale } from '../context/LocaleContext';
 
 const DEMO_HINT = import.meta.env.DEV;
+const DEMO_EMAIL = 'admin@pmo.local';
+const DEMO_PASSWORD = 'admin123';
+const DEFAULT_AUTH_HERO = '/brand/auth-hero-pm.jpg';
 
 export default function AuthScreen() {
   const { login } = useAuth();
   const { branding } = useBranding();
-  const [form, setForm] = useState({ email: '', password: '' });
+  const { t } = useLocale();
+  const [form, setForm] = useState({
+    email: DEMO_HINT ? DEMO_EMAIL : '',
+    password: DEMO_HINT ? DEMO_PASSWORD : '',
+  });
   const [showPassword, setShowPassword] = useState(false);
   const { pending: busy, run } = useSubmitLock();
   const [error, setError] = useState('');
+  const [ssoReady, setSsoReady] = useState(false);
+  const heroImage = branding.org_banner_url || DEFAULT_AUTH_HERO;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('sso_error');
+    if (fromUrl) {
+      sessionStorage.setItem('pmo-sso-error', fromUrl);
+      params.delete('sso_error');
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, '', next);
+    }
+    const ssoError = fromUrl || sessionStorage.getItem('pmo-sso-error');
+    if (!ssoError) return;
+    const key = `auth.sso.${ssoError}`;
+    const mapped = t(key);
+    setError(mapped === key ? t('auth.sso.failed') : mapped);
+  }, [t]);
+
+  useEffect(() => {
+    api.auth.microsoftStatus()
+      .then((s) => setSsoReady(Boolean(s?.configured)))
+      .catch(() => setSsoReady(false));
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    sessionStorage.removeItem('pmo-sso-error');
     await run(async () => {
       try {
         await login(form.email, form.password);
       } catch (err) {
-        setError(err.message || 'Authentication failed');
+        setError(err.message || t('auth.failed'));
       }
     });
   };
 
   return (
     <div className="auth-page">
-      <header className="auth-topbar">
-        <div className="auth-topbar__brand">
-          {branding.org_logo_url ? (
-            <img src={branding.org_logo_url} alt="" className="auth-topbar__logo" />
-          ) : (
-            <span className="app-logo-mark">P</span>
-          )}
-          <span>{branding.org_display_name}</span>
-        </div>
-      </header>
-
       <div className="auth-page__grid">
-        <aside
-          className={`auth-hero ${branding.org_banner_url ? 'auth-hero--photo' : ''}`}
-          style={branding.org_banner_url ? { backgroundImage: `url(${branding.org_banner_url})` } : undefined}
-          aria-hidden="true"
-        >
+        <aside className="auth-hero auth-hero--photo" aria-hidden="true">
+          <img
+            src={heroImage}
+            alt=""
+            className="auth-hero-photo"
+            draggable={false}
+          />
           <div className="auth-hero-overlay" />
-          <div className="auth-hero-content">
-            {branding.org_logo_url && (
-              <img src={branding.org_logo_url} alt="" className="auth-hero-logo" />
-            )}
-            <div className="auth-hero-badge">Technology-driven PMO</div>
-            <h2>{branding.org_display_name}</h2>
-            <p>{branding.org_tagline || 'Plan, deliver, and report with confidence'}</p>
-            <ul className="auth-hero-list">
-              <li>Command center with health KPIs</li>
-              <li>Team allocation &amp; availability</li>
-              <li>Client, project &amp; activity tracking</li>
-            </ul>
+          <div className="auth-hero-brand-mark">
+            <span className="auth-hero-ring auth-hero-ring--outer" />
+            <span className="auth-hero-ring auth-hero-ring--inner" />
+            <span className="auth-hero-glow-pulse" />
+            <SystemLogo size="hero" className="auth-hero-logo" />
           </div>
         </aside>
 
         <form onSubmit={submit} className="auth-card">
           <div className="auth-card-brand">
-            {branding.org_logo_url ? (
-              <img src={branding.org_logo_url} alt="" className="auth-card-logo" />
-            ) : (
-              <span className="app-logo-mark app-logo-mark--lg">P</span>
-            )}
+            <SystemLogo size="card" className="auth-card-logo" />
             <div>
-              <h1>Sign in</h1>
-              <p>{branding.org_display_name} workspace</p>
+              <h1>{t('auth.signIn')}</h1>
+              <p>{branding.org_tagline}</p>
             </div>
           </div>
 
@@ -77,7 +93,7 @@ export default function AuthScreen() {
 
           <div className="auth-fields">
             <label>
-              Email
+              {t('common.email')}
               <input
                 type="email"
                 value={form.email}
@@ -89,7 +105,7 @@ export default function AuthScreen() {
               />
             </label>
             <label>
-              Password
+              {t('common.password')}
               <div className="auth-password-wrap">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -103,7 +119,7 @@ export default function AuthScreen() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('common.hidePassword') : t('common.showPassword')}
                   className="auth-eye-btn"
                 >
                   {showPassword ? (
@@ -123,14 +139,29 @@ export default function AuthScreen() {
           </div>
 
           <button type="submit" className="auth-submit-btn" disabled={busy}>
-            {busy ? 'Signing in…' : 'Sign in'}
+            {busy ? t('action.signingIn') : t('action.signIn')}
           </button>
 
-          {DEMO_HINT && (
-            <div className="auth-demo-hint">
-              <strong>Demo:</strong> admin@pmo.local / admin123
-            </div>
-          )}
+          <div className="auth-sso">
+            <span className="auth-sso__or">{t('action.or')}</span>
+            <button
+              type="button"
+              className="auth-sso-btn"
+              disabled={!ssoReady}
+              title={ssoReady ? t('action.microsoft') : t('auth.sso.not_configured')}
+              onClick={() => {
+                if (!ssoReady) return;
+                window.location.assign('/api/auth/microsoft');
+              }}
+            >
+              {t('action.microsoft')}
+            </button>
+          </div>
+
+          <div className="auth-partners">
+            <p className="auth-partners__label">{t('common.operatedBy')}</p>
+            <PartnerLogos variant="auth" />
+          </div>
         </form>
       </div>
     </div>

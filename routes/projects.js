@@ -6,11 +6,13 @@ import {
   PROJECT_ENGAGEMENT_TYPE_SET,
 } from '../lib/projectConstants.js';
 import { canCreateProject, canDeleteProject } from '../lib/permissions.js';
+import { getVisibleProjectIdSet, canAccessProject } from '../lib/projectScope.js';
 import { requireAdmin } from '../middleware/requireAuth.js';
 import { validateBody } from '../middleware/validate.js';
 import { createProjectSchema } from '../lib/validationSchemas.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { normalizeProjectShortCode, suggestProjectShortCode } from '../lib/projectShortCode.js';
+import { buildEotUpdate, eotSummary, parseEotLog } from '../lib/projectEot.js';
 
 export const projectsRouter = Router();
 const DELIVERY_SCOPE_SET = new Set(PROJECT_CLASSIFICATION_IDS);
@@ -29,7 +31,20 @@ function normalizeDeliveryScope(value) {
 
 async function enrichProject(project, extra = {}) {
   const { tags: _tags, ...base } = await store.projectWithClients(project);
-  return { ...base, ...extra };
+  const eot = eotSummary({
+    ...base,
+    eot_log: parseEotLog(base.eot_log ?? project?.eot_log),
+    baseline_end_date: base.baseline_end_date ?? project?.baseline_end_date ?? null,
+  });
+  return {
+    ...base,
+    baseline_end_date: eot.baseline_end_date,
+    eot_log: eot.eot_log,
+    eot_count: eot.eot_count,
+    eot_total_days: eot.total_days_added,
+    is_extended: eot.is_extended,
+    ...extra,
+  };
 }
 
 projectsRouter.get('/', async (req, res) => {
@@ -39,7 +54,9 @@ projectsRouter.get('/', async (req, res) => {
   const offset = Number.isFinite(rawOffset) ? rawOffset : 0;
   try {
     const list = await store.listProjectsEnriched({ limit, offset });
-    res.json(Array.isArray(list) ? list : []);
+    const visible = await getVisibleProjectIdSet(store, req.user);
+    const rows = Array.isArray(list) ? list : [];
+    res.json(visible == null ? rows : rows.filter((p) => visible.has(Number(p.id))));
   } catch (e) {
     console.error('projects GET failed', e);
     res.status(500).json({ error: e.message || 'Failed to load projects' });
@@ -95,6 +112,10 @@ projectsRouter.get('/:id', async (req, res) => {
         : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
     }
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    const visible = await getVisibleProjectIdSet(store, req.user);
+    if (!canAccessProject(req.user, id, visible)) {
+      return res.status(403).json({ error: 'You do not have access to this project' });
+    }
 
     const assignments = await store.listAssignments({ project_id: id });
     const personIds = [...new Set(
@@ -122,7 +143,7 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
   if (!canCreateProject(req.user)) {
     return res.status(403).json({ error: 'Only PMO officers can create projects' });
   }
-  const { name, description, status, start_date, end_date, classification, engagement_type, short_code } = req.body;
+  const { name, description, status, start_date, end_date, classification, engagement_type, short_code, program_name } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   let normalizedShortCode = normalizeProjectShortCode(short_code);
   if (!normalizedShortCode) {
@@ -159,6 +180,7 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
       end_date: end_date || null,
       engagement_type: normalizedEngagementType,
       classification: normalizedClassification,
+      program_name: program_name ? String(program_name).trim() : null,
       client_ids: clientIds ?? [],
     });
   } catch (e) {
@@ -221,6 +243,64 @@ projectsRouter.post('/', validateBody(createProjectSchema), async (req, res) => 
   }
 });
 
+/** Record Extension of Time — extends end_date and appends to eot_log. */
+projectsRouter.post('/:id/eot', asyncHandler(async (req, res) => {
+  if (!canCreateProject(req.user)) {
+    return res.status(403).json({ error: 'Only PMO officers can record EOT' });
+  }
+  const id = +req.params.id;
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid project id' });
+
+  const existing = typeof store.findProjectById === 'function'
+    ? await store.findProjectById(id, { includeCover: false })
+    : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
+  if (!existing) return res.status(404).json({ error: 'Project not found' });
+
+  const result = buildEotUpdate(existing, {
+    new_end_date: req.body?.new_end_date,
+    reason: req.body?.reason,
+    approved_by: req.body?.approved_by,
+    actorName: req.user?.name || req.user?.email || null,
+  });
+  if (result.error) return res.status(400).json({ error: result.error });
+
+  try {
+    const ok = await store.updateProject(id, result.patch);
+    if (ok === false) return res.status(404).json({ error: 'Project not found' });
+  } catch (e) {
+    const msg = String(e?.message || e || '');
+    if (/baseline_end_date|eot_log|schema cache|PGRST204|column/i.test(msg)) {
+      return res.status(503).json({
+        error: 'EOT columns are missing. Run migration `20261019140000_projects_eot.sql` (or set SUPABASE_DB_URL).',
+      });
+    }
+    throw e;
+  }
+
+  await store.appendAuditLog(req.user, {
+    action: 'update',
+    target_type: 'project',
+    target_id: id,
+    summary: `Recorded EOT for "${existing.name}" → ${result.patch.end_date} (+${result.entry.days_added ?? '?'} days)`,
+  });
+  store.persistToSupabase().catch((e) => console.warn('persist:', e?.message || e));
+
+  let project = typeof store.findProjectById === 'function'
+    ? await store.findProjectById(id, { includeCover: false })
+    : (await store.listProjects()).find((p) => Number(p.id) === id) || null;
+  if (!project) {
+    project = { ...existing, ...result.patch };
+  } else {
+    project = {
+      ...project,
+      end_date: result.patch.end_date,
+      baseline_end_date: result.patch.baseline_end_date,
+      eot_log: result.patch.eot_log,
+    };
+  }
+  res.status(201).json(await enrichProject(project, { eot_entry: result.entry }));
+}));
+
 projectsRouter.put('/:id', asyncHandler(async (req, res) => {
   try {
     const { name, description, status, start_date, end_date, classification, engagement_type, short_code } = req.body || {};
@@ -271,6 +351,9 @@ projectsRouter.put('/:id', asyncHandler(async (req, res) => {
     if (engagement_type !== undefined) patch.engagement_type = nextEngagementType;
     if (classification !== undefined) patch.classification = nextClassification;
     if (short_code !== undefined) patch.short_code = nextShortCode;
+    if (req.body?.program_name !== undefined) {
+      patch.program_name = String(req.body.program_name || '').trim() || null;
+    }
     if (clientIds !== null) patch.client_ids = clientIds;
 
     const ok = await store.updateProject(id, patch);

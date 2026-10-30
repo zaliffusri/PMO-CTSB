@@ -2,29 +2,16 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 const STORAGE_KEY = 'pmo-theme';
 
-/** Product UI modes (persisted). Legacy `light` maps to `default`. */
+/** Product themes (persisted). Legacy `light` / `shadcn` map to `default` (light). */
 export const UI_MODES = [
-  {
-    id: 'default',
-    label: 'Default',
-    description: 'Original PMO light workspace look.',
-  },
-  {
-    id: 'dark',
-    label: 'Dark',
-    description: 'Dark surfaces with high-contrast text.',
-  },
-  {
-    id: 'shadcn',
-    label: 'Shadcn UI',
-    description: 'Clean shadcn/ui-inspired spacing, borders, and controls.',
-  },
+  { id: 'default', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
 ];
 
 export const UI_MODE_IDS = UI_MODES.map((m) => m.id);
 
 function normalizeTheme(value) {
-  if (value === 'light') return 'default';
+  if (value === 'light' || value === 'shadcn') return 'default';
   if (UI_MODE_IDS.includes(value)) return value;
   return null;
 }

@@ -84,6 +84,7 @@ export function createProjectTasksRepository(ctx, getStore) {
         work_package_id: row.work_package_id != null && row.work_package_id !== '' ? +row.work_package_id : null,
         estimated_hours: row.estimated_hours != null && row.estimated_hours !== '' ? +row.estimated_hours : null,
         actual_hours: row.actual_hours != null && row.actual_hours !== '' ? +row.actual_hours : null,
+        predecessor_id: row.predecessor_id != null && row.predecessor_id !== '' ? +row.predecessor_id : null,
         created_at,
       };
 
@@ -98,28 +99,46 @@ export function createProjectTasksRepository(ctx, getStore) {
       return saved.id;
     },
 
+    async findProjectTaskById(id) {
+      const tid = Number(id);
+      if (!Number.isFinite(tid)) return null;
+      if (!isDbMode()) {
+        return (getData().project_tasks || []).find((t) => Number(t.id) === tid) || null;
+      }
+      return dbSelect('project_tasks', {
+        columns: '*',
+        filters: { id: tid },
+        maybeSingle: true,
+      });
+    },
+
     async updateProjectTask(id, row) {
+      const tid = Number(id);
+      if (!Number.isFinite(tid)) return false;
       if (!isDbMode()) {
         const data = getData();
-        const i = data.project_tasks.findIndex((t) => t.id === id);
+        const i = data.project_tasks.findIndex((t) => Number(t.id) === tid);
         if (i === -1) return false;
         data.project_tasks[i] = { ...data.project_tasks[i], ...row };
         save();
         return true;
       }
-      const saved = await dbUpdate('project_tasks', id, row);
+      const saved = await dbUpdate('project_tasks', tid, row);
       return Boolean(saved);
     },
 
     async deleteProjectTask(id) {
-      const tid = +id;
+      const tid = Number(id);
+      if (!Number.isFinite(tid)) return false;
       if (!isDbMode()) {
         const data = getData();
-        const childIds = data.project_tasks.filter((t) => t.parent_id === tid).map((t) => t.id);
+        const childIds = data.project_tasks
+          .filter((t) => Number(t.parent_id) === tid)
+          .map((t) => t.id);
         for (const cid of childIds) {
           await getStore().deleteProjectTask(cid);
         }
-        const i = data.project_tasks.findIndex((t) => t.id === tid);
+        const i = data.project_tasks.findIndex((t) => Number(t.id) === tid);
         if (i === -1) return false;
         data.project_tasks.splice(i, 1);
         save();

@@ -4,9 +4,12 @@ import { useAuth } from './AuthContext';
 import AuthScreen from './pages/AuthScreen';
 import AppShell from './layout/AppShell';
 import AppRoutes from './routes/AppRoutes';
+import SystemLogo from './components/SystemLogo';
+import { useLocale } from './context/LocaleContext';
 
 export default function App() {
   const { isAuthenticated, checking } = useAuth();
+  const { t } = useLocale();
 
   useEffect(() => {
     const onAuthScreen = !checking && !isAuthenticated;
@@ -18,8 +21,8 @@ export default function App() {
     return (
       <div className="app-boot">
         <div className="app-boot-card">
-          <span className="app-logo-mark app-logo-mark--lg">P</span>
-          <p>Loading workspace…</p>
+          <SystemLogo size="lg" />
+          <p>{t('chrome.loading')}</p>
         </div>
       </div>
     );

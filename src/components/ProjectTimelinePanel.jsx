@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import UiEmptyState from './UiEmptyState';
 import { formatProjectDate, deadlineSummary } from '../../lib/pmoMetrics.js';
-import { deliveryScopeLabel } from '../../lib/projectConstants.js';
+import { deliveryScopeLabel, PHASE_UI } from '../../lib/projectConstants.js';
 import { phaseStatusLabel } from '../../lib/phaseConstants.js';
 
 const RANGE_PRESETS = [
@@ -255,9 +255,11 @@ export default function ProjectTimelinePanel({
       <div className="section-card__header section-card__header--compact">
         <div>
           <h2 className="section-card__title">Project timeline</h2>
-          <p className="section-card__desc">
-            Planned vs actual tasks, delivery phases, and project window — {formatProjectDate(project?.start_date) || '—'} to {formatProjectDate(project?.end_date) || 'Open'}.
-          </p>
+          {(project?.start_date || project?.end_date) && (
+            <p className="section-card__desc">
+              {formatProjectDate(project?.start_date) || '—'} to {formatProjectDate(project?.end_date) || 'Open'}
+            </p>
+          )}
         </div>
         <div className="project-timeline-header-actions">
           <Link to="/gantt" className="btn btn-secondary btn-sm">Portfolio Gantt</Link>
@@ -282,7 +284,7 @@ export default function ProjectTimelinePanel({
           <span className="dashboard-stat-value pmo-stat-success">{stats.done}</span>
         </div>
         <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label">Delivery phases</span>
+          <span className="dashboard-stat-label">Payment milestones</span>
           <span className="dashboard-stat-value">{stats.phases}</span>
         </div>
       </section>
@@ -302,14 +304,14 @@ export default function ProjectTimelinePanel({
           <span className="module-toolbar__label">Show</span>
           <div className="chip-group">
             <button type="button" className={`chip-filter ${showTasks ? 'active' : ''}`} onClick={() => setShowTasks((v) => !v)}>Tasks</button>
-            <button type="button" className={`chip-filter ${showPhases ? 'active' : ''}`} onClick={() => setShowPhases((v) => !v)}>Phases</button>
+            <button type="button" className={`chip-filter ${showPhases ? 'active' : ''}`} onClick={() => setShowPhases((v) => !v)}>Milestones</button>
           </div>
         </div>
         {workPackages.length > 0 && (
           <div className="module-toolbar__field">
-            <span className="module-toolbar__label">Package</span>
+            <span className="module-toolbar__label">{PHASE_UI.singular}</span>
             <select className="ui-input project-timeline-wp-select" value={localWpFilter} onChange={(e) => setLocalWpFilter(e.target.value)}>
-              <option value="">All packages</option>
+              <option value="">{PHASE_UI.filterAll}</option>
               {workPackages.map((wp) => (
                 <option key={wp.id} value={wp.id}>{wp.name}</option>
               ))}
@@ -321,7 +323,7 @@ export default function ProjectTimelinePanel({
       <div className="project-timeline-legend" aria-hidden>
         <span><i className="project-timeline-legend-swatch project-timeline-legend-swatch--planned" /> Planned</span>
         <span><i className="project-timeline-legend-swatch project-timeline-legend-swatch--actual" /> Actual</span>
-        <span><i className="project-timeline-legend-swatch project-timeline-legend-swatch--phase" /> Phase</span>
+        <span><i className="project-timeline-legend-swatch project-timeline-legend-swatch--phase" /> Milestone</span>
         <span><i className="project-timeline-legend-swatch project-timeline-legend-swatch--today" /> Today</span>
         {projectBar && <span><i className="project-timeline-legend-swatch project-timeline-legend-swatch--project" /> Project window</span>}
       </div>
@@ -366,7 +368,7 @@ export default function ProjectTimelinePanel({
 
           {showPhases && filteredPhases.length > 0 && (
             <section className="project-timeline-group">
-              <header className="project-timeline-group__head">Delivery phases</header>
+              <header className="project-timeline-group__head">Payment milestones</header>
               {filteredPhases.map((ph) => (
                 <PhaseRow key={ph.id} phase={ph} rangeStart={rangeStart} rangeEnd={rangeEnd} todayLeft={todayLeft} />
               ))}

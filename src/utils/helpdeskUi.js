@@ -6,5 +6,5 @@ export function statusLabel(id) {
 
 export function helpdeskStageShortLabel(issue) {
   return issue.helpdesk_stage_label
-    || (issue.helpdesk_stage === 'backlog' ? 'Backlog' : (issue.helpdesk_stage || issue.support_level || 'L1'));
+    || (issue.helpdesk_stage === 'backlog' ? 'Promoted' : (issue.helpdesk_stage || issue.support_level || 'L1'));
 }

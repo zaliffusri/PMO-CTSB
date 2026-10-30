@@ -7,6 +7,7 @@ import PageLoadingState from '../components/PageLoadingState';
 import PageLoadError from '../components/PageLoadError';
 import DataPanel from '../components/DataPanel';
 import { useAsyncData } from '../hooks/useAsyncData';
+import { useLocale } from '../context/LocaleContext';
 
 const ACTION_LABEL = { create: 'Create', update: 'Update', delete: 'Delete' };
 
@@ -20,6 +21,7 @@ function formatDetail(detail) {
 }
 
 export default function History() {
+  const { t } = useLocale();
   const [offset, setOffset] = useState(0);
   const [userFilter, setUserFilter] = useState('');
   const [users, setUsers] = useState([]);
@@ -66,16 +68,15 @@ export default function History() {
   return (
     <div className="page-module history-page">
       <PageHeader
-        eyebrow="Compliance"
-        title="Audit history"
-        subtitle="Record of important changes — who did what and when. Up to the last 5,000 events are kept."
+        eyebrow={t('eyebrow.compliance')}
+        title={t('page.history')}
       />
 
       {error && (
         <div className="alert-banner" role="alert">
           <span>{error}</span>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => reload()}>
-            Retry
+            {t('action.retry')}
           </button>
         </div>
       )}

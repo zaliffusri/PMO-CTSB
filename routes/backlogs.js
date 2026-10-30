@@ -37,6 +37,7 @@ import {
   parseMentionedPersonIds,
 } from '../lib/backlogComments.js';
 import { notifyPersonInApp } from '../lib/notifyUser.js';
+import { getVisibleProjectIdSet } from '../lib/projectScope.js';
 
 export const backlogsRouter = Router();
 
@@ -223,6 +224,8 @@ backlogsRouter.get('/', async (req, res) => {
     if (Number.isFinite(projectId)) filters.project_id = projectId;
     if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
     let backlogs = await store.listBacklogs(filters);
+    const visible = await getVisibleProjectIdSet(store, req.user);
+    if (visible) backlogs = backlogs.filter((b) => visible.has(Number(b.project_id)));
     if (status && status !== 'all') backlogs = backlogs.filter((b) => b.status === status);
     if (itemType && itemType !== 'all') backlogs = backlogs.filter((b) => b.item_type === itemType);
     if (source && source !== 'all') backlogs = backlogs.filter((b) => b.source === source);
@@ -551,6 +554,36 @@ backlogsRouter.put('/:id', async (req, res) => {
   res.json(updated);
 });
 
+backlogsRouter.post('/:id/approve', async (req, res) => {
+  try {
+    if (!canCreateProject(req.user)) {
+      return res.status(403).json({ error: 'Only PMO can approve change requests' });
+    }
+    const id = +req.params.id;
+    const item = await store.findBacklogById(id);
+    if (!item) return res.status(404).json({ error: 'Backlog item not found' });
+    const decision = String(req.body?.decision || 'approved').toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) {
+      return res.status(400).json({ error: 'decision must be approved or rejected' });
+    }
+    await store.updateBacklog(id, {
+      approval_status: decision,
+      approved_by_user_id: req.user.id,
+      approved_at: new Date().toISOString(),
+      approval_note: req.body?.note != null ? String(req.body.note).trim() : null,
+    });
+    const updated = await store.findBacklogById(id);
+    await store.addProjectActivity?.({
+      project_id: item.project_id,
+      actor_name: req.user.name,
+      summary: `CR ${item.ref_no} ${decision}`,
+    });
+    res.json(updated);
+  } catch (e) {
+    res.status(500).json({ error: e?.message || 'Failed to approve backlog item' });
+  }
+});
+
 backlogsRouter.post('/:id/promote-task', async (req, res) => {
   try {
     if (!canCreateProject(req.user)) {
@@ -564,6 +597,10 @@ backlogsRouter.post('/:id/promote-task', async (req, res) => {
     if (item.task_id) return res.status(400).json({ error: 'Backlog item already linked to a task' });
     if (!canPromoteBacklogToTask(item)) {
       return res.status(400).json({ error: 'Closed backlog items cannot be promoted to a task' });
+    }
+    const type = String(item.item_type || '').toLowerCase();
+    if (type === 'cr' && item.approval_status !== 'approved') {
+      return res.status(400).json({ error: 'Change requests must be approved before promoting to a task' });
     }
 
     const assigneeId = req.body?.assignee_id != null && req.body.assignee_id !== ''
@@ -581,54 +618,59 @@ backlogsRouter.post('/:id/promote-task', async (req, res) => {
 
     const estimatedHours = item.estimated_hours ?? (item.effort_days != null ? item.effort_days * 8 : null);
     const actualHours = item.actual_hours ?? null;
+    const { buildPromotedTaskFields } = await import('../lib/backlogPromoteFields.js');
+    const taskFields = buildPromotedTaskFields(item, {
+      assigneeId: assigneeId ?? null,
+      estimatedHours,
+      actualHours,
+    });
 
-    // Prefer a short TX when pool is healthy; never wait long — Vercel pooler URLs often hang.
+    // Local/dev (ALLOW_LOCAL_STORE=1): always use the in-memory store path.
+    // Production: prefer a short TX when pool is healthy; never wait long — pooler URLs often hang.
+    const preferLocalStore = process.env.ALLOW_LOCAL_STORE === '1';
     let taskRow = null;
-    try {
-      const { promoteBacklogToTaskTx } = await import('../lib/backlogPromoteTaskTx.js');
-      const txResult = await Promise.race([
-        promoteBacklogToTaskTx(id, {
-          assigneeId: assigneeId ?? null,
-          estimatedHours,
-          actualHours,
-        }),
-        new Promise((resolve) => setTimeout(() => resolve(null), 3500)),
-      ]);
-      if (txResult?.task?.id) taskRow = txResult.task;
-    } catch (e) {
-      if (/already linked|cannot be promoted|not found/i.test(String(e?.message || ''))) {
-        return res.status(400).json({ error: e.message });
+    if (!preferLocalStore) {
+      try {
+        const { promoteBacklogToTaskTx } = await import('../lib/backlogPromoteTaskTx.js');
+        const txResult = await Promise.race([
+          promoteBacklogToTaskTx(id, {
+            assigneeId: assigneeId ?? null,
+            estimatedHours,
+            actualHours,
+          }),
+          new Promise((resolve) => setTimeout(() => resolve(null), 3500)),
+        ]);
+        if (txResult?.task?.id) taskRow = txResult.task;
+      } catch (e) {
+        if (/already linked|cannot be promoted|not found/i.test(String(e?.message || ''))) {
+          return res.status(400).json({ error: e.message });
+        }
+        console.warn('promoteBacklogToTaskTx:', e?.message || e);
       }
-      console.warn('promoteBacklogToTaskTx:', e?.message || e);
     }
 
     if (!taskRow) {
-      const taskId = await store.addProjectTask({
-        project_id: item.project_id,
-        name: item.title,
-        task_kind: 'task',
-        status: 'new',
-        progress_percent: 0,
-        assignee_id: assigneeId ?? null,
-        backlog_id: id,
-        work_package_id: item.work_package_id ?? null,
-        estimated_hours: estimatedHours,
-        actual_hours: actualHours,
-      });
-      await store.updateBacklog(id, { status: 'in_progress', task_id: taskId });
-      taskRow = {
-        id: taskId,
-        project_id: item.project_id,
-        name: item.title,
-        task_kind: 'task',
-        status: 'new',
-        progress_percent: 0,
-        assignee_id: assigneeId ?? null,
-        backlog_id: id,
-        work_package_id: item.work_package_id ?? null,
-        estimated_hours: estimatedHours,
-        actual_hours: actualHours,
-      };
+      // Re-read in case a timed-out TX still committed (DB mode only).
+      const refreshed = typeof store.findBacklogById === 'function'
+        ? await store.findBacklogById(id)
+        : item;
+      if (refreshed?.task_id) {
+        const found = typeof store.findProjectTaskById === 'function'
+          ? await store.findProjectTaskById(refreshed.task_id)
+          : (await store.listProjectTasks({ project_id: item.project_id }))
+            .find((t) => Number(t.id) === Number(refreshed.task_id));
+        taskRow = found || { id: refreshed.task_id, ...taskFields };
+      } else {
+        const taskId = await store.addProjectTask(taskFields);
+        if (taskId == null || !Number.isFinite(Number(taskId))) {
+          return res.status(500).json({ error: 'Failed to create task from backlog' });
+        }
+        await store.updateBacklog(id, { status: 'in_progress', task_id: taskId });
+        const created = typeof store.findProjectTaskById === 'function'
+          ? await store.findProjectTaskById(taskId)
+          : null;
+        taskRow = created || { id: taskId, ...taskFields };
+      }
     }
 
     const backlogRow = {

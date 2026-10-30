@@ -20,6 +20,8 @@ import { settingsRouter, publicBrandingPayload } from './settings.js';
 import { auditLogRouter } from './auditLog.js';
 import { adminDbRouter } from './adminDb.js';
 import { attachmentsRouter } from './attachments.js';
+import { timeSessionsRouter } from './timeSessions.js';
+import { pmoExtrasRouter } from './pmoExtras.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
 export { publicBrandingPayload };
@@ -38,6 +40,8 @@ export function registerApiRoutes(app, { jsonLimitAttachments = '4mb' } = {}) {
   app.use('/api/activities', activitiesRouter);
   app.use('/api/availability', availabilityRouter);
   app.use('/api/project-tasks', projectTasksRouter);
+  app.use('/api/time-sessions', timeSessionsRouter);
+  app.use('/api', pmoExtrasRouter);
   app.use('/api/issues', issuesRouter);
   app.use('/api/notifications', notificationsRouter);
   app.use('/api/backlogs', backlogsRouter);

@@ -88,8 +88,13 @@
     margin-top: 0;
     font-size: 0.92rem;
   }
-  .page-header--compact.page-header:not(:has(.page-subtitle)) {
+  .page-header--compact.page-header:not(:has(.page-subtitle)):not(:has(.page-header-actions)) {
     display: none;
+  }
+  .page-header--compact.page-header:not(:has(.page-subtitle)):has(.page-header-actions) {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
   }
 }
 

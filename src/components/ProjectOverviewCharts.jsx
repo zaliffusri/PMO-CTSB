@@ -13,6 +13,7 @@ import {
   chartProjectVelocity,
   chartProjectHealthBreakdown,
 } from '../../lib/projectCharts.js';
+import { PHASE_UI } from '../../lib/projectConstants.js';
 
 export default function ProjectOverviewCharts({
   tasks,
@@ -82,13 +83,13 @@ export default function ProjectOverviewCharts({
       )}
 
       <div className="project-charts-grid">
-        <ChartCard title="Completion" subtitle="Average task progress" className="project-charts-grid__gauge">
+        <ChartCard title="Completion" className="project-charts-grid__gauge">
           <div className="chart-gauge-wrap">
             <GaugeChart value={progress} label="Project" />
           </div>
         </ChartCard>
 
-        <ChartCard title="Task status" subtitle="Click a segment to filter tasks">
+        <ChartCard title="Task status">
           <DonutChart
             data={taskStatus.length ? taskStatus : [{ key: 'empty', label: 'No tasks', value: 1, color: 'var(--border)' }]}
             centerValue={taskTotal}
@@ -99,7 +100,7 @@ export default function ProjectOverviewCharts({
           />
         </ChartCard>
 
-        <ChartCard title="Task health" subtitle="On track vs at risk · click to filter">
+        <ChartCard title="Task health">
           <DonutChart
             data={healthBreakdown.length ? healthBreakdown : [{ key: 'empty', label: 'No tasks', value: 1, color: 'var(--border)' }]}
             centerValue={healthBreakdown.reduce((s, d) => s + d.value, 0) || 0}
@@ -111,7 +112,7 @@ export default function ProjectOverviewCharts({
         </ChartCard>
 
         {packageProgress.length > 0 && (
-          <ChartCard title="Work packages" subtitle="Avg progress · click to focus package" className="project-charts-grid__wide">
+          <ChartCard title={PHASE_UI.plural} className="project-charts-grid__wide">
             <HBarChart
               data={packageProgress}
               max={100}
@@ -122,7 +123,7 @@ export default function ProjectOverviewCharts({
           </ChartCard>
         )}
 
-        <ChartCard title="Team workload" subtitle="Tasks per assignee · click to view tasks">
+        <ChartCard title="Team workload">
           <HBarChart
             data={assigneeLoad.map((r) => ({ ...r, value: r.value, unit: '' }))}
             max={Math.max(...assigneeLoad.map((r) => r.value), 1)}
@@ -133,16 +134,16 @@ export default function ProjectOverviewCharts({
           />
         </ChartCard>
 
-        <ChartCard title="Done per week" subtitle="Tasks completed (last 6 weeks)">
+        <ChartCard title="Done per week">
           <VBarChart data={velocity} unit="" interactive />
         </ChartCard>
 
         {phaseChart.length > 0 && (
-          <ChartCard title="Delivery phases" subtitle="Click to open delivery tab">
+          <ChartCard title="Payment milestones">
             <DonutChart
               data={phaseChart}
               centerValue={phases.length}
-              centerLabel="phases"
+              centerLabel="milestones"
               interactive
               activeKey={activeChart?.type === 'phase' ? activeChart.key : null}
               onSegmentClick={handlePhaseClick}
@@ -151,7 +152,7 @@ export default function ProjectOverviewCharts({
         )}
 
         {backlogChart.length > 0 && (
-          <ChartCard title="Backlog" subtitle="Scope items by status">
+          <ChartCard title="Backlog">
             <DonutChart
               data={backlogChart}
               centerValue={backlogItems.length}
@@ -163,11 +164,6 @@ export default function ProjectOverviewCharts({
           </ChartCard>
         )}
       </div>
-
-      <p className="project-charts-hint">
-        Hover chart segments for details. Click to drill down into Tasks, Delivery, or Backlog.
-        Health: <span className={`pmo-health-badge pmo-health-${health}`}>{health === 'at_risk' ? 'At risk' : health === 'blocked' ? 'Blocked' : 'On track'}</span>
-      </p>
     </section>
   );
 }

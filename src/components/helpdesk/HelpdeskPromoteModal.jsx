@@ -15,7 +15,7 @@ export default function HelpdeskPromoteModal({
       <div className="modal-dialog" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="modal-dialog-header project-create-header">
           <h2 className="modal-dialog-title">Promote to product backlog</h2>
-          <p className="project-create-subtitle">"{issue.title}" — select project and assign staff for the backlog item.</p>
+          <p className="project-create-subtitle">{issue.title}</p>
         </div>
         <form className="project-create-form" onSubmit={onSubmit}>
           <div className="project-create-panel">

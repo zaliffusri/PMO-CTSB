@@ -4,11 +4,28 @@ import { api } from '../api';
 const BrandingContext = createContext(null);
 
 const DEFAULT_BRANDING = {
-  org_display_name: 'PMO CTSB',
-  org_tagline: 'Project office',
-  org_logo_url: null,
+  org_display_name: 'C360',
+  org_tagline: 'PROJECT MANAGEMENT',
+  org_logo_url: '/brand/c360-pm.png',
   org_banner_url: null,
 };
+
+const LEGACY_NAMES = new Set(['PMO CTSB', 'PMO', '']);
+
+function normalizeBranding(data = {}) {
+  const name = String(data.org_display_name ?? '').trim();
+  const tagline = String(data.org_tagline ?? '').trim();
+  const logo = data.org_logo_url || DEFAULT_BRANDING.org_logo_url;
+  return {
+    ...DEFAULT_BRANDING,
+    ...data,
+    org_display_name: !name || LEGACY_NAMES.has(name) ? DEFAULT_BRANDING.org_display_name : name,
+    org_tagline: !tagline || tagline === 'Technology-driven project office' || tagline === 'Project office'
+      ? DEFAULT_BRANDING.org_tagline
+      : tagline,
+    org_logo_url: logo,
+  };
+}
 
 export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState(DEFAULT_BRANDING);
@@ -16,7 +33,7 @@ export function BrandingProvider({ children }) {
   const reload = useCallback(async () => {
     try {
       const data = await api.settings.getPublic();
-      setBranding({ ...DEFAULT_BRANDING, ...data });
+      setBranding(normalizeBranding(data));
     } catch {
       setBranding(DEFAULT_BRANDING);
     }

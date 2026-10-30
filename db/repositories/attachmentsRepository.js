@@ -62,6 +62,24 @@ export function createAttachmentsRepository(ctx, getStore) {
       }));
     },
 
+    async listAttachmentsForEntities(entityType, entityIds) {
+      const ids = [...new Set((entityIds || []).map(Number).filter(Number.isFinite))];
+      if (!ids.length) return [];
+      if (!isDbMode()) {
+        const data = getData();
+        if (!data.attachments) data.attachments = [];
+        return data.attachments.filter(
+          (a) => a.entity_type === entityType && ids.includes(Number(a.entity_id)),
+        );
+      }
+      return withAttachmentsTable(() => dbSelect('attachments_app', {
+        filters: { entity_type: entityType },
+        inFilters: { entity_id: ids },
+        order: 'created_at',
+        ascending: false,
+      }));
+    },
+
     async findAttachment(id) {
       if (!isDbMode()) {
         const data = getData();

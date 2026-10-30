@@ -335,7 +335,19 @@ export default function BacklogDetailModal({
                       }}
                     >
                       {!item.assignee_person_id && <option value="">Select assignee…</option>}
-                      {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {(
+                        people.some((p) => Number(p.id) === Number(item.assignee_person_id))
+                          ? people
+                          : [
+                              ...people,
+                              ...(item.assignee_person_id
+                                ? [{ id: item.assignee_person_id, name: item.assignee_name || `Person #${item.assignee_person_id}` }]
+                                : []),
+                            ]
+                      ).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {!people.length && !item.assignee_person_id && (
+                        <option value="" disabled>Assign people on the People tab first</option>
+                      )}
                     </select>
                   ) : (item.assignee_name || 'Unassigned')}
                 </dd>
@@ -417,10 +429,6 @@ export default function BacklogDetailModal({
               Discussion
               <span className="backlog-detail__count">{comments.length}</span>
             </h3>
-            <p className="backlog-detail__hint">
-              Use @name to mention project team members. Creator and assignee are notified on status changes and new comments.
-            </p>
-
             {loadingComments ? (
               <p className="pmo-table-muted">Loading comments…</p>
             ) : comments.length === 0 ? (

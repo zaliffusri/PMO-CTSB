@@ -121,11 +121,6 @@ export default function ProjectMiniTimeline({ tasks, projectName, compact = fals
           </div>
         );
       })}
-      {compact && rows.length < (tasks || []).filter((t) => t.task_kind !== 'group').length && (
-        <p className="pmo-table-muted project-timeline-more-hint">
-          Showing {rows.length} of {(tasks || []).filter((t) => t.task_kind !== 'group').length} tasks — open Timeline tab for full view.
-        </p>
-      )}
     </div>
   );
 }

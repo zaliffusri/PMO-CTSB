@@ -20,6 +20,9 @@ import SettingsLocations from '../pages/settings/SettingsLocations';
 import SettingsModules from '../pages/settings/SettingsModules';
 import SettingsBranding from '../pages/settings/SettingsBranding';
 import SettingsEmail from '../pages/settings/SettingsEmail';
+import SettingsSso from '../pages/settings/SettingsSso';
+import Search from '../pages/Search';
+import Timesheets from '../pages/Timesheets';
 
 export default function AppRoutes() {
   const { user } = useAuth();
@@ -53,12 +56,16 @@ export default function AppRoutes() {
         <Route path="branding" element={<SettingsBranding />} />
         <Route path="appearance" element={<Navigate to="/settings/branding" replace />} />
         <Route path="email" element={<SettingsEmail />} />
+        <Route path="microsoft" element={<SettingsSso />} />
         <Route path="teams-calendar" element={<Navigate to="/settings/email" replace />} />
       </Route>
       <Route path="/calendar" element={<Calendar />} />
       <Route path="/reports" element={<Reports />} />
       <Route path="/gantt" element={<Gantt />} />
       <Route path="/helpdesk" element={<Issues />} />
+      <Route path="/search" element={<Search />} />
+      <Route path="/knowledge" element={<Navigate to="/helpdesk" replace />} />
+      <Route path="/timesheets" element={<Timesheets />} />
       <Route path="/my-work" element={<MyWork />} />
       <Route path="/finance" element={canViewFinance(user) ? <Finance /> : <Dashboard />} />
       <Route path="/account" element={<Account />} />

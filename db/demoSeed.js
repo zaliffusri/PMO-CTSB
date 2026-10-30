@@ -1,8 +1,14 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { hashPassword } from '../lib/auth.js';
+import { saveAttachmentFile } from '../lib/attachmentStorage.js';
 import { templateForClassification } from '../lib/phaseConstants.js';
 import { seedBulkVolumeData } from './demoSeedBulk.js';
 
-export const DEMO_SEED_VERSION = 10;
+export const DEMO_SEED_VERSION = 11;
+
+const DEMO_BRAND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public/brand');
 
 function dayOffset(n) {
   const d = new Date();
@@ -27,13 +33,46 @@ function isoAt(dayOffsetDays, hour, minute = 0) {
   return d.toISOString();
 }
 
+/** Attach sample site photos from public/brand so the calendar gallery has real examples. */
+async function attachActivityPhotos(store, activityId, photos, uploadedByUserId = null) {
+  if (!activityId || !photos?.length) return;
+  for (const photo of photos) {
+    try {
+      const abs = path.join(DEMO_BRAND_DIR, photo.file);
+      if (!fs.existsSync(abs)) continue;
+      const buffer = fs.readFileSync(abs);
+      const mime = photo.file.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+      const saved = await saveAttachmentFile('activity', activityId, photo.file, buffer, mime);
+      await store.addAttachment({
+        entity_type: 'activity',
+        entity_id: activityId,
+        kind: 'file',
+        file_name: photo.file,
+        mime_type: saved.mime_type,
+        file_size: saved.file_size,
+        storage_path: saved.storage_path,
+        label: photo.label,
+        uploaded_by_user_id: uploadedByUserId,
+      });
+    } catch (err) {
+      console.warn(`[demo] Could not attach ${photo.file} to activity ${activityId}:`, err?.message || err);
+    }
+  }
+}
+
 /** Rich calendar spread across the current month for demos and UI testing. */
 async function seedCalendarActivities(store, ctx) {
   const {
     p1, p2, p3, p4, p5, p6,
     projPortal, projApi, projMaint, projMigration, projTender,
+    adminId,
   } = ctx;
   const add = (row) => store.addActivity(row);
+  const withPhotos = async (row, photos) => {
+    const id = await add(row);
+    await attachActivityPhotos(store, id, photos, adminId);
+    return id;
+  };
 
   // —— Past two weeks ——
   await add({
@@ -55,33 +94,43 @@ async function seedCalendarActivities(store, ctx) {
     start_at: isoAt(-11, 9, 30),
     end_at: isoAt(-11, 12, 0),
   });
-  await add({
+  await withPhotos({
     person_id: p3,
     project_id: projApi,
     type: 'fat',
     title: 'FAT session — MOH API gateway',
+    description: 'Factory acceptance at MOH Putrajaya. Photos from the test floor.',
     location: 'MOH Putrajaya',
     start_at: isoAt(-10, 14, 0),
     end_at: isoAt(-10, 17, 0),
-  });
-  await add({
+  }, [
+    { file: 'auth-hero-pm.jpg', label: 'FAT floor — gateway test bench' },
+    { file: 'c360-pm.png', label: 'Sign-off board' },
+  ]);
+  await withPhotos({
     person_id: p4,
     project_id: projPortal,
     type: 'uat',
     title: 'UAT cycle 1 — citizen payments',
+    description: 'UAT with DBKL clerks. Session photos for the PMO pack.',
     location: 'MSC Office',
     start_at: isoAt(-9, 9, 0),
     end_at: isoAt(-9, 12, 0),
-  });
-  await add({
+  }, [
+    { file: 'auth-hero-pm.jpg', label: 'UAT room — cycle 1' },
+  ]);
+  await withPhotos({
     person_id: p5,
     project_id: projTender,
     type: 'tender',
     title: 'Smart City RFP — solution design',
+    description: 'On-site workshop at NUSAJAYA.',
     location: 'NUSAJAYA',
     start_at: isoAt(-8, 10, 0),
     end_at: isoAt(-8, 16, 0),
-  });
+  }, [
+    { file: 'cybersolution.png', label: 'Workshop venue' },
+  ]);
   await add({
     person_id: p6,
     project_id: projMaint,
@@ -116,7 +165,10 @@ async function seedCalendarActivities(store, ctx) {
   await add({ person_id: p2, project_id: projPortal, type: 'meeting', title: 'CR review with client', location: 'DBKL HQ', start_at: isoAt(busyDay, 10, 0), end_at: isoAt(busyDay, 11, 0) });
   await add({ person_id: p3, project_id: projApi, type: 'meeting', title: 'API security review', location: 'MSC Office', start_at: isoAt(busyDay, 11, 30), end_at: isoAt(busyDay, 12, 30) });
   await add({ person_id: p4, project_id: projPortal, type: 'uat', title: 'UAT defect triage', location: 'MSC Office', start_at: isoAt(busyDay, 14, 0), end_at: isoAt(busyDay, 15, 30) });
-  await add({ person_id: p5, project_id: projPortal, type: 'training', title: 'End-user training — DBKL clerks', location: 'DBKL HQ', start_at: isoAt(busyDay, 15, 30), end_at: isoAt(busyDay, 17, 0) });
+  await withPhotos(
+    { person_id: p5, project_id: projPortal, type: 'training', title: 'End-user training — DBKL clerks', description: 'Hands-on training at DBKL HQ.', location: 'DBKL HQ', start_at: isoAt(busyDay, 15, 30), end_at: isoAt(busyDay, 17, 0) },
+    [{ file: 'auth-hero-pm.jpg', label: 'Training lab — clerks at terminals' }],
+  );
 
   await add({
     person_id: p3,
@@ -157,6 +209,19 @@ async function seedCalendarActivities(store, ctx) {
   });
 
   // —— Today & near future ——
+  await withPhotos({
+    person_id: p1,
+    project_id: projPortal,
+    type: 'outstation',
+    title: 'Site visit — MBSA service counters',
+    description: 'Floor walk of the new kiosks. Photos so the team can see what is happening on site.',
+    location: 'MBSA Shah Alam',
+    start_at: isoAt(0, 8, 30),
+    end_at: isoAt(0, 12, 0),
+  }, [
+    { file: 'auth-hero-pm.jpg', label: 'Counter floor — user walkthrough' },
+    { file: 'c360-pm.png', label: 'Kiosk rollout board' },
+  ]);
   await add({
     person_id: p2,
     project_id: projPortal,
@@ -203,15 +268,19 @@ async function seedCalendarActivities(store, ctx) {
     start_at: isoAt(1, 9, 0),
     end_at: isoAt(1, 10, 0),
   });
-  await add({
+  await withPhotos({
     person_id: p1,
     project_id: projPortal,
     type: 'fat',
     title: 'FAT — citizen portal payments',
+    description: 'Acceptance test at DBKL HQ with photos from the test room.',
     location: 'DBKL HQ',
     start_at: isoAt(1, 10, 30),
     end_at: isoAt(1, 16, 0),
-  });
+  }, [
+    { file: 'auth-hero-pm.jpg', label: 'FAT room — payments module' },
+    { file: 'cybersolution.png', label: 'Client sign-off sheet' },
+  ]);
   await add({
     person_id: p2,
     project_id: projMigration,
@@ -231,27 +300,33 @@ async function seedCalendarActivities(store, ctx) {
     start_at: isoAt(2, 10, 0),
     end_at: isoAt(2, 16, 0),
   });
-  await add({
+  await withPhotos({
     person_id: p3,
     project_id: projApi,
     type: 'go-live',
     title: 'MOH API — production cutover rehearsal',
+    description: 'Night rehearsal at MOH Putrajaya. Photos from the ops room.',
     location: 'MOH Putrajaya',
     start_at: isoAt(2, 8, 0),
     end_at: isoAt(2, 12, 0),
-  });
+  }, [
+    { file: 'auth-hero-pm.jpg', label: 'Ops room — cutover rehearsal' },
+  ]);
 
   // Multi-day outstation (spans cells across the week)
   const outstation = isoRange(3, 5, 8, 18);
-  await add({
+  await withPhotos({
     person_id: p1,
     project_id: projPortal,
-    type: 'task',
+    type: 'outstation',
     title: 'On-site deployment — MBSA',
-    description: 'Production release and hypercare.',
+    description: 'Production release and hypercare. Daily photos from Shah Alam.',
     location: 'MBSA Shah Alam',
     ...outstation,
-  });
+  }, [
+    { file: 'auth-hero-pm.jpg', label: 'MBSA datacentre — cutover' },
+    { file: 'c360-pm.png', label: 'Hypercare board' },
+  ]);
   await add({
     person_id: p3,
     project_id: projPortal,
@@ -986,6 +1061,7 @@ export async function runRichDemoSeed(store) {
   await seedCalendarActivities(store, {
     p1, p2, p3, p4, p5, p6,
     projPortal, projApi, projMaint, projMigration, projTender,
+    adminId,
   });
 
   const bulkStats = await seedBulkVolumeData(store, {

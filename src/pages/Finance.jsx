@@ -12,6 +12,7 @@ import DonutChart from '../components/charts/DonutChart';
 import { engagementTypeLabel, deliveryScopeLabel } from '../../lib/projectConstants.js';
 import { paymentStatusLabel } from '../../lib/phaseConstants.js';
 import { renewalStatusLabel } from '../../lib/financeRenewals.js';
+import { useLocale } from '../context/LocaleContext';
 
 const VIEW_FILTERS = [
   { id: 'all', label: 'Full overview' },
@@ -149,6 +150,7 @@ function PaymentProgress({ paid, total }) {
 
 export default function Finance() {
   const { user } = useAuth();
+  const { t } = useLocale();
   const canAct = canViewFinance(user);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -268,15 +270,14 @@ export default function Finance() {
     downloadCsv(`pmo-finance-portfolio-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows]);
   };
 
-  if (loading) return <PageLoadingState message="Loading finance view…" />;
+  if (loading) return <PageLoadingState message={t('finance.loading')} />;
 
   return (
     <div className="page-module finance-page">
       <PageHeader
-        eyebrow="Finance"
-        title="Delivery & payment"
-        badge={actionCount > 0 ? `${actionCount} need action` : null}
-        subtitle="Track milestone billing by phase — mark invoiced/paid, see what is already claimed, and follow up on maintenance renewals."
+        eyebrow={t('eyebrow.finance')}
+        title={t('finance.title')}
+        badge={actionCount > 0 ? t('finance.needAction', { n: actionCount }) : null}
         actions={
           <div className="finance-header-actions">
             {summary?.ready_to_bill?.length > 0 && (
@@ -321,20 +322,18 @@ export default function Finance() {
         <div className="dashboard-stat-card finance-stat-card">
           <span className="dashboard-stat-label">Paid milestones</span>
           <span className="dashboard-stat-value pmo-stat-success">{totals.paidCount}</span>
-          <span className="dashboard-stat-hint">Completed & settled</span>
         </div>
         <div className="dashboard-stat-card finance-stat-card">
           <span className="dashboard-stat-label">Outstanding pipeline</span>
           <span className="dashboard-stat-value finance-stat-value--money">
             {formatMoneyCompact(totals.outstanding)}
           </span>
-          <span className="dashboard-stat-hint">Ready + invoiced unpaid</span>
         </div>
       </section>
 
       {hasAnyData && (
         <div className="finance-overview">
-          <ChartCard title="Payment pipeline" subtitle="Contract value by billing status">
+          <ChartCard title="Payment pipeline">
             <DonutChart
               data={paymentMix}
               centerValue={`${totals.collectionRate}%`}
@@ -429,9 +428,6 @@ export default function Finance() {
               <div className="section-card__header finance-section-header finance-section-header--warn">
                 <div>
                   <h2 className="section-card__title">Ready to bill</h2>
-                  <p className="section-card__desc">
-                    Completed phases with pending payment — create invoices from these milestones.
-                  </p>
                 </div>
                 <span className="finance-section-badge">{readyToBill.length}</span>
               </div>
@@ -441,7 +437,7 @@ export default function Finance() {
                     <tr>
                       <th>Project</th>
                       <th>Phase</th>
-                      <th className="hide-mobile">Work package</th>
+                      <th className="hide-mobile">Phase</th>
                       <th className="finance-col-money">Amount</th>
                       <th>Completed</th>
                       <th className="hide-mobile">Target</th>
@@ -477,7 +473,6 @@ export default function Finance() {
               <div className="section-card__header finance-section-header">
                 <div>
                   <h2 className="section-card__title">Invoiced — awaiting payment</h2>
-                  <p className="section-card__desc">Milestones billed but not yet marked as paid.</p>
                 </div>
                 <span className="finance-section-badge finance-section-badge--muted">{invoiced.length}</span>
               </div>
@@ -518,7 +513,7 @@ export default function Finance() {
             <div className="card section-card">
               <UiEmptyState
                 title={search ? 'No matching billing actions' : 'No billing actions pending'}
-                description={search ? 'Try clearing the search filter.' : 'All milestones are either not yet billable or already settled.'}
+                description={search ? 'Try clearing the search filter.' : 'No billing actions pending.'}
                 action={search ? (
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSearch('')}>Clear search</button>
                 ) : null}
@@ -531,9 +526,6 @@ export default function Finance() {
               <div className="section-card__header finance-section-header finance-section-header--warn">
                 <div>
                   <h2 className="section-card__title">Maintenance renewal follow-up</h2>
-                  <p className="section-card__desc">
-                    Maintenance contracts that have expired or end within 90 days — contact the client about renewal.
-                  </p>
                 </div>
                 <span className="finance-section-badge">{maintenanceRenewals.length}</span>
               </div>
@@ -587,7 +579,7 @@ export default function Finance() {
             <div className="card section-card">
               <UiEmptyState
                 title={search ? 'No matching renewals' : 'No maintenance renewals due'}
-                description={search ? 'Try clearing the search filter.' : 'No maintenance contracts are expired or ending within the next 90 days.'}
+                description={search ? 'Try clearing the search filter.' : 'No maintenance renewals due.'}
                 action={search ? (
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSearch('')}>Clear search</button>
                 ) : null}
@@ -600,9 +592,6 @@ export default function Finance() {
               <div className="section-card__header">
                 <div>
                   <h2 className="section-card__title">Paid & claimed by phase</h2>
-                  <p className="section-card__desc">
-                    Milestones already invoiced and settled — confirms what has been claimed per project phase.
-                  </p>
                 </div>
                 <span className="finance-section-badge finance-section-badge--muted">{paidMilestones.length}</span>
               </div>
@@ -612,7 +601,7 @@ export default function Finance() {
                     <tr>
                       <th>Project</th>
                       <th>Phase</th>
-                      <th className="hide-mobile">Work package</th>
+                      <th className="hide-mobile">Phase</th>
                       <th className="finance-col-money">Amount</th>
                       <th className="hide-mobile">Invoice</th>
                       <th>Paid date</th>
@@ -645,7 +634,7 @@ export default function Finance() {
             <div className="card section-card">
               <UiEmptyState
                 title={search ? 'No matching paid milestones' : 'No paid milestones yet'}
-                description="When Finance marks phases as paid, they appear here with invoice and paid date for audit."
+                description="No paid milestones yet."
               />
             </div>
           )}
@@ -654,8 +643,7 @@ export default function Finance() {
             <section className="card section-card" style={{ marginBottom: '1rem' }}>
               <div className="section-card__header">
                 <div>
-                  <h2 className="section-card__title">By work package</h2>
-                  <p className="section-card__desc">Delivery lines inside projects — each with its own delivery scope and milestones.</p>
+                  <h2 className="section-card__title">By phase</h2>
                 </div>
               </div>
               <div className="table-wrap pmo-data-list-wrap pmo-data-list-wrap--sticky pmo-data-list-wrap--comfortable">
@@ -663,7 +651,7 @@ export default function Finance() {
                   <thead>
                     <tr>
                       <th>Project</th>
-                      <th>Work package</th>
+                      <th>Phase</th>
                       <th className="hide-mobile">Scope</th>
                       <th>Current phase</th>
                       <th className="finance-col-money">Contract</th>
@@ -698,7 +686,6 @@ export default function Finance() {
               <div className="section-card__header">
                 <div>
                   <h2 className="section-card__title">Portfolio by phase & payment</h2>
-                  <p className="section-card__desc">Contract value, collection progress, and current delivery phase per project.</p>
                 </div>
               </div>
               {!projects.length ? (

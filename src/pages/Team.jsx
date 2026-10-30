@@ -8,29 +8,21 @@ import ModuleTabs from '../components/ModuleTabs';
 import ModuleFilterBar from '../components/ModuleFilterBar';
 import PageLoadingState from '../components/PageLoadingState';
 import ChartCard from '../components/charts/ChartCard';
-import DonutChart from '../components/charts/DonutChart';
-import HBarChart from '../components/charts/HBarChart';
 import VBarChart from '../components/charts/VBarChart';
-import { chartCapacityBands, chartCapacityData } from '../../lib/pmoMetrics.js';
 import { PMO_ROLES, normalizeRole } from '../../lib/permissions.js';
+import { useLocale } from '../context/LocaleContext';
 
 const TEAM_TABS = [
-  { id: 'capacity', label: 'Capacity' },
-  { id: 'directory', label: 'Directory' },
-  { id: 'workload', label: 'Workload' },
+  { id: 'capacity', key: 'tab.assignments' },
+  { id: 'directory', key: 'tab.directory' },
+  { id: 'workload', key: 'tab.workload' },
 ];
 
-function capacityClass(pct) {
-  if (pct > 100) return 'overload';
-  if (pct >= 80) return 'high';
-  return 'ok';
-}
-
-function PersonDetailPanel({ personDetail, availability, from, to, onClose }) {
+function PersonDetailPanel({ personDetail, onClose }) {
   if (!personDetail) {
     return (
       <div className="team-detail-empty ui-card">
-        <p>Select a team member to view availability, projects, and recent activities.</p>
+        <p>Select a team member to view projects and recent activities.</p>
       </div>
     );
   }
@@ -50,25 +42,6 @@ function PersonDetailPanel({ personDetail, availability, from, to, onClose }) {
           </button>
         )}
       </div>
-
-      {availability && (
-        <div className={`pmo-availability-panel ${availability.isOverloaded ? 'overload' : ''}`}>
-          <strong>Availability ({from} → {to})</strong>
-          <p>
-            {availability.totalAllocation}% allocated · {availability.availabilityPercent}% available
-            {availability.isOverloaded && ' — overloaded'}
-          </p>
-          {availability.currentProjects?.length > 0 && (
-            <ul className="team-detail-list">
-              {availability.currentProjects.map((pr) => (
-                <li key={pr.id}>
-                  <Link to={`/projects/${pr.project_id}`}>{pr.project_name}</Link> — {pr.allocation_percent}%
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
 
       <div className="team-detail-section">
         <h4>Projects</h4>
@@ -106,6 +79,7 @@ function PersonDetailPanel({ personDetail, availability, from, to, onClose }) {
 
 export default function Team() {
   const { user } = useAuth();
+  const { t } = useLocale();
   const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('capacity');
@@ -116,7 +90,6 @@ export default function Team() {
   const [personDetail, setPersonDetail] = useState(null);
   const [workload, setWorkload] = useState([]);
   const [assignments, setAssignments] = useState([]);
-  const [availability, setAvailability] = useState(null);
   const [from, setFrom] = useState(new Date().toISOString().slice(0, 10));
   const [to, setTo] = useState(() => {
     const d = new Date();
@@ -149,24 +122,21 @@ export default function Team() {
   useEffect(() => {
     if (!selected) {
       setPersonDetail(null);
-      setAvailability(null);
       return;
     }
     api.people.get(selected).then(setPersonDetail).catch(console.error);
-    api.availability.check(selected, from, to).then(setAvailability).catch(() => setAvailability(null));
-  }, [selected, from, to]);
+  }, [selected]);
 
   useEffect(() => {
     api.availability.workload(from, to).then((wl) => setWorkload(wl?.workload || [])).catch(console.error);
     api.assignments.list().then(setAssignments).catch(console.error);
   }, [from, to]);
 
-  const capacityByPerson = useMemo(() => {
+  const projectsByPerson = useMemo(() => {
     const map = {};
     assignments.forEach((a) => {
-      if (!map[a.person_id]) map[a.person_id] = { total: 0, projects: [] };
-      map[a.person_id].total += a.allocation_percent || 0;
-      map[a.person_id].projects.push({ name: a.project_name, pct: a.allocation_percent });
+      if (!map[a.person_id]) map[a.person_id] = [];
+      map[a.person_id].push(a.project_name);
     });
     return map;
   }, [assignments]);
@@ -179,30 +149,12 @@ export default function Team() {
     );
   }, [people, search]);
 
-  const overloadedCount = useMemo(
-    () => people.filter((p) => (capacityByPerson[p.id]?.total ?? 0) > 100).length,
-    [people, capacityByPerson]
-  );
-
-  const teamWorkloadView = useMemo(
-    () => people.map((p) => ({
-      id: p.id,
-      name: p.name,
-      totalAllocation: capacityByPerson[p.id]?.total ?? 0,
-      isOverloaded: (capacityByPerson[p.id]?.total ?? 0) > 100,
-    })),
-    [people, capacityByPerson]
-  );
-
-  const capacityBands = useMemo(() => chartCapacityBands(teamWorkloadView), [teamWorkloadView]);
-  const capacityBars = useMemo(() => chartCapacityData(teamWorkloadView, 8), [teamWorkloadView]);
-  const workloadBars = useMemo(() => chartCapacityData(workload, 8), [workload]);
   const workloadVBars = useMemo(
     () => workload.slice(0, 6).map((w) => ({
       key: String(w.id),
       label: (w.name || '').split(' ')[0],
       value: w.activities?.length ?? 0,
-      color: w.isOverloaded ? '#dc2626' : '#2563eb',
+      color: '#2563eb',
     })),
     [workload]
   );
@@ -227,7 +179,7 @@ export default function Team() {
   if (loading) return <PageLoadingState message="Loading team…" />;
 
   const periodToolbar = (
-    <ModuleFilterBar summary={`Capacity period: ${from} → ${to}`}>
+    <ModuleFilterBar summary={`Activity period: ${from} → ${to}`}>
       <label className="module-toolbar__field">
         <span className="module-toolbar__label">Period from</span>
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="form-field__input pmo-filter-input" />
@@ -242,24 +194,19 @@ export default function Team() {
   return (
     <div className="page-module team-page">
       <PageHeader
-        title="Team & capacity"
-        subtitle="Roster matches system users (Users module). Plan allocation and check availability before assigning work."
+        title={t('page.team')}
         actions={
           <button type="button" className="btn btn-primary" onClick={() => setShowForm(true)}>
-            + Add person
+            {t('action.addPerson')}
           </button>
         }
       />
 
       <ModuleTabs
-        tabs={TEAM_TABS.map((t) => (
-          t.id === 'capacity' && overloadedCount > 0
-            ? { ...t, badge: overloadedCount }
-            : t
-        ))}
+        tabs={TEAM_TABS.map((tab) => ({ ...tab, label: t(tab.key) }))}
         active={activeTab}
         onChange={setActiveTab}
-        ariaLabel="Team views"
+        ariaLabel={t('tab.views')}
       />
 
       {showForm && (
@@ -323,41 +270,26 @@ export default function Team() {
 
       {activeTab === 'capacity' && (
         <div className="page-section-stack">
-          {periodToolbar}
-          <div className="team-charts-row">
-            <ChartCard title="Capacity mix" subtitle="Team allocation bands">
-              <DonutChart
-                data={capacityBands.length ? capacityBands : [{ key: 'ok', label: 'Available', value: 1, color: 'var(--success)' }]}
-                centerValue={people.length}
-                centerLabel="people"
-              />
-            </ChartCard>
-            <ChartCard title="Allocation leaders" subtitle="By project assignment %">
-              <HBarChart data={capacityBars} max={100} />
-            </ChartCard>
-          </div>
           <section className="ui-card section-card">
             <div className="section-card__header">
               <div>
-                <h2 className="section-card__title">Resource capacity</h2>
-                <p className="section-card__desc">Green &lt;80%, amber 80–100%, red &gt;100% allocation. Only active login users are shown.</p>
+                <h2 className="section-card__title">Project assignments</h2>
               </div>
             </div>
             <div className="pmo-capacity-grid">
               {people.map((p) => {
-                const cap = capacityByPerson[p.id]?.total ?? 0;
+                const projectNames = projectsByPerson[p.id] || [];
                 return (
                   <button
                     key={p.id}
                     type="button"
-                    className={`pmo-capacity-card ${capacityClass(cap)} ${selected === p.id ? 'selected' : ''}`}
+                    className={`pmo-capacity-card ${selected === p.id ? 'selected' : ''}`}
                     onClick={() => selectPerson(p.id)}
                   >
                     <div className="pmo-capacity-name">{p.name}</div>
-                    <div className="pmo-capacity-bar" aria-hidden>
-                      <div className="pmo-capacity-fill" style={{ width: `${Math.min(cap, 100)}%` }} />
+                    <div className="pmo-capacity-pct">
+                      {projectNames.length} project{projectNames.length === 1 ? '' : 's'}
                     </div>
-                    <div className="pmo-capacity-pct">{cap}% allocated</div>
                   </button>
                 );
               })}
@@ -366,9 +298,6 @@ export default function Team() {
           {selected && (
             <PersonDetailPanel
               personDetail={personDetail}
-              availability={availability}
-              from={from}
-              to={to}
               onClose={() => setSelected(null)}
             />
           )}
@@ -395,9 +324,7 @@ export default function Team() {
               {filteredPeople.length === 0 ? (
                 <p className="team-detail-muted">No people match your search.</p>
               ) : (
-                filteredPeople.map((p) => {
-                  const cap = capacityByPerson[p.id]?.total ?? 0;
-                  return (
+                filteredPeople.map((p) => (
                     <button
                       key={p.id}
                       type="button"
@@ -406,20 +333,14 @@ export default function Team() {
                     >
                       <span className="team-directory-item__name">{p.name}</span>
                       <span className="team-directory-item__meta">
-                        {p.role || '–'} · {p.project_count} project(s) · {cap}% alloc
+                        {p.role || '–'} · {p.project_count} project(s)
                       </span>
                     </button>
-                  );
-                })
+                  ))
               )}
             </div>
           </aside>
-          <PersonDetailPanel
-            personDetail={personDetail}
-            availability={availability}
-            from={from}
-            to={to}
-          />
+          <PersonDetailPanel personDetail={personDetail} />
         </div>
       )}
 
@@ -427,10 +348,7 @@ export default function Team() {
         <div className="page-section-stack">
           {periodToolbar}
           <div className="team-charts-row">
-            <ChartCard title="Utilization" subtitle="Allocation % this period">
-              <HBarChart data={workloadBars} max={100} />
-            </ChartCard>
-            <ChartCard title="Activity volume" subtitle="Logged activities count">
+            <ChartCard title="Activity volume">
               <VBarChart data={workloadVBars} unit="" />
             </ChartCard>
           </div>
@@ -438,7 +356,6 @@ export default function Team() {
             <div className="section-card__header">
               <div>
                 <h2 className="section-card__title">Workload summary</h2>
-                <p className="section-card__desc">Task counts and activity hours for users with system accounts.</p>
               </div>
             </div>
             {!workload.length ? (
@@ -449,8 +366,6 @@ export default function Team() {
                   <thead>
                     <tr>
                       <th>Name</th>
-                      <th>Allocation</th>
-                      <th>Available</th>
                       <th>Projects</th>
                       <th>Tasks (open)</th>
                       <th>Activities</th>
@@ -462,12 +377,6 @@ export default function Team() {
                       return (
                         <tr key={w.id}>
                           <td>{w.name}</td>
-                          <td>
-                            <span className={`pmo-health-badge pmo-health-${w.isOverloaded ? 'blocked' : w.totalAllocation >= 80 ? 'at_risk' : 'on_track'}`}>
-                              {w.totalAllocation}%
-                            </span>
-                          </td>
-                          <td>{w.availability}%</td>
                           <td>{w.projectCount ?? 0}</td>
                           <td>{ts.notDone ?? 0}</td>
                           <td>{w.activities.length} ({w.activityHours.toFixed(1)}h)</td>

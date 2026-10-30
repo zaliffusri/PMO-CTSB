@@ -1,5 +1,4 @@
 import { ISSUE_RESOLUTION_METHODS } from '../../../lib/issueConstants.js';
-import { supportLevelLabel } from '../../../lib/issueWorkflow.js';
 
 export default function HelpdeskResolveModal({
   issue,
@@ -9,6 +8,8 @@ export default function HelpdeskResolveModal({
   onNotesChange,
   action,
   onActionChange,
+  csat,
+  onCsatChange,
   saving,
   onCancel,
   onSubmit,
@@ -18,7 +19,7 @@ export default function HelpdeskResolveModal({
       <div className="modal-dialog" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="modal-dialog-header project-create-header">
           <h2 className="modal-dialog-title">Mark issue solved</h2>
-          <p className="project-create-subtitle">Record how "{issue.title}" was resolved at {issue.helpdesk_stage_label || supportLevelLabel(issue.support_level)}.</p>
+          <p className="project-create-subtitle">{issue.title}</p>
         </div>
         <form className="project-create-form" onSubmit={onSubmit}>
           <div className="project-create-panel">
@@ -37,6 +38,15 @@ export default function HelpdeskResolveModal({
             <div className="form-field">
               <label className="form-field__label" htmlFor="resolve-notes">Notes</label>
               <textarea id="resolve-notes" className="form-field__input form-field__textarea" rows={2} value={notes} onChange={(e) => onNotesChange(e.target.value)} placeholder="Internal summary (optional)…" />
+            </div>
+            <div className="form-field">
+              <label className="form-field__label" htmlFor="resolve-csat">CSAT (1–5)</label>
+              <select id="resolve-csat" className="form-field__input" value={csat || ''} onChange={(e) => onCsatChange(e.target.value)}>
+                <option value="">Not collected</option>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div className="project-create-footer">

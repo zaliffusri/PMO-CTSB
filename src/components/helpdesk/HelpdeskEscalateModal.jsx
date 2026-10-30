@@ -18,9 +18,7 @@ export default function HelpdeskEscalateModal({
       <div className="modal-dialog" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="modal-dialog-header project-create-header">
           <h2 className="modal-dialog-title">Escalate to {nextLevel}</h2>
-          <p className="project-create-subtitle">
-            Pass "{issue.title}" from {supportLevelLabel(issue.support_level)} to {supportLevelLabel(nextLevel)}.
-          </p>
+          <p className="project-create-subtitle">{issue.title}</p>
         </div>
         <form className="project-create-form" onSubmit={onSubmit}>
           <div className="project-create-panel">

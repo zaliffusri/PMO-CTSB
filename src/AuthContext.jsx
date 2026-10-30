@@ -8,6 +8,15 @@ export function AuthProvider({ children }) {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ssoToken = params.get('sso_token');
+    if (ssoToken) {
+      setAuthToken(ssoToken);
+      params.delete('sso_token');
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, '', next);
+    }
+
     const token = localStorage.getItem('auth_token');
     if (!token) {
       setChecking(false);

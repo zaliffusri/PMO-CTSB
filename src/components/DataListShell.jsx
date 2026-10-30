@@ -12,7 +12,6 @@ export default function DataListShell({
   fluid = true,
   maxHeight,
   footer = true,
-  scrollHint = false,
   'aria-label': ariaLabel,
 }) {
   const wrapClass = [
@@ -48,10 +47,7 @@ export default function DataListShell({
         {children}
       </div>
       {footerText && (
-        <p
-          className={['pmo-data-list-footer', scrollHint ? 'pmo-data-list-footer--scroll-hint' : ''].filter(Boolean).join(' ')}
-          aria-live="polite"
-        >
+        <p className="pmo-data-list-footer" aria-live="polite">
           {footerText}
         </p>
       )}

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { store } from '../db/store.js';
 import { isMailerConfigured, sendAssignmentEmail } from '../lib/mailer.js';
 import { notifyPersonInApp } from '../lib/notifyUser.js';
+import { normalizeProjectAssignmentRole, PROJECT_ASSIGNMENT_ROLES } from '../lib/projectConstants.js';
 
 export const assignmentsRouter = Router();
 
@@ -40,7 +41,7 @@ async function resolveAssigneeEmail(person) {
 }
 
 /** @returns {'sent'|'no_recipient'|'smtp_not_configured'|'failed'} */
-async function notifyAssignmentEmail({ person, project, roleInProject, allocationPercent, actorName, action }) {
+async function notifyAssignmentEmail({ person, project, roleInProject, actorName, action }) {
   if (!(await isMailerConfigured())) {
     console.warn('assignments: SMTP not configured; assignment email skipped');
     return 'smtp_not_configured';
@@ -59,7 +60,6 @@ async function notifyAssignmentEmail({ person, project, roleInProject, allocatio
       personName: person?.name,
       projectName: project?.name || String(project?.id || ''),
       roleInProject,
-      allocationPercent,
       assignedBy: actorName,
       action,
     });
@@ -95,11 +95,17 @@ assignmentsRouter.post('/', async (req, res) => {
   if (!project_id || !person_id) {
     return res.status(400).json({ error: 'project_id and person_id are required' });
   }
+  const normalizedRole = normalizeProjectAssignmentRole(role_in_project, { allowCustom: true });
+  if (!normalizedRole) {
+    return res.status(400).json({
+      error: `Role in project is required. Choose one of: ${PROJECT_ASSIGNMENT_ROLES.join(', ')}, or enter a custom role.`,
+    });
+  }
   try {
     const id = await store.addAssignment({
       project_id: +project_id,
       person_id: +person_id,
-      role_in_project: role_in_project || null,
+      role_in_project: normalizedRole,
       allocation_percent: allocation_percent ?? 100,
     });
     const assignments = await store.listAssignments();
@@ -124,7 +130,6 @@ assignmentsRouter.post('/', async (req, res) => {
       person,
       project,
       roleInProject: pa.role_in_project,
-      allocationPercent: pa.allocation_percent,
       actorName: req.user?.name || req.user?.email || '',
       action: 'assigned',
     });
@@ -175,8 +180,18 @@ assignmentsRouter.put('/:id', async (req, res) => {
   const assignments = await store.listAssignments();
   const existing = assignments.find(a => a.id === id);
   if (!existing) return res.status(404).json({ error: 'Assignment not found' });
+  let nextRole = existing.role_in_project;
+  if (role_in_project !== undefined) {
+    const normalizedRole = normalizeProjectAssignmentRole(role_in_project, { allowCustom: true });
+    if (role_in_project != null && String(role_in_project).trim() && !normalizedRole) {
+      return res.status(400).json({
+        error: `Invalid role. Choose a listed role or enter a custom name.`,
+      });
+    }
+    nextRole = normalizedRole;
+  }
   await store.updateAssignment(id, {
-    role_in_project: role_in_project ?? existing.role_in_project,
+    role_in_project: nextRole,
     allocation_percent: allocation_percent ?? existing.allocation_percent,
   });
   const updatedAssignments = await store.listAssignments();
@@ -200,10 +215,9 @@ assignmentsRouter.put('/:id', async (req, res) => {
   const email_notification = await notifyAssignmentEmail({
     person,
     project,
-    roleInProject: pa.role_in_project,
-    allocationPercent: pa.allocation_percent,
-    actorName: req.user?.name || req.user?.email || '',
-    action: 'updated',
+      roleInProject: pa.role_in_project,
+      actorName: req.user?.name || req.user?.email || '',
+      action: 'updated',
   });
   res.json({ ...pa, person_name: person?.name, project_name: project?.name, email_notification });
 });

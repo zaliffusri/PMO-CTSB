@@ -7,6 +7,8 @@ import {
   formatActivityTimeRange,
   formatAuditWhen,
 } from '../../utils/calendarUtils.js';
+import { ATTACHMENT_IMAGE_ACCEPT } from '../../../lib/attachmentConstants.js';
+import EntityAttachments from '../EntityAttachments.jsx';
 
 export default function CalendarActivityDetailSheet({
   activity: a,
@@ -82,6 +84,19 @@ export default function CalendarActivityDetailSheet({
             <p className="calendar-detail-sheet-desc">{descForCalendar}</p>
           </div>
         )}
+        <EntityAttachments
+          entityType="activity"
+          entityId={a.id}
+          title="Site photos"
+          gallery
+          compact
+          readOnly={!canEdit}
+          allowLinks={false}
+          accept={ATTACHMENT_IMAGE_ACCEPT}
+          emptyHint={canEdit
+            ? 'No photos yet. Add a picture from the site visit so the team can see what happened.'
+            : 'No photos on this activity yet.'}
+        />
         {canEdit && (
           <div className="calendar-detail-actions">
             <button

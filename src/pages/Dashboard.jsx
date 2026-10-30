@@ -6,26 +6,20 @@ import {
   portfolioSummary,
   needsAttentionItems,
   healthLabel,
-  chartHealthData,
-  chartStatusData,
-  chartProgressData,
-  chartCapacityData,
-  chartCapacityBands,
 } from '../../lib/pmoMetrics.js';
 import PageHeader from '../components/PageHeader';
 import WorkspaceBanner from '../components/WorkspaceBanner';
 import PageLoadingState from '../components/PageLoadingState';
-import ChartCard from '../components/charts/ChartCard';
-import DonutChart from '../components/charts/DonutChart';
-import HBarChart from '../components/charts/HBarChart';
-import GaugeChart from '../components/charts/GaugeChart';
 import { OPEN_BACKLOG_STATUSES } from '../../lib/backlogConstants.js';
+import { useLocale } from '../context/LocaleContext';
+import DashboardWeekFeed from '../components/DashboardWeekFeed';
 
 const OPEN_ISSUE_STATUSES = new Set(['open', 'in_progress', 'waiting_agency']);
 
 const PORTFOLIO_PREVIEW = 8;
 
 export default function Dashboard() {
+  const { t } = useLocale();
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [workload, setWorkload] = useState([]);
@@ -77,12 +71,6 @@ export default function Dashboard() {
     ? filteredProjects
     : filteredProjects.slice(0, PORTFOLIO_PREVIEW);
 
-  const healthChart = useMemo(() => chartHealthData(enriched), [enriched]);
-  const statusChart = useMemo(() => chartStatusData(projects), [projects]);
-  const progressChart = useMemo(() => chartProgressData(enriched, 6), [enriched]);
-  const capacityChart = useMemo(() => chartCapacityData(workload, 6), [workload]);
-  const healthTotal = healthChart.reduce((s, d) => s + d.value, 0);
-
   const helpdeskStats = useMemo(() => ({
     open: issues.filter((i) => OPEN_ISSUE_STATUSES.has(i.status)).length,
     openCr: backlogs.filter((b) => b.item_type === 'cr' && OPEN_BACKLOG_STATUSES.has(b.status)).length,
@@ -91,110 +79,67 @@ export default function Dashboard() {
   }), [issues, backlogs]);
 
   if (loading) {
-    return <PageLoadingState message="Loading dashboard…" />;
+    return <PageLoadingState message={t('chrome.loading')} />;
   }
 
   return (
     <div className="page-module dashboard">
       <PageHeader
-        eyebrow="Portfolio"
-        title="Dashboard"
-        subtitle="Portfolio health, project status, and resource alerts at a glance."
+        eyebrow={t('eyebrow.portfolio')}
+        title={t('page.dashboard')}
       />
 
       <WorkspaceBanner />
 
-      <section className="dashboard-stats kpi-strip" aria-label="Portfolio KPIs">
+      <section className="dashboard-stats kpi-strip" aria-label={t('dash.kpis')}>
         <Link to="/projects" className="dashboard-stat-card dashboard-stat-projects">
-          <span className="dashboard-stat-label">Active projects</span>
+          <span className="dashboard-stat-label">{t('dash.activeProjects')}</span>
           <span className="dashboard-stat-value">{summary.activeProjects}</span>
-          <span className="dashboard-stat-hint">{summary.totalProjects} total →</span>
+          <span className="dashboard-stat-hint">{t('common.total', { n: summary.totalProjects })}</span>
         </Link>
         <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label">On track</span>
+          <span className="dashboard-stat-label">{t('dash.onTrack')}</span>
           <span className="dashboard-stat-value pmo-stat-success">{summary.onTrack}</span>
-          <span className="dashboard-stat-hint">Healthy delivery</span>
         </div>
         <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label">At risk</span>
+          <span className="dashboard-stat-label">{t('dash.atRisk')}</span>
           <span className={`dashboard-stat-value ${summary.atRisk ? 'pmo-stat-warning' : ''}`}>{summary.atRisk}</span>
-          <span className="dashboard-stat-hint">Needs review</span>
         </div>
         <div className="dashboard-stat-card">
-          <span className="dashboard-stat-label">Blocked</span>
+          <span className="dashboard-stat-label">{t('dash.blocked')}</span>
           <span className={`dashboard-stat-value ${summary.blocked ? 'pmo-stat-danger' : ''}`}>{summary.blocked}</span>
-          <span className="dashboard-stat-hint">Stalled work</span>
         </div>
         <div className="dashboard-stat-card dashboard-stat-card--hide-sm">
-          <span className="dashboard-stat-label">Avg completion</span>
+          <span className="dashboard-stat-label">{t('dash.avgCompletion')}</span>
           <span className="dashboard-stat-value">{summary.avgCompletion}%</span>
-          <span className="dashboard-stat-hint">Active projects</span>
         </div>
-        <Link
-          to="/team"
-          className={`dashboard-stat-card dashboard-stat-overloaded ${summary.overloadedPeople ? 'has-issue' : ''}`}
-        >
-          <span className="dashboard-stat-label">Overloaded</span>
-          <span className="dashboard-stat-value">{summary.overloadedPeople}</span>
-          <span className="dashboard-stat-hint">Team capacity →</span>
-        </Link>
       </section>
 
-      <section className="dashboard-stats dashboard-stats--secondary" aria-label="Helpdesk & backlog">
+      <section className="dashboard-stats dashboard-stats--secondary" aria-label={t('dash.helpdeskBacklog')}>
         <Link to="/helpdesk" className={`dashboard-stat-card ${helpdeskStats.open ? 'has-issue' : ''}`}>
-          <span className="dashboard-stat-label">Helpdesk open</span>
+          <span className="dashboard-stat-label">{t('dash.helpdeskOpen')}</span>
           <span className="dashboard-stat-value">{helpdeskStats.open}</span>
-          <span className="dashboard-stat-hint">Active issues →</span>
         </Link>
         <Link to="/projects" className="dashboard-stat-card">
-          <span className="dashboard-stat-label">Open CR</span>
+          <span className="dashboard-stat-label">{t('dash.openCr')}</span>
           <span className="dashboard-stat-value pmo-stat-warning">{helpdeskStats.openCr}</span>
-          <span className="dashboard-stat-hint">In backlog</span>
         </Link>
         <Link to="/projects" className="dashboard-stat-card">
-          <span className="dashboard-stat-label">Open bugs</span>
+          <span className="dashboard-stat-label">{t('dash.openBugs')}</span>
           <span className="dashboard-stat-value pmo-stat-danger">{helpdeskStats.openBugs}</span>
-          <span className="dashboard-stat-hint">Bug / defect</span>
         </Link>
         <Link to="/helpdesk" className="dashboard-stat-card">
-          <span className="dashboard-stat-label">Recurring</span>
+          <span className="dashboard-stat-label">{t('dash.recurring')}</span>
           <span className="dashboard-stat-value">{helpdeskStats.recurring}</span>
-          <span className="dashboard-stat-hint">Recurring issues</span>
         </Link>
       </section>
 
-      <section className="dashboard-charts" aria-label="Portfolio charts">
-        <ChartCard title="Portfolio health" subtitle="Active project delivery">
-          <DonutChart
-            data={healthChart.length ? healthChart : [{ key: 'empty', label: 'No active', value: 1, color: 'var(--border)' }]}
-            centerValue={healthTotal || summary.activeProjects}
-            centerLabel="active"
-          />
-        </ChartCard>
-        <ChartCard title="Project status" subtitle="Entire portfolio mix">
-          <DonutChart
-            data={statusChart.length ? statusChart : [{ key: 'empty', label: 'None', value: 1, color: 'var(--border)' }]}
-            centerValue={projects.length}
-            centerLabel="projects"
-          />
-        </ChartCard>
-        <ChartCard title="Avg completion" subtitle="Across active projects">
-          <div className="chart-gauge-wrap">
-            <GaugeChart value={summary.avgCompletion} label="Portfolio avg" />
-          </div>
-        </ChartCard>
-        <ChartCard title="Top progress" subtitle="Leading active projects">
-          <HBarChart data={progressChart} max={100} />
-        </ChartCard>
-        <ChartCard title="Team allocation" subtitle="Highest utilization" className="dashboard-charts__wide">
-          <HBarChart data={capacityChart} max={100} />
-        </ChartCard>
-      </section>
+      <DashboardWeekFeed />
 
       {attention.length > 0 && (
         <section className="dashboard-section dashboard-alert">
           <div className="dashboard-section-header">
-            <h2 className="dashboard-section-title">Needs attention</h2>
+            <h2 className="dashboard-section-title">{t('dash.needsAttention')}</h2>
             <span className="dashboard-section-count">{attention.length}</span>
           </div>
           <div className="dashboard-section-body">
@@ -213,7 +158,7 @@ export default function Dashboard() {
             </ul>
             {attention.length > 5 && (
               <p className="dashboard-section-footer">
-                <Link to="/projects">View all flagged items in Projects →</Link>
+                <Link to="/projects">{t('dash.viewAllFlagged')}</Link>
               </p>
             )}
           </div>
@@ -222,26 +167,27 @@ export default function Dashboard() {
 
       <section className="dashboard-section dashboard-projects">
         <div className="dashboard-section-header">
-          <h2 className="dashboard-section-title">Project portfolio</h2>
+          <h2 className="dashboard-section-title">{t('dash.portfolio')}</h2>
+          <Link to="/projects" className="btn btn-ghost btn-sm">{t('dash.seePortfolio')}</Link>
           <div className="dashboard-tabs">
             <button
               type="button"
               className={projectFilter === 'active' ? 'active' : ''}
               onClick={() => { setProjectFilter('active'); setShowAllProjects(false); }}
             >
-              Active
+              {t('status.active')}
             </button>
             <button
               type="button"
               className={projectFilter === 'all' ? 'active' : ''}
               onClick={() => { setProjectFilter('all'); setShowAllProjects(false); }}
             >
-              All
+              {t('common.all')}
             </button>
           </div>
         </div>
         <div className="dashboard-section-toolbar">
-          <span className="dashboard-toolbar-label">Health</span>
+          <span className="dashboard-toolbar-label">{t('common.health')}</span>
           <div className="pmo-filter-row">
             {['all', 'on_track', 'at_risk', 'blocked'].map((h) => (
               <button
@@ -250,7 +196,7 @@ export default function Dashboard() {
                 className={`pmo-chip-filter ${healthFilter === h ? 'active' : ''}`}
                 onClick={() => { setHealthFilter(h); setShowAllProjects(false); }}
               >
-                {h === 'all' ? 'All' : healthLabel(h)}
+                {h === 'all' ? t('common.all') : t(`health.${h}`)}
               </button>
             ))}
           </div>
@@ -258,7 +204,7 @@ export default function Dashboard() {
         <div className="dashboard-section-body">
           {filteredProjects.length === 0 ? (
             <p className="dashboard-empty">
-              No projects match this filter. <Link to="/projects">Create one</Link>.
+              {t('dash.noMatch')} <Link to="/projects">{t('dash.createOne')}</Link>.
             </p>
           ) : (
             <>
@@ -266,13 +212,13 @@ export default function Dashboard() {
                 <table className="pmo-data-list pmo-portfolio-table">
                   <thead>
                     <tr>
-                      <th>Project</th>
-                      <th>Health</th>
-                      <th>Status</th>
-                      <th className="hide-mobile">Client</th>
-                      <th>Progress</th>
-                      <th className="hide-mobile">Team</th>
-                      <th className="hide-mobile">Due</th>
+                      <th>{t('common.project')}</th>
+                      <th>{t('common.health')}</th>
+                      <th>{t('common.status')}</th>
+                      <th className="hide-mobile">{t('common.client')}</th>
+                      <th>{t('common.progress')}</th>
+                      <th className="hide-mobile">{t('common.teamCol')}</th>
+                      <th className="hide-mobile">{t('common.due')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -286,7 +232,7 @@ export default function Dashboard() {
                         </td>
                         <td>
                           <span className={`pmo-health-badge pmo-health-${p.health}`}>
-                            {healthLabel(p.health)}
+                            {t(`health.${p.health}`) || healthLabel(p.health)}
                           </span>
                         </td>
                         <td>
@@ -312,14 +258,14 @@ export default function Dashboard() {
                 <div className="dashboard-section-footer">
                   {!showAllProjects ? (
                     <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAllProjects(true)}>
-                      Show all {filteredProjects.length} projects
+                      {t('dash.showAllProjects', { n: filteredProjects.length })}
                     </button>
                   ) : (
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAllProjects(false)}>
-                      Show less
+                      {t('dash.showLess')}
                     </button>
                   )}
-                  <Link to="/projects" className="btn btn-ghost btn-sm">Open projects module →</Link>
+                  <Link to="/projects" className="btn btn-ghost btn-sm">{t('dash.openProjects')}</Link>
                 </div>
               )}
             </>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { deliveryScopeLabel } from '../../lib/projectConstants.js';
+import { deliveryScopeLabel, PHASE_UI } from '../../lib/projectConstants.js';
 import { api } from '../api';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import UiEmptyState from './UiEmptyState';
@@ -147,7 +147,7 @@ function PackageDeliveryLane({
     <section className="delivery-package-lane">
       <header className="delivery-package-lane__header">
         <div className="delivery-package-lane__identity">
-          <p className="delivery-package-lane__eyebrow">Work package delivery</p>
+          <p className="delivery-package-lane__eyebrow">{PHASE_UI.deliveryLane}</p>
           <h3 className="delivery-package-lane__title">{title}</h3>
           <div className="delivery-package-lane__meta">
             {subtitle && <span className="delivery-package-lane__scope">{subtitle}</span>}
@@ -194,7 +194,7 @@ function PackageDeliveryLane({
 
       {phases.length === 0 ? (
         <div className="delivery-package-lane__empty">
-          <p>No delivery phases for this work package yet.</p>
+          <p>No payment milestones for this {PHASE_UI.singular.toLowerCase()} yet.</p>
           {canManage && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onAddPhase} disabled={busy}>
               + Add first phase
@@ -302,7 +302,7 @@ export default function ProjectDeliveryPanel({
     e.preventDefault();
     if (!form.name.trim()) return;
     if (usesPackages && !form.work_package_id) {
-      alert('Select a work package for this phase.');
+      alert(`Select a ${PHASE_UI.singular.toLowerCase()} for this milestone.`);
       return;
     }
     await run(async () => {
@@ -371,9 +371,6 @@ export default function ProjectDeliveryPanel({
         <div className="section-card__header section-card__header--compact">
           <div>
             <h2 className="section-card__title">Delivery & payment milestones</h2>
-            <p className="section-card__desc">
-              Add delivery phases manually — URS, UAT, go-live, and payment milestones for Finance.
-            </p>
           </div>
           {canManage && (
             <button type="button" className="btn btn-primary btn-sm" onClick={() => openAddPhase()} disabled={busy}>
@@ -385,7 +382,7 @@ export default function ProjectDeliveryPanel({
         {projectPhases.length === 0 ? (
           <UiEmptyState
             title="No delivery phases yet"
-            description={`PMO can add phases for this delivery scope (${deliveryScopeLabel(classification) || 'general'}).`}
+            description="No delivery phases yet."
             action={
               canManage ? (
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => openAddPhase()} disabled={busy}>
@@ -429,17 +426,14 @@ export default function ProjectDeliveryPanel({
     <div className="project-delivery-panel project-delivery-panel--by-package">
       <div className="section-card__header section-card__header--compact">
         <div>
-          <h2 className="section-card__title">Delivery by work package</h2>
-          <p className="section-card__desc">
-            Each work package has its own delivery milestones and payments — they are tracked separately.
-          </p>
+          <h2 className="section-card__title">{PHASE_UI.deliveryBy}</h2>
         </div>
       </div>
 
       {packageLanes.length === 0 ? (
         <UiEmptyState
-          title="No work packages to show"
-          description="Add a work package first, then create delivery phases for that line."
+          title={`No ${PHASE_UI.plural.toLowerCase()} to show`}
+          description={`Add ${PHASE_UI.plural.toLowerCase()} first, then track payment milestones here.`}
         />
       ) : (
         <div className="delivery-package-lanes">
@@ -462,7 +456,7 @@ export default function ProjectDeliveryPanel({
           {unassignedPhases.length > 0 && !workPackageFilter && (
             <PackageDeliveryLane
               title="Unassigned phases"
-              subtitle="Not linked to a work package"
+             
               status={null}
               phases={unassignedPhases}
               canManage={false}
@@ -516,7 +510,7 @@ function AddPhaseModal({
             <h2 className="modal-dialog-title">Add phase</h2>
             {hidePackageSelect && lockedPackage && (
               <p className="project-create-subtitle">
-                For work package <strong>{lockedPackage.name}</strong>
+                {PHASE_UI.forPhase} <strong>{lockedPackage.name}</strong>
                 {lockedPackage.classification ? ` · ${deliveryScopeLabel(lockedPackage.classification)}` : ''}
               </p>
             )}
@@ -542,7 +536,7 @@ function AddPhaseModal({
             {usesPackages && !hidePackageSelect && (
               <div className="form-field">
                 <label className="form-field__label" htmlFor="phase-wp">
-                  Work package <span className="form-field__required">*</span>
+                  {PHASE_UI.singular} <span className="form-field__required">*</span>
                 </label>
                 <select
                   id="phase-wp"
@@ -551,7 +545,7 @@ function AddPhaseModal({
                   onChange={(e) => setForm((f) => ({ ...f, work_package_id: e.target.value }))}
                   required
                 >
-                  <option value="">Select work package…</option>
+                  <option value="">{PHASE_UI.select}</option>
                   {workPackages.map((wp) => (
                     <option key={wp.id} value={wp.id}>
                       {wp.name} ({deliveryScopeLabel(wp.classification)})

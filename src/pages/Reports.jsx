@@ -1,15 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { enrichProjectsWithHealth, healthLabel, chartHealthData, chartStatusData, chartProgressData, chartCapacityData } from '../../lib/pmoMetrics.js';
+import { enrichProjectsWithHealth, healthLabel } from '../../lib/pmoMetrics.js';
 import PageHeader from '../components/PageHeader';
 import PageLoadingState from '../components/PageLoadingState';
 import { engagementTypeLabel, deliveryScopeLabel } from '../../lib/projectConstants.js';
-import HBarChart from '../components/charts/HBarChart';
-
 import { downloadCsv } from '../utils/downloadCsv';
+import { earnedValueFromTasks } from '../../lib/earnedValue.js';
+import { useLocale } from '../context/LocaleContext';
 
 export default function Reports() {
+  const { t } = useLocale();
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [workload, setWorkload] = useState([]);
@@ -45,10 +46,6 @@ export default function Reports() {
   }, [from]);
 
   const enriched = useMemo(() => enrichProjectsWithHealth(projects, tasks), [projects, tasks]);
-  const healthChart = useMemo(() => chartHealthData(enriched), [enriched]);
-  const statusChart = useMemo(() => chartStatusData(projects), [projects]);
-  const progressChart = useMemo(() => chartProgressData(enriched, 8), [enriched]);
-  const resourceChart = useMemo(() => chartCapacityData(workload, 8), [workload]);
 
   const exportProjectStatus = () => {
     const header = ['Project', 'Status', 'Health', 'Client', 'Engagement', 'Delivery scope', 'Progress %', 'Start', 'End', 'Team size'];
@@ -68,15 +65,12 @@ export default function Reports() {
   };
 
   const exportResourceUtilization = () => {
-    const header = ['Name', 'Role', 'Allocation %', 'Available %', 'Projects', 'Activities (period)', 'Overloaded'];
+    const header = ['Name', 'Role', 'Projects', 'Activities (period)'];
     const rows = workload.map((w) => [
       w.name,
       w.role || '',
-      w.totalAllocation,
-      w.availability,
       w.projectCount,
       w.activities?.length ?? 0,
-      w.isOverloaded ? 'Yes' : 'No',
     ]);
     downloadCsv(`pmo-resource-utilization-${from}.csv`, [header, ...rows]);
   };
@@ -98,10 +92,19 @@ export default function Reports() {
     downloadCsv(`pmo-helpdesk-${from}.csv`, [header, ...rows]);
   };
 
-  const openIssues = issues.filter((i) => !['closed', 'resolved'].includes(i.status)).length;
+  const ev = useMemo(() => earnedValueFromTasks(tasks), [tasks]);
+  const programGroups = useMemo(() => {
+    const map = new Map();
+    for (const p of projects) {
+      const key = p.program_name || t('reports.unassignedProgram');
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [projects, t]);
 
   const exportPhases = () => {
-    const header = ['Project', 'Phase', 'Status', 'Progress %', 'Payment status', 'Amount', 'Invoice', 'Target', 'Completed'];
+    const header = ['Project', 'Milestone', 'Status', 'Progress %', 'Payment status', 'Amount', 'Invoice', 'Target', 'Completed'];
     const rows = phases.map((p) => [
       p.project_name || '',
       p.name,
@@ -120,124 +123,118 @@ export default function Reports() {
     setActivePreview((prev) => (prev === id ? null : id));
   };
 
-  if (loading) return <PageLoadingState message="Loading reports…" />;
+  if (loading) return <PageLoadingState message={t('reports.loading')} />;
 
   return (
     <div className="page-module reports-page">
       <PageHeader
-        eyebrow="Management"
-        title="Reports"
-        subtitle="Portfolio health, team capacity, helpdesk, and delivery reports for management."
+        eyebrow={t('eyebrow.management')}
+        title={t('page.reports')}
       />
 
       <div className="pmo-reports-grid">
         <section className={`ui-card pmo-report-card ${activePreview === 'projects' ? 'pmo-report-card--active' : ''}`}>
           <div className="pmo-report-card__icon" aria-hidden>📊</div>
-          <h2 className="pmo-report-card__title">Project status report</h2>
-          <p className="pmo-report-card__desc">
-            Portfolio snapshot with health, progress, clients, and dates.
-          </p>
+          <h2 className="pmo-report-card__title">{t('reports.projectStatus')}</h2>
           <div className="pmo-report-card__actions">
             <button type="button" className="btn btn-primary" onClick={exportProjectStatus}>
-              Download CSV
+              {t('action.downloadCsv')}
             </button>
             <button
               type="button"
               className={`btn btn-secondary ${activePreview === 'projects' ? 'active' : ''}`}
               onClick={() => togglePreview('projects')}
             >
-              {activePreview === 'projects' ? 'Hide preview' : 'Preview'}
+              {activePreview === 'projects' ? t('action.hidePreview') : t('action.preview')}
             </button>
           </div>
         </section>
 
         <section className={`ui-card pmo-report-card ${activePreview === 'resources' ? 'pmo-report-card--active' : ''}`}>
           <div className="pmo-report-card__icon" aria-hidden>👥</div>
-          <h2 className="pmo-report-card__title">Resource utilization</h2>
-          <p className="pmo-report-card__desc">
-            Team allocation %, availability, and overload flags.
-          </p>
+          <h2 className="pmo-report-card__title">{t('reports.workload')}</h2>
           <div className="pmo-report-card__actions">
             <button type="button" className="btn btn-primary" onClick={exportResourceUtilization}>
-              Download CSV
+              {t('action.downloadCsv')}
             </button>
             <button
               type="button"
               className={`btn btn-secondary ${activePreview === 'resources' ? 'active' : ''}`}
               onClick={() => togglePreview('resources')}
             >
-              {activePreview === 'resources' ? 'Hide preview' : 'Preview'}
+              {activePreview === 'resources' ? t('action.hidePreview') : t('action.preview')}
             </button>
           </div>
         </section>
 
         <section className="ui-card pmo-report-card">
           <div className="pmo-report-card__icon" aria-hidden>🎫</div>
-          <h2 className="pmo-report-card__title">Helpdesk & issues</h2>
-          <p className="pmo-report-card__desc">
-            Project issues ({openIssues} open) — ticket, priority, assignee, status.
-          </p>
+          <h2 className="pmo-report-card__title">{t('reports.helpdesk')}</h2>
           <div className="pmo-report-card__actions">
             <button type="button" className="btn btn-primary" onClick={exportHelpdesk}>
-              Download CSV
+              {t('action.downloadCsv')}
             </button>
-            <Link to="/helpdesk" className="btn btn-secondary">Open helpdesk</Link>
+            <Link to="/helpdesk" className="btn btn-secondary">{t('reports.openHelpdesk')}</Link>
           </div>
         </section>
 
         <section className="ui-card pmo-report-card">
           <div className="pmo-report-card__icon" aria-hidden>🚦</div>
-          <h2 className="pmo-report-card__title">Delivery & project phases</h2>
-          <p className="pmo-report-card__desc">
-            Current delivery phase, milestone progress, and payment status ({phases.length} phases).
-          </p>
+          <h2 className="pmo-report-card__title">{t('reports.phases')}</h2>
           <div className="pmo-report-card__actions">
             <button type="button" className="btn btn-primary" onClick={exportPhases} disabled={!phases.length}>
-              Download CSV
+              {t('action.downloadCsv')}
             </button>
-            <Link to="/finance" className="btn btn-secondary">Finance view</Link>
+            <Link to="/finance" className="btn btn-secondary">{t('reports.financeView')}</Link>
           </div>
         </section>
 
         <section className="ui-card pmo-report-card">
-          <div className="pmo-report-card__icon" aria-hidden>📅</div>
-          <h2 className="pmo-report-card__title">Activity report</h2>
-          <p className="pmo-report-card__desc">
-            Monthly staff activity export (date, client, title, location).
+          <div className="pmo-report-card__icon" aria-hidden>📐</div>
+          <h2 className="pmo-report-card__title">{t('reports.earnedValue')}</h2>
+          <p className="pmo-data-list__meta">
+            PV {ev.planned_value_hours}h · EV {ev.earned_value_hours}h · AC {ev.actual_cost_hours}h
+            {ev.cpi != null ? ` · CPI ${ev.cpi}` : ''}
+            {ev.spi != null ? ` · SPI ${ev.spi}` : ''}
           </p>
-          <div className="pmo-report-card__actions">
-            <Link to="/calendar" className="btn btn-secondary">
-              Open calendar →
-            </Link>
-          </div>
         </section>
       </div>
 
+      {programGroups.length > 0 && (
+        <section className="ui-card reports-preview">
+          <h2 className="reports-preview__title">{t('reports.programs')}</h2>
+          <div className="table-wrap pmo-data-list-wrap">
+            <table className="pmo-data-list pmo-portfolio-table">
+              <thead>
+                <tr>
+                  <th>{t('common.program')}</th>
+                  <th>{t('common.projects')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {programGroups.map(([name, rows]) => (
+                  <tr key={name}>
+                    <td>{name}</td>
+                    <td>{rows.map((p) => p.name).join(', ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {activePreview === 'projects' && (
         <section className="ui-card reports-preview">
-          <h2 className="reports-preview__title">Preview — project status</h2>
-          <div className="reports-preview-charts">
-            <div className="reports-preview-chart">
-              <h3>Health mix</h3>
-              <DonutChart data={healthChart} centerValue={healthChart.reduce((s, d) => s + d.value, 0)} centerLabel="active" />
-            </div>
-            <div className="reports-preview-chart">
-              <h3>Status mix</h3>
-              <DonutChart data={statusChart} centerValue={projects.length} centerLabel="total" />
-            </div>
-            <div className="reports-preview-chart reports-preview-chart--wide">
-              <h3>Progress by project</h3>
-              <HBarChart data={progressChart} max={100} />
-            </div>
-          </div>
+          <h2 className="reports-preview__title">{t('reports.previewStatus')}</h2>
           <div className="table-wrap pmo-data-list-wrap pmo-data-list-wrap--sticky pmo-data-list-wrap--comfortable">
             <table className="pmo-data-list pmo-portfolio-table">
               <thead>
                 <tr>
-                  <th>Project</th>
-                  <th>Health</th>
-                  <th>Progress</th>
-                  <th className="hide-mobile">Client</th>
+                  <th>{t('common.project')}</th>
+                  <th>{t('common.health')}</th>
+                  <th>{t('common.progress')}</th>
+                  <th className="hide-mobile">{t('common.client')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -245,7 +242,7 @@ export default function Reports() {
                   <tr key={p.id}>
                     <td>{p.name}</td>
                     <td>
-                      <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
+                      <span className={`pmo-health-badge pmo-health-${p.health}`}>{t(`health.${p.health}`) || healthLabel(p.health)}</span>
                     </td>
                     <td>{p.progress || 0}%</td>
                     <td className="hide-mobile">{p.client_name || '—'}</td>
@@ -259,32 +256,22 @@ export default function Reports() {
 
       {activePreview === 'resources' && (
         <section className="ui-card reports-preview">
-          <h2 className="reports-preview__title">Preview — resource utilization</h2>
-          <div className="reports-preview-charts reports-preview-charts--single">
-            <div className="reports-preview-chart reports-preview-chart--wide">
-              <h3>Allocation by person</h3>
-              <HBarChart data={resourceChart} max={100} />
-            </div>
-          </div>
+          <h2 className="reports-preview__title">{t('reports.previewWorkload')}</h2>
           <div className="table-wrap pmo-data-list-wrap pmo-data-list-wrap--sticky pmo-data-list-wrap--comfortable">
             <table className="pmo-data-list pmo-portfolio-table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Allocation</th>
-                  <th>Available</th>
-                  <th className="hide-mobile">Projects</th>
-                  <th>Overloaded</th>
+                  <th>{t('reports.name')}</th>
+                  <th>{t('common.projects')}</th>
+                  <th>{t('reports.activities')}</th>
                 </tr>
               </thead>
               <tbody>
                 {workload.slice(0, 10).map((w) => (
                   <tr key={w.id}>
                     <td>{w.name}</td>
-                    <td>{w.totalAllocation}%</td>
-                    <td>{w.availability}%</td>
-                    <td className="hide-mobile">{w.projectCount ?? 0}</td>
-                    <td>{w.isOverloaded ? 'Yes' : 'No'}</td>
+                    <td>{w.projectCount ?? 0}</td>
+                    <td>{w.activities?.length ?? 0}</td>
                   </tr>
                 ))}
               </tbody>

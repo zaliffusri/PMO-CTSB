@@ -157,9 +157,6 @@ export default function SettingsModules() {
                     disabled={saving}
                     autoComplete="off"
                   />
-                  <p className="form-field__hint" style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                    Used in ticket / backlog refs (e.g. eT-CK-0164). Letters and numbers only.
-                  </p>
                 </div>
                 <div className="form-field">
                   <label className="form-field__label" htmlFor="module-label">
@@ -204,9 +201,6 @@ export default function SettingsModules() {
           <div className="settings-panel__header">
             <div className="settings-panel__header-text">
               <h2 className="settings-panel__title">Modules</h2>
-              <p className="settings-panel__desc">
-                Module codes appear in Helpdesk and Backlog forms, and in ticket / backlog reference prefixes.
-              </p>
             </div>
           </div>
 

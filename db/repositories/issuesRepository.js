@@ -154,6 +154,10 @@ export function createIssuesRepository(ctx, getStore) {
         created_at: row.created_at || now,
         updated_at: row.updated_at || now,
         resolved_at: row.resolved_at || null,
+        sla_hours: row.sla_hours != null && row.sla_hours !== '' ? Number(row.sla_hours) : null,
+        sla_due_at: row.sla_due_at || null,
+        csat_score: row.csat_score != null && row.csat_score !== '' ? Number(row.csat_score) : null,
+        csat_comment: row.csat_comment || null,
       };
 
       if (!isDbMode()) {

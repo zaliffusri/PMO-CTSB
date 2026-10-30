@@ -16,8 +16,16 @@ async function settingsForClient(raw, { includeSecrets = false } = {}) {
   delete s.ms_graph_client_secret;
   delete s.ms_graph_tenant_id;
   delete s.ms_graph_client_id;
+  const azureSecretSet = Boolean(String(s.azure_ad_client_secret || '').trim());
+  const azureClientId = String(s.azure_ad_client_id || '').trim();
+  delete s.azure_ad_client_secret;
   return {
     ...s,
+    azure_ad_client_id: azureClientId,
+    azure_ad_tenant_id: String(s.azure_ad_tenant_id || 'common').trim() || 'common',
+    azure_ad_allow_signup: s.azure_ad_allow_signup !== false,
+    azure_ad_secret_set: azureSecretSet,
+    azure_ad_configured: Boolean(azureClientId || String(process.env.AZURE_AD_CLIENT_ID || '').trim()),
     smtp_pass_set: passSet,
     smtp_configured: await isMailerConfigured(),
     smtp_status: await publicSmtpStatus(),
@@ -145,6 +153,24 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
     patch.smtp_pass = '';
   }
 
+  if (body.azure_ad_client_id !== undefined) {
+    patch.azure_ad_client_id = String(body.azure_ad_client_id ?? '').trim().slice(0, 80);
+  }
+  if (body.azure_ad_tenant_id !== undefined) {
+    const tenant = String(body.azure_ad_tenant_id ?? '').trim().slice(0, 80);
+    patch.azure_ad_tenant_id = tenant || 'common';
+  }
+  if (body.azure_ad_allow_signup !== undefined) {
+    patch.azure_ad_allow_signup = body.azure_ad_allow_signup === true || body.azure_ad_allow_signup === 'true';
+  }
+  if (body.azure_ad_client_secret !== undefined) {
+    const secret = String(body.azure_ad_client_secret ?? '');
+    if (secret.trim()) patch.azure_ad_client_secret = secret.trim();
+  }
+  if (body.clear_azure_ad_secret === true) {
+    patch.azure_ad_client_secret = '';
+  }
+
   // Changing provider with the old password left in place causes Gmail 535 BadCredentials
   // (e.g. Microsoft 365 password kept after switching back to Gmail).
   const cur = await store.getSettings();
@@ -173,7 +199,7 @@ settingsRouter.put('/', requireAdmin, async (req, res) => {
     summary: 'Updated system settings',
     detail: {
       fields: Object.keys(patch).map((k) => (
-        k === 'smtp_pass' ? `${k}(updated)` : k
+        k === 'smtp_pass' || k === 'azure_ad_client_secret' ? `${k}(updated)` : k
       )),
     },
   });
@@ -203,8 +229,7 @@ settingsRouter.post('/test-email', requireAdmin, async (req, res) => {
       personName: req.user?.name || 'Admin',
       projectName: 'SMTP configuration test',
       roleInProject: null,
-      allocationPercent: 100,
-      assignedBy: 'PMO CTSB Settings',
+      assignedBy: 'C360 Settings',
       action: 'assigned',
     });
     if (!result.sent) {

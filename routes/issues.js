@@ -21,6 +21,8 @@ import {
   isHelpdeskAssignee,
   canUserPromoteIssueToBacklog,
 } from '../lib/permissions.js';
+import { slaHoursForPriority, computeSlaDueAt, slaState } from '../lib/sla.js';
+import { getVisibleProjectIdSet, canViewAllProjects } from '../lib/projectScope.js';
 import {
   OPEN_ISSUE_STATUSES,
   normalizeSupportLevel,
@@ -85,6 +87,7 @@ async function enrichIssue(issue, user = null) {
     backlog_id: backlog?.id ?? null,
     backlog_project_id: backlog?.project_id ?? null,
     can_promote_backlog: canPromote,
+    ...slaState(issue),
   };
 }
 
@@ -164,6 +167,12 @@ issuesRouter.get('/', async (req, res) => {
       (i) => i.reporter_user_id === req.user.id
         || (myPerson && i.assignee_person_id === myPerson),
     );
+  } else if (!canViewAllProjects(req.user)) {
+    const visible = await getVisibleProjectIdSet(store, req.user);
+    list = list.filter((i) => {
+      if (i.project_id == null) return i.reporter_user_id === req.user.id;
+      return visible?.has(Number(i.project_id));
+    });
   }
   list.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
   res.json(list);
@@ -280,6 +289,8 @@ issuesRouter.post('/', validateBody(createIssueSchema), async (req, res) => {
     reporter_user_id: req.user.id,
     external_ticket_ref: external_ticket_ref != null ? String(external_ticket_ref).trim() : null,
     support_level: 'L1',
+    sla_hours: slaHoursForPriority(ISSUE_PRIORITY_SET.has(priority) ? priority : 'medium'),
+    sla_due_at: computeSlaDueAt(new Date().toISOString(), slaHoursForPriority(ISSUE_PRIORITY_SET.has(priority) ? priority : 'medium')),
   });
   const issuesAfterCreate = await store.listIssues();
   const issue = await enrichIssue(issuesAfterCreate.find((i) => i.id === id), req.user);
@@ -498,11 +509,17 @@ issuesRouter.post('/:id/resolve', async (req, res) => {
   const actionTaken = req.body?.action_taken != null ? String(req.body.action_taken).trim() : '';
   const level = normalizeSupportLevel(existing.support_level);
 
+  const csatScore = req.body?.csat_score != null && req.body.csat_score !== ''
+    ? Number(req.body.csat_score)
+    : null;
+
   await store.updateIssue(id, {
     status: 'resolved',
     resolution_method: method,
     resolution_notes: notes || null,
     action_taken: actionTaken || existing.action_taken || notes || null,
+    csat_score: Number.isFinite(csatScore) && csatScore >= 1 && csatScore <= 5 ? csatScore : existing.csat_score,
+    csat_comment: req.body?.csat_comment != null ? String(req.body.csat_comment).trim() || null : existing.csat_comment,
     resolution_attachment_ref: req.body?.resolution_attachment_ref != null
       ? String(req.body.resolution_attachment_ref).trim() || null
       : existing.resolution_attachment_ref,

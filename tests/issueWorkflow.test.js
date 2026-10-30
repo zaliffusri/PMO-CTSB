@@ -14,13 +14,13 @@ describe('issueWorkflow support levels', () => {
     expect(nextSupportLevel('L3')).toBeNull();
   });
 
-  it('labels legacy L3 as Backlog', () => {
-    expect(supportLevelLabel('L3')).toBe('Backlog');
+  it('labels legacy L3 as Promoted', () => {
+    expect(supportLevelLabel('L3')).toBe('Promoted');
   });
 
-  it('maps backlog-linked issues to backlog stage', () => {
+  it('maps backlog-linked issues to the promoted stage', () => {
     expect(helpdeskStageForIssue({ support_level: 'L2', backlog_ref: 'ABB-1' }).code).toBe('backlog');
-    expect(helpdeskStageForIssue({ support_level: 'L3' }).label).toBe('Backlog');
+    expect(helpdeskStageForIssue({ support_level: 'L3' }).label).toBe('Promoted');
     expect(helpdeskStageForIssue({ support_level: 'L1' }).code).toBe('L1');
   });
 });

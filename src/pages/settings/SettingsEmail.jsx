@@ -112,10 +112,6 @@ export default function SettingsEmail() {
       <div className="settings-panel__header">
         <div className="settings-panel__header-text">
           <h2 className="settings-panel__title">Email notifications</h2>
-          <p className="settings-panel__desc">
-            SMTP used for activity invites and cancellation emails (Outlook / Teams).
-            {form.smtp_pass_set ? ' A password is already saved on the server.' : ''}
-          </p>
         </div>
         <span className={`settings-status ${configured ? 'settings-status--ok' : 'settings-status--off'}`}>
           {configured ? 'Enabled' : 'Not configured'}
@@ -128,7 +124,6 @@ export default function SettingsEmail() {
 
         <div className="settings-panel__section">
           <h3 className="settings-panel__section-title">Connection</h3>
-          <p className="settings-panel__section-desc">Choose a provider and mailbox used to send calendar emails.</p>
 
           <div className="form-field">
             <label className="form-field__label" htmlFor="smtp-provider">Provider</label>
@@ -142,11 +137,6 @@ export default function SettingsEmail() {
               <option value="gmail">Gmail (App Password)</option>
               <option value="">Custom SMTP host</option>
             </select>
-            {isOffice365 && (
-              <span className="form-field__hint">
-                Use your work email. Host is set to smtp.office365.com. If send fails, ask IT to enable SMTP AUTH.
-              </span>
-            )}
           </div>
 
           <div className="settings-grid-2">
@@ -174,7 +164,6 @@ export default function SettingsEmail() {
                 placeholder="Same as SMTP user"
                 autoComplete="off"
               />
-              <span className="form-field__hint">Usually the same as your SMTP username.</span>
             </div>
           </div>
 
@@ -195,13 +184,6 @@ export default function SettingsEmail() {
               }
               autoComplete="new-password"
             />
-            <span className="form-field__hint">
-              {isGmail
-                ? 'Use an App Password from the same Gmail as SMTP user (Google Account → Security → App passwords).'
-                : isOffice365
-                  ? 'If MFA is on, create an app password or ask IT for SMTP AUTH access.'
-                  : 'Use the password for your SMTP account.'}
-            </span>
           </div>
 
           {showCustomHost && (
@@ -243,7 +225,6 @@ export default function SettingsEmail() {
 
         <div className="settings-panel__section">
           <h3 className="settings-panel__section-title">Send test email</h3>
-          <p className="settings-panel__section-desc">Verify delivery after saving your connection details.</p>
 
           <div className="form-field">
             <label className="form-field__label" htmlFor="smtp-test-to">Recipient</label>

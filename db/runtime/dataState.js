@@ -28,6 +28,7 @@ export async function initDataState() {
     // Production path: empty in-memory shell; repositories use Supabase.
     return { getData, save, reloadFromSupabase, mode: 'db' };
   }
+  // ALLOW_LOCAL_STORE=1 wins over Supabase env (true local/dev in-memory).
   return { getData, save, reloadFromSupabase, mode: 'local' };
 }
 
@@ -38,9 +39,9 @@ export function resetLocalDemoData() {
 }
 
 export function isLocalStoreMode() {
-  return allowLocalStore && !hasSupabase;
+  return Boolean(allowLocalStore);
 }
 
 export function isDbStoreMode() {
-  return hasSupabase;
+  return hasSupabase && !allowLocalStore;
 }

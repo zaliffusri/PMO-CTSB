@@ -7,8 +7,8 @@
       (function () {
         try {
           var s = localStorage.getItem('pmo-theme');
-          if (s === 'light') s = 'default';
-          if (s !== 'default' && s !== 'dark' && s !== 'shadcn') s = 'dark';
+          if (s === 'light' || s === 'shadcn') s = 'default';
+          if (s !== 'default' && s !== 'dark') s = 'dark';
           document.documentElement.setAttribute('data-theme', s);
           document.documentElement.setAttribute('data-ui-mode', s);
           var sb = localStorage.getItem('pmo-sidebar-mode');
@@ -20,7 +20,10 @@
         }
       })();
     </script>
-    <title>PMO CTSB – Project & Resource Management</title>
+    <title>C360 – Project Management</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1220" />
+    <link rel="apple-touch-icon" href="/brand/c360-pm.png" />
     <style>
       html, body { margin: 0; min-height: 100%; }
       body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }

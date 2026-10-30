@@ -27,7 +27,6 @@ export default function HelpdeskCreateForm({
           <div>
             <p className="project-create-eyebrow">Helpdesk · 1st level</p>
             <h2 className="modal-dialog-title">Log client ticket</h2>
-            <p className="project-create-subtitle">New tickets start at L1. Link the external QA helpdesk reference if available.</p>
           </div>
           <button type="button" className="modal-dialog-close" onClick={onCancel} aria-label="Close">×</button>
         </div>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import UiEmptyState from './UiEmptyState';
-import { DELIVERY_SCOPE_TYPES, deliveryScopeLabel } from '../../lib/projectConstants.js';
+import { DELIVERY_SCOPE_TYPES, PHASE_UI, deliveryScopeLabel } from '../../lib/projectConstants.js';
 import { WORK_PACKAGE_STATUSES, workPackageStatusLabel } from '../../lib/workPackageConstants.js';
 
 const EMPTY_FORM = {
@@ -61,7 +61,7 @@ export default function ProjectWorkPackagesPanel({
   const openEdit = (wp) => {
     const id = packageId(wp);
     if (!id) {
-      alert('Cannot edit: work package id is missing. Refresh the page and try again.');
+      alert(`Cannot edit: ${PHASE_UI.singular.toLowerCase()} id is missing. Refresh the page and try again.`);
       return;
     }
     setEditingId(id);
@@ -112,10 +112,10 @@ export default function ProjectWorkPackagesPanel({
   const removePackage = async (wp) => {
     const id = packageId(wp);
     if (!id) {
-      alert('Cannot delete: work package id is missing. Refresh the page and try again.');
+      alert(`Cannot delete: ${PHASE_UI.singular.toLowerCase()} id is missing. Refresh the page and try again.`);
       return;
     }
-    if (!confirm(`Delete work package "${wp.name}"? Delivery phases for this line will be removed. Tasks and backlog items will be unassigned.`)) return;
+    if (!confirm(PHASE_UI.deleteConfirm(wp.name))) return;
     await run(async () => {
       try {
         await api.workPackages.delete(id);
@@ -126,32 +126,30 @@ export default function ProjectWorkPackagesPanel({
     });
   };
 
-  if (loading) return <div className="page-loading">Loading work packages…</div>;
+  if (loading) return <div className="page-loading">Loading {PHASE_UI.plural.toLowerCase()}…</div>;
 
   return (
     <div className="project-work-packages">
       <div className="section-card__header section-card__header--compact work-packages-header">
         <div>
-          <h2 className="section-card__title">Work packages</h2>
-          <p className="section-card__desc">
-            Split this project into delivery lines — each with its own delivery scope, phases, tasks, and backlog.
-          </p>
+          <h2 className="section-card__title">{PHASE_UI.plural}</h2>
+          <p className="section-card__desc">e.g. Phase 1, Phase 2 — or one phase for hardware / setup</p>
         </div>
         {canManage && (
           <button type="button" className="btn btn-primary btn-sm" onClick={openCreate} disabled={busy}>
-            + Add work package
+            + {PHASE_UI.add}
           </button>
         )}
       </div>
 
       {packages.length === 0 ? (
         <UiEmptyState
-          title="No work packages yet"
-          description="Add work packages when one engagement includes multiple delivery scopes — e.g. portal development, API integration, and data migration under a single contract."
+          title={PHASE_UI.emptyTitle}
+          description={PHASE_UI.emptyDesc}
           action={
             canManage ? (
               <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>
-                + Add work package
+                + {PHASE_UI.add}
               </button>
             ) : null
           }
@@ -177,7 +175,7 @@ export default function ProjectWorkPackagesPanel({
               <div className="work-package-card__stats">
                 <div className="work-package-card__stat">
                   <span className="work-package-card__stat-value">{wp.phase_count}</span>
-                  <span className="work-package-card__stat-label">Phases</span>
+                  <span className="work-package-card__stat-label">Milestones</span>
                 </div>
                 <div className="work-package-card__stat">
                   <span className="work-package-card__stat-value">{wp.task_count}</span>
@@ -197,9 +195,9 @@ export default function ProjectWorkPackagesPanel({
 
               <p className="work-package-card__meta">
                 {wp.current_phase ? (
-                  <>Current phase: <strong>{wp.current_phase}</strong></>
+                  <>Current milestone: <strong>{wp.current_phase}</strong></>
                 ) : (
-                  'No active delivery phase'
+                  'No active payment milestone'
                 )}
                 {(wp.start_date || wp.end_date) && (
                   <> · {wp.start_date || '—'} → {wp.end_date || 'Open'}</>
@@ -231,8 +229,8 @@ export default function ProjectWorkPackagesPanel({
           <div className="modal-dialog" role="dialog" aria-modal="true">
             <div className="modal-dialog-header project-create-header">
               <div>
-                <p className="project-create-eyebrow">Work package</p>
-                <h2 className="modal-dialog-title">{editingId ? 'Edit work package' : 'Add work package'}</h2>
+                <p className="project-create-eyebrow">{PHASE_UI.singular}</p>
+                <h2 className="modal-dialog-title">{editingId ? PHASE_UI.edit : PHASE_UI.add}</h2>
               </div>
               <button type="button" className="modal-dialog-close" onClick={closeForm} aria-label="Close">×</button>
             </div>
@@ -240,7 +238,7 @@ export default function ProjectWorkPackagesPanel({
               <div className="project-create-panel form-stack">
                 <div className="form-field">
                   <label className="form-field__label" htmlFor="wp-name">Name <span className="form-field__required">*</span></label>
-                  <input id="wp-name" className="form-field__input ui-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required placeholder="e.g. Citizen portal modules" />
+                  <input id="wp-name" className="form-field__input ui-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required placeholder="e.g. Phase 1, Phase 2, Hardware supply" />
                 </div>
                 <div className="form-field">
                   <label className="form-field__label" htmlFor="wp-type">Delivery scope <span className="form-field__required">*</span></label>
@@ -249,9 +247,6 @@ export default function ProjectWorkPackagesPanel({
                       <option key={c.id} value={c.id}>{c.label}</option>
                     ))}
                   </select>
-                  <span className="form-field__hint">
-                    {DELIVERY_SCOPE_TYPES.find((c) => c.id === form.classification)?.hint}
-                  </span>
                 </div>
                 <div className="form-field">
                   <label className="form-field__label" htmlFor="wp-desc">Description</label>

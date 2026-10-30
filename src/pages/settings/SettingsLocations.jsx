@@ -214,10 +214,6 @@ export default function SettingsLocations() {
           <div className="settings-panel__header">
             <div className="settings-panel__header-text">
               <h2 className="settings-panel__title">Activity locations</h2>
-              <p className="settings-panel__desc">
-                Sites appear in Calendar when logging activities (with Others for custom text). Distances are in
-                kilometres from <strong>{officeName}</strong>.
-              </p>
             </div>
           </div>
 

@@ -146,6 +146,11 @@ export function createBacklogsRepository(ctx, getStore) {
         work_package_id: row.work_package_id != null && row.work_package_id !== '' ? +row.work_package_id : null,
         created_at: now,
         updated_at: now,
+        approval_status: row.approval_status
+          || (normalizeBacklogType(row.item_type || 'inquiry') === 'cr' ? 'pending' : null),
+        approved_by_user_id: row.approved_by_user_id ?? null,
+        approved_at: row.approved_at ?? null,
+        approval_note: row.approval_note ?? null,
       };
 
       if (!isDbMode()) {

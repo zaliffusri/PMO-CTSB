@@ -7,8 +7,11 @@ import UserAvatar from '../components/UserAvatar';
 import ThemeToggle from '../components/ThemeToggle';
 import { useBranding } from '../context/BrandingContext';
 import { canViewFinance, isHrCalendarOnly } from '../../lib/permissions.js';
-import { ROLE_LABELS } from '../constants/roles.js';
 import { pageTitle } from '../navigation/pageTitles.js';
+import PartnerLogos from '../components/PartnerLogos';
+import SystemLogo from '../components/SystemLogo';
+import LanguageToggle from '../components/LanguageToggle';
+import { useLocale } from '../context/LocaleContext';
 
 const SIDEBAR_STORAGE_KEY = 'pmo-sidebar-mode';
 const SIDEBAR_MODES = ['expanded', 'collapsed', 'hidden'];
@@ -53,8 +56,9 @@ export default function AppShell({ children }) {
   const hrOnly = isHrCalendarOnly(user);
   const showFinance = canViewFinance(user);
   const isSettingsSidebar = isAdmin && (pathname.startsWith('/settings') || settingsSidebarPeek);
-  const title = useMemo(() => pageTitle(pathname), [pathname]);
   const { branding } = useBranding();
+  const { t } = useLocale();
+  const title = useMemo(() => pageTitle(pathname, t), [pathname, t]);
   const sidebarCompact = sidebarMode === 'collapsed';
   const sidebarHidden = sidebarMode === 'hidden';
   const closeNav = () => setNavOpen(false);
@@ -86,20 +90,16 @@ export default function AppShell({ children }) {
     <div className={`app-layout sidebar-${sidebarMode}`}>
       <header className="app-header">
         <div className="app-header-brand">
-          {branding.org_logo_url ? (
-            <img src={branding.org_logo_url} alt="" className="app-brand-logo app-brand-logo--sm" />
-          ) : (
-            <span className="app-logo-mark">P</span>
-          )}
-          <span>{branding.org_display_name}</span>
+          <SystemLogo size="sm" className="app-brand-logo app-brand-logo--sm" />
         </div>
         <div className="app-header-actions">
           {user && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={logout}>
-              Logout
+              {t('nav.signOut')}
             </button>
           )}
           {/* Mobile global header — same ThemeToggle control; desktop uses app-topbar only */}
+          <LanguageToggle className="lang-toggle--mobile-header" />
           <ThemeToggle className="theme-toggle--mobile-header" />
           <button type="button" className="app-nav-toggle" onClick={() => setNavOpen(!navOpen)} aria-label="Toggle menu">
             {navOpen ? '✕' : '☰'}
@@ -119,15 +119,11 @@ export default function AppShell({ children }) {
       <aside className={`app-nav ${navOpen ? 'open' : 'closed'} ${sidebarCompact ? 'sidebar-compact' : ''}`}>
         <div className="nav-brand-row">
           <div className="nav-brand">
-            {branding.org_logo_url ? (
-              <img src={branding.org_logo_url} alt="" className="app-brand-logo" />
-            ) : (
-              <span className="app-logo-mark">P</span>
-            )}
-            <div className="nav-brand-text">
-              <div className="nav-brand-title">{branding.org_display_name}</div>
-              <div className="nav-brand-sub">{branding.org_tagline || 'Project office'}</div>
-            </div>
+            <SystemLogo
+              size={sidebarCompact ? 'icon' : 'md'}
+              markOnly={sidebarCompact}
+              className="app-brand-logo"
+            />
           </div>
           <div className="nav-brand-actions">
             <button
@@ -172,15 +168,15 @@ export default function AppShell({ children }) {
         <div className="nav-scroll">
           {hrOnly ? (
             <>
-              <div className="nav-section-label">Schedule</div>
-              <NavItem to="/calendar" icon="calendar" label="Calendar" onNavigate={closeNav} compact={sidebarCompact} />
+              <div className="nav-section-label">{t('nav.schedule')}</div>
+              <NavItem to="/calendar" icon="calendar" label={t('nav.calendar')} onNavigate={closeNav} compact={sidebarCompact} />
             </>
           ) : isSettingsSidebar ? (
             <>
               <button
                 type="button"
                 className="nav-link nav-back-link"
-                title={sidebarCompact ? 'Main menu' : undefined}
+                title={sidebarCompact ? t('nav.mainMenu') : undefined}
                 onClick={() => {
                   setSettingsSidebarPeek(false);
                   if (pathname.startsWith('/settings')) navigate('/');
@@ -188,81 +184,92 @@ export default function AppShell({ children }) {
                 }}
               >
                 <span className="nav-back-icon" aria-hidden>←</span>
-                <span className="nav-link-label">Main menu</span>
+                <span className="nav-link-label">{t('nav.mainMenu')}</span>
               </button>
-              <div className="nav-section-label">Settings</div>
+              <div className="nav-section-label">{t('nav.settings')}</div>
               <NavLink
                 to="/settings/branding"
                 className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
                 onClick={closeNav}
               >
                 <NavIcon name="settings" />
-                <span className="nav-link-label">Branding</span>
+                <span className="nav-link-label">{t('nav.branding')}</span>
               </NavLink>
               <NavLink
                 to="/settings/locations"
-                title={sidebarCompact ? 'Locations' : undefined}
+                title={sidebarCompact ? t('nav.locations') : undefined}
                 className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
                 onClick={closeNav}
               >
                 <NavIcon name="settings" />
-                <span className="nav-link-label">Locations</span>
+                <span className="nav-link-label">{t('nav.locations')}</span>
               </NavLink>
               <NavLink
                 to="/settings/modules"
-                title={sidebarCompact ? 'Modules' : undefined}
+                title={sidebarCompact ? t('nav.modules') : undefined}
                 className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
                 onClick={closeNav}
               >
                 <NavIcon name="settings" />
-                <span className="nav-link-label">Modules</span>
+                <span className="nav-link-label">{t('nav.modules')}</span>
               </NavLink>
               <NavLink
                 to="/settings/email"
-                title={sidebarCompact ? 'Email' : undefined}
+                title={sidebarCompact ? t('nav.email') : undefined}
                 className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
                 onClick={closeNav}
               >
                 <NavIcon name="settings" />
-                <span className="nav-link-label">Email</span>
+                <span className="nav-link-label">{t('nav.email')}</span>
+              </NavLink>
+              <NavLink
+                to="/settings/microsoft"
+                title={sidebarCompact ? t('nav.microsoft') : undefined}
+                className={({ isActive }) => `nav-link nav-sublink ${isActive ? 'active' : ''}`}
+                onClick={closeNav}
+              >
+                <NavIcon name="settings" />
+                <span className="nav-link-label">{t('nav.microsoft')}</span>
               </NavLink>
             </>
           ) : (
             <>
-              <div className="nav-section-label">Overview</div>
-              <NavItem to="/" end icon="dashboard" label="Dashboard" onNavigate={closeNav} compact={sidebarCompact} />
-              <NavItem to="/reports" icon="reports" label="Reports" onNavigate={closeNav} compact={sidebarCompact} />
+              <div className="nav-section-label">{t('nav.overview')}</div>
+              <NavItem to="/" end icon="dashboard" label={t('nav.dashboard')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/search" icon="search" label={t('nav.search')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/reports" icon="reports" label={t('nav.reports')} onNavigate={closeNav} compact={sidebarCompact} />
               {showFinance && (
-                <NavItem to="/finance" icon="finance" label="Finance" onNavigate={closeNav} compact={sidebarCompact} />
+                <NavItem to="/finance" icon="finance" label={t('nav.finance')} onNavigate={closeNav} compact={sidebarCompact} />
               )}
 
-              <div className="nav-section-label">Delivery</div>
-              <NavItem to="/projects" icon="projects" label="Projects" onNavigate={closeNav} compact={sidebarCompact} />
-              <NavItem to="/helpdesk" icon="helpdesk" label="Helpdesk" onNavigate={closeNav} compact={sidebarCompact} />
-              <NavItem to="/my-work" icon="mywork" label="My work" onNavigate={closeNav} compact={sidebarCompact} />
-              <NavItem to="/clients" icon="clients" label="Clients" onNavigate={closeNav} compact={sidebarCompact} />
-              <NavItem to="/calendar" icon="calendar" label="Calendar" onNavigate={closeNav} compact={sidebarCompact} />
-              <NavItem to="/gantt" icon="gantt" label="Gantt" onNavigate={closeNav} compact={sidebarCompact} />
+              <div className="nav-section-label">{t('nav.delivery')}</div>
+              <NavItem to="/projects" icon="projects" label={t('nav.projects')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/helpdesk" icon="helpdesk" label={t('nav.helpdesk')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/my-work" icon="mywork" label={t('nav.myWork')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/timesheets" icon="finance" label={t('nav.timesheets')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/clients" icon="clients" label={t('nav.clients')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/calendar" icon="calendar" label={t('nav.calendar')} onNavigate={closeNav} compact={sidebarCompact} />
+              <NavItem to="/gantt" icon="gantt" label={t('nav.gantt')} onNavigate={closeNav} compact={sidebarCompact} />
 
-              <div className="nav-section-label">People</div>
-              <NavItem to="/team" icon="team" label="Team & capacity" onNavigate={closeNav} compact={sidebarCompact} />
+              <div className="nav-section-label">{t('nav.people')}</div>
+              <NavItem to="/team" icon="team" label={t('nav.team')} onNavigate={closeNav} compact={sidebarCompact} />
 
               {isAdmin && (
                 <>
-                  <div className="nav-section-label">Administration</div>
-                  <NavItem to="/users" icon="users" label="Users" onNavigate={closeNav} compact={sidebarCompact} />
-                  <NavItem to="/history" icon="history" label="History" onNavigate={closeNav} compact={sidebarCompact} />
+                  <div className="nav-section-label">{t('nav.admin')}</div>
+                  <NavItem to="/users" icon="users" label={t('nav.users')} onNavigate={closeNav} compact={sidebarCompact} />
+                  <NavItem to="/history" icon="history" label={t('nav.history')} onNavigate={closeNav} compact={sidebarCompact} />
                   <button
                     type="button"
                     className={`nav-link${settingsSidebarPeek ? ' active' : ''}`}
-                    title={sidebarCompact ? 'Settings' : undefined}
+                    title={sidebarCompact ? t('nav.settings') : undefined}
                     onClick={() => {
                       setSettingsSidebarPeek(true);
                       closeNav();
                     }}
                   >
                     <NavIcon name="settings" />
-                    <span className="nav-link-label">Settings</span>
+                    <span className="nav-link-label">{t('nav.settings')}</span>
                   </button>
                 </>
               )}
@@ -272,15 +279,16 @@ export default function AppShell({ children }) {
 
         {user && (
           <div className="nav-footer">
-            <NavLink to="/account" className="nav-user-card" title={sidebarCompact ? 'My account' : undefined} onClick={closeNav}>
+            {!sidebarCompact && <PartnerLogos variant="sidebar" />}
+            <NavLink to="/account" className="nav-user-card" title={sidebarCompact ? t('nav.account') : undefined} onClick={closeNav}>
               <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="md" />
               <div className="nav-user-meta">
                 <div className="nav-user-name">{user.name || user.email}</div>
-                <div className="nav-user-role">{ROLE_LABELS[user.role] || user.role}</div>
+                <div className="nav-user-role">{t(`role.${user.role}`) || user.role}</div>
               </div>
             </NavLink>
             <button type="button" className="btn btn-ghost btn-sm nav-logout" onClick={logout}>
-              <span className="nav-link-label">Sign out</span>
+              <span className="nav-link-label">{t('nav.signOut')}</span>
             </button>
           </div>
         )}
@@ -294,8 +302,8 @@ export default function AppShell({ children }) {
                 type="button"
                 className="sidebar-ctrl-btn sidebar-open-btn"
                 onClick={openSidebar}
-                aria-label="Show sidebar"
-                title="Show sidebar"
+                aria-label={t('nav.showSidebar')}
+                title={t('nav.showSidebar')}
               >
                 <SidebarIcon>
                   <path d="M3 6h18M3 12h18M3 18h18" />
@@ -303,17 +311,18 @@ export default function AppShell({ children }) {
               </button>
             )}
             <div>
-              <p className="app-topbar-eyebrow">Workspace</p>
+              <p className="app-topbar-eyebrow">{t('chrome.workspace')}</p>
               <h1 className="app-topbar-title">{title}</h1>
             </div>
           </div>
           <div className="app-topbar-actions">
             {!hrOnly && <NotificationBell />}
+            <LanguageToggle className="lang-toggle--topbar" />
             <ThemeToggle className="theme-toggle--topbar" />
             {user && (
               <NavLink to="/account" className="app-topbar-user">
                 <UserAvatar name={user.name} email={user.email} src={user.avatar_url} size="sm" />
-                <span className="app-topbar-user-name">{user.name?.split(' ')[0] || 'Account'}</span>
+                <span className="app-topbar-user-name">{user.name?.split(' ')[0] || t('nav.account')}</span>
               </NavLink>
             )}
           </div>

@@ -4,6 +4,7 @@ import { useAuth } from '../AuthContext';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import PageHeader from '../components/PageHeader';
 import { resizeImageToDataUrl, IMAGE_PRESETS } from '../lib/imageResize';
+import { useLocale } from '../context/LocaleContext';
 
 const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
 
@@ -157,6 +158,7 @@ function PasswordField({ label, value, onChange, show, onToggleShow, autoComplet
 
 export default function Account() {
   const { user, updateUser } = useAuth();
+  const { t } = useLocale();
   const [form, setForm] = useState({
     current_password: '',
     new_password: '',
@@ -270,8 +272,7 @@ export default function Account() {
   return (
     <div className="page-module account-page">
       <PageHeader
-        title="My account"
-        subtitle="Manage your profile, role, and account security."
+        title={t('page.account')}
       />
 
       <div
@@ -396,7 +397,7 @@ export default function Account() {
                 border: `1px solid ${tint(roleColor, 35)}`,
               }}
             >
-              {ROLE_LABELS[role] || role}
+              {t(`role.${role}`) || ROLE_LABELS[role] || role}
             </span>
             <span
               style={{
@@ -454,7 +455,7 @@ export default function Account() {
 
             <dt>Role</dt>
             <dd style={{ margin: 0 }}>
-              <div style={{ fontWeight: 500 }}>{ROLE_LABELS[role] || role}</div>
+              <div style={{ fontWeight: 500 }}>{t(`role.${role}`) || ROLE_LABELS[role] || role}</div>
               <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.2rem', lineHeight: 1.5 }}>
                 {ROLE_DESCRIPTIONS[role] || 'Standard access.'}
               </div>

@@ -27,6 +27,10 @@ export function emptyData() {
     work_packages: [],
     attachments: [],
     backlog_comments: [],
+    task_time_sessions: [],
+    raid_items: [],
+    task_comments: [],
+    project_activity: [],
   };
 }
 
@@ -115,6 +119,17 @@ export function projectRowForDb(p) {
   if (p.short_code !== undefined) {
     row.short_code = p.short_code != null && String(p.short_code).trim()
       ? String(p.short_code).trim().toUpperCase()
+      : null;
+  }
+  if (p.baseline_end_date !== undefined) {
+    row.baseline_end_date = p.baseline_end_date || null;
+  }
+  if (p.eot_log !== undefined) {
+    row.eot_log = Array.isArray(p.eot_log) ? p.eot_log : [];
+  }
+  if (p.program_name !== undefined) {
+    row.program_name = p.program_name != null && String(p.program_name).trim()
+      ? String(p.program_name).trim()
       : null;
   }
   return row;

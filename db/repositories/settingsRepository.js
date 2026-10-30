@@ -6,12 +6,17 @@ import {
   embedSmtpIntoSettings,
   stripSmtpEmbedFromMileage,
 } from '../../lib/smtpSettingsEmbed.js';
+import {
+  AZURE_AD_EMBED_KEY,
+  applyAzureAdEmbedToSettings,
+  embedAzureAdIntoSettings,
+} from '../../lib/azureAdSettingsEmbed.js';
 import { AUDIT_LOG_MAX, nextId } from '../runtime/helpers.js';
 import { isDbMode, dbSelect, dbInsert, dbUpsert } from '../runtime/query.js';
 
 /** Legacy Graph embed key — ignore as a location; stop reading/writing Graph secrets. */
 const LEGACY_MS_GRAPH_EMBED_KEY = '__pmo_ms_graph__';
-const SECRET_MILEAGE_KEYS = new Set([SMTP_EMBED_KEY, LEGACY_MS_GRAPH_EMBED_KEY]);
+const SECRET_MILEAGE_KEYS = new Set([SMTP_EMBED_KEY, AZURE_AD_EMBED_KEY, LEGACY_MS_GRAPH_EMBED_KEY]);
 
 async function ensureEpbtModulesColumn() {
   try {
@@ -47,7 +52,10 @@ function normalizeSettingsFromRaw(raw = {}) {
       ? raw.mileage_from_office_km
       : {}),
   };
-  const withSecrets = applySmtpEmbedToSettings({ ...d, ...raw }, rawMileage);
+  const withSecrets = applyAzureAdEmbedToSettings(
+    applySmtpEmbedToSettings({ ...d, ...raw }, rawMileage),
+    rawMileage,
+  );
   const mileage = { ...rawMileage };
   for (const k of Object.keys(mileage)) {
     if (SECRET_MILEAGE_KEYS.has(k)) continue;
@@ -79,11 +87,17 @@ function normalizeSettingsFromRaw(raw = {}) {
     smtp_user: withSecrets.smtp_user != null ? String(withSecrets.smtp_user) : d.smtp_user,
     smtp_pass: withSecrets.smtp_pass != null ? String(withSecrets.smtp_pass) : d.smtp_pass,
     smtp_from: withSecrets.smtp_from != null ? String(withSecrets.smtp_from) : d.smtp_from,
+    azure_ad_client_id: withSecrets.azure_ad_client_id != null ? String(withSecrets.azure_ad_client_id) : d.azure_ad_client_id,
+    azure_ad_tenant_id: withSecrets.azure_ad_tenant_id != null && String(withSecrets.azure_ad_tenant_id).trim()
+      ? String(withSecrets.azure_ad_tenant_id).trim()
+      : d.azure_ad_tenant_id,
+    azure_ad_client_secret: withSecrets.azure_ad_client_secret != null ? String(withSecrets.azure_ad_client_secret) : d.azure_ad_client_secret,
+    azure_ad_allow_signup: withSecrets.azure_ad_allow_signup !== false,
   };
 }
 
 function buildSettingsAppRow(settings) {
-  const s = embedSmtpIntoSettings({ ...(settings || {}) });
+  const s = embedAzureAdIntoSettings(embedSmtpIntoSettings({ ...(settings || {}) }));
   const mileage = {
     ...(s.mileage_from_office_km && typeof s.mileage_from_office_km === 'object'
       ? s.mileage_from_office_km
@@ -171,11 +185,19 @@ function mergeSettingsPatch(cur, patch, prevSmtpEmbed) {
   if (prevSmtpEmbed && typeof prevSmtpEmbed === 'object' && !String(next.smtp_pass || '').trim()) {
     Object.assign(next, applySmtpEmbedToSettings(next, { [SMTP_EMBED_KEY]: prevSmtpEmbed }));
   }
+  const prevAzureEmbed = cur?.mileage_from_office_km?.[AZURE_AD_EMBED_KEY];
+  if (prevAzureEmbed && typeof prevAzureEmbed === 'object' && !String(next.azure_ad_client_secret || '').trim()) {
+    Object.assign(next, applyAzureAdEmbedToSettings(next, { [AZURE_AD_EMBED_KEY]: prevAzureEmbed }));
+    if (!String(next.azure_ad_client_secret || '').trim() && prevAzureEmbed.azure_ad_client_secret) {
+      next.azure_ad_client_secret = prevAzureEmbed.azure_ad_client_secret;
+    }
+  }
   delete next.mileage_from_office_km[LEGACY_MS_GRAPH_EMBED_KEY];
   delete next.ms_graph_tenant_id;
   delete next.ms_graph_client_id;
   delete next.ms_graph_client_secret;
   embedSmtpIntoSettings(next);
+  embedAzureAdIntoSettings(next);
   return next;
 }
 

@@ -28,7 +28,6 @@ export default function KpiStrip({
           <>
             <span className="dashboard-stat-label">{item.label}</span>
             <span className={`dashboard-stat-value ${item.valueClass || ''}`.trim()}>{item.value}</span>
-            {item.hint ? <span className="dashboard-stat-hint">{item.hint}</span> : null}
           </>
         );
 

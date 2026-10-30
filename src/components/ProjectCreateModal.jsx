@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import ClientMultiSelect from './ClientMultiSelect';
 
 import { PROJECT_ENGAGEMENT_TYPES } from '../../lib/projectConstants.js';
@@ -9,9 +8,9 @@ import { api } from '../api';
 export { PROJECT_ENGAGEMENT_TYPES };
 
 const STATUS_OPTIONS = [
-  { id: 'active', label: 'Active', hint: 'Work in progress' },
-  { id: 'on-hold', label: 'On hold', hint: 'Paused temporarily' },
-  { id: 'completed', label: 'Completed', hint: 'Closed out' },
+  { id: 'active', label: 'Active' },
+  { id: 'on-hold', label: 'On hold' },
+  { id: 'completed', label: 'Completed' },
 ];
 
 const EMPTY_FORM = {
@@ -22,6 +21,7 @@ const EMPTY_FORM = {
   status: 'active',
   start_date: '',
   end_date: '',
+  program_name: '',
   client_ids: [],
 };
 
@@ -63,6 +63,8 @@ export default function ProjectCreateModal({
 
   const normalizedShortCode = normalizeProjectShortCode(form.short_code);
 
+  // Reset only when the modal opens — do NOT depend on onClose/saving
+  // (parent re-renders were resetting step back to 1).
   useEffect(() => {
     if (!open) return undefined;
     setStep(1);
@@ -71,12 +73,16 @@ export default function ProjectCreateModal({
     setShortCodeEdited(false);
     setShortCodeStatus('idle');
     const t = setTimeout(() => nameRef.current?.focus(), 120);
-    const onKey = (e) => { if (e.key === 'Escape' && !saving) onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener('keydown', onKey);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !saving) onClose();
     };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose, saving]);
 
   // Live uniqueness: instant local check, then debounced server confirm.
@@ -136,8 +142,15 @@ export default function ProjectCreateModal({
     return e;
   }, [form, touched, shortCodeStatus, normalizedShortCode]);
 
+  // Step 1 → 2: don't wait on async short-code API (checking/idle is OK).
   const canContinue = form.name.trim().length > 0
-    && shortCodeStatus === 'available'
+    && normalizedShortCode.length >= 2
+    && shortCodeStatus !== 'taken'
+    && shortCodeStatus !== 'too_short';
+
+  // Final create: prefer confirmed available; still allow if check is pending but not taken.
+  const canCreate = canContinue
+    && shortCodeStatus !== 'taken'
     && !errors.end_date;
 
   const clientNames = useMemo(() => {
@@ -162,16 +175,27 @@ export default function ProjectCreateModal({
     });
   };
 
-  const goNext = () => {
+  const goNext = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     setTouched((t) => ({ ...t, name: true, short_code: true }));
-    if (!canContinue) return;
+    const nameOk = form.name.trim().length > 0;
+    const codeOk = normalizedShortCode.length >= 2;
+    if (!nameOk || !codeOk) return;
+    if (shortCodeStatus === 'taken') return;
     setStep(2);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    // Enter on step 1 should advance, not create
+    if (step === 1) {
+      goNext();
+      return;
+    }
     setTouched({ name: true, short_code: true, end_date: true });
-    if (!form.name.trim() || shortCodeStatus !== 'available' || errors.end_date) return;
+    if (!canCreate) return;
+    if (shortCodeStatus === 'taken') return;
     onSubmit({ ...form, short_code: normalizedShortCode });
   };
 
@@ -181,11 +205,7 @@ export default function ProjectCreateModal({
     shortCodeStatus === 'available' ? 'form-field__input--ok' : '',
   ].filter(Boolean).join(' ');
 
-  let shortCodeFeedback = (
-    <span className="form-field__hint">
-      Unique code used in backlog refs (e.g. CUKAI-PKPJ-CK-0001). Suggested from the name — you can edit it.
-    </span>
-  );
+  let shortCodeFeedback = null;
   if (shortCodeStatus === 'checking') {
     shortCodeFeedback = (
       <span className="form-field__status form-field__status--pending" role="status" aria-live="polite">
@@ -225,9 +245,6 @@ export default function ProjectCreateModal({
           <div>
             <p className="project-create-eyebrow">New delivery workspace</p>
             <h2 id="project-create-title" className="modal-dialog-title">Create project</h2>
-            <p className="project-create-subtitle">
-              {step === 1 ? 'Start with the essentials — you can add tasks and team after.' : 'Set the timeline and link client companies.'}
-            </p>
           </div>
           <button type="button" className="modal-dialog-close" onClick={onClose} disabled={saving} aria-label="Close">×</button>
         </div>
@@ -314,7 +331,6 @@ export default function ProjectCreateModal({
 
               <fieldset className="form-fieldset">
                 <legend className="form-field__label">Engagement type</legend>
-                <p className="form-field__legend-hint">Contract instrument — e.g. contract, letter of offer (LO), or purchase order.</p>
                 <div className="project-type-grid">
                   {PROJECT_ENGAGEMENT_TYPES.map((c) => (
                     <button
@@ -327,11 +343,9 @@ export default function ProjectCreateModal({
                       }))}
                     >
                       <span className="project-type-card__label">{c.label}</span>
-                      <span className="project-type-card__hint">{c.hint}</span>
                     </button>
                   ))}
                 </div>
-                <p className="form-field__hint">Add work packages later to define delivery scope (development, API, migration, etc.).</p>
               </fieldset>
 
               <fieldset className="form-fieldset">
@@ -343,7 +357,6 @@ export default function ProjectCreateModal({
                       type="button"
                       className={`project-status-chip ${form.status === s.id ? 'selected' : ''}`}
                       onClick={() => setForm((f) => ({ ...f, status: s.id }))}
-                      title={s.hint}
                     >
                       {s.label}
                     </button>
@@ -380,13 +393,24 @@ export default function ProjectCreateModal({
                   {errors.end_date && <span className="form-field__error">{errors.end_date}</span>}
                 </div>
               </div>
-              <p className="form-field__legend-hint">Dates power the Gantt chart and deadline alerts.</p>
+
+              <div className="form-field">
+                <label className="form-field__label" htmlFor="project-create-program">
+                  Program
+                  <span className="form-field__optional">Optional</span>
+                </label>
+                <input
+                  id="project-create-program"
+                  type="text"
+                  className="form-field__input"
+                  placeholder="e.g. Digital transformation"
+                  value={form.program_name}
+                  onChange={(e) => setForm((f) => ({ ...f, program_name: e.target.value }))}
+                />
+              </div>
 
               <div className="form-field">
                 <label className="form-field__label">Client company</label>
-                <p className="form-field__legend-hint">
-                  Link one client to this project. <Link to="/clients">Manage clients</Link>
-                </p>
                 <ClientMultiSelect
                   clients={clients}
                   value={form.client_ids}
@@ -407,6 +431,7 @@ export default function ProjectCreateModal({
                   <div><dt>Engagement</dt><dd>{PROJECT_ENGAGEMENT_TYPES.find((t) => t.id === form.engagement_type)?.label || 'Not set'}</dd></div>
                   <div><dt>Status</dt><dd>{STATUS_OPTIONS.find((s) => s.id === form.status)?.label}</dd></div>
                   <div><dt>Timeline</dt><dd>{formatPreviewDate(form.start_date)} → {formatPreviewDate(form.end_date)}</dd></div>
+                  <div><dt>Program</dt><dd>{form.program_name.trim() || '—'}</dd></div>
                   <div><dt>Client</dt><dd>{clientNames.length ? clientNames[0] : 'None linked'}</dd></div>
                 </dl>
               </div>
@@ -426,11 +451,11 @@ export default function ProjectCreateModal({
             <div className="project-create-footer__primary">
               {step === 1 ? (
                 <button type="button" className="btn btn-primary" onClick={goNext} disabled={!canContinue}>
-                  Continue
+                  Next
                 </button>
               ) : (
-                <button type="submit" className="btn btn-primary" disabled={saving || !canContinue || !!errors.end_date}>
-                  {saving ? 'Creating…' : 'Create project'}
+                <button type="submit" className="btn btn-primary" disabled={saving || !canCreate}>
+                  {saving ? 'Creating…' : 'Confirm'}
                 </button>
               )}
             </div>

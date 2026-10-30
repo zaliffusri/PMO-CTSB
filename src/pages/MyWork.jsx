@@ -21,6 +21,8 @@ import {
   formatActivityTime,
 } from '../../lib/myWorkUtils.js';
 import { formatActivityDisplayTitle } from '../utils/calendarUtils.js';
+import { formatElapsedMinutes, liveElapsedMinutes } from '../utils/timeSessionUi.js';
+import { useLocale } from '../context/LocaleContext';
 
 const OPEN_ISSUE_STATUSES = new Set(['open', 'in_progress', 'waiting_agency']);
 
@@ -38,9 +40,9 @@ const QUEUE_TABS = [
 ];
 
 const GROUP_META = {
-  task: { label: 'Tasks', desc: 'Delivery work assigned to you' },
-  backlog: { label: 'Backlog', desc: 'Change requests, bugs, and enhancements' },
-  helpdesk: { label: 'Helpdesk', desc: 'Support tickets awaiting your action' },
+  task: { label: 'Tasks' },
+  backlog: { label: 'Backlog' },
+  helpdesk: { label: 'Helpdesk' },
 };
 
 function labelFrom(list, id) {
@@ -248,7 +250,6 @@ function WorkGroup({ id, items, onMarkDone, busy }) {
         </div>
         <div>
           <h3 className="my-work-group__title">{meta.label}</h3>
-          <p className="my-work-group__desc">{meta.desc}</p>
         </div>
         <span className="my-work-group__count">{items.length}</span>
       </header>
@@ -264,6 +265,7 @@ function WorkGroup({ id, items, onMarkDone, busy }) {
 
 export default function MyWork() {
   const { user } = useAuth();
+  const { t } = useLocale();
   const [tasks, setTasks] = useState([]);
   const [issues, setIssues] = useState([]);
   const [backlogs, setBacklogs] = useState([]);
@@ -275,6 +277,8 @@ export default function MyWork() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('urgency');
   const [showSchedule, setShowSchedule] = useState(false);
+  const [activeTimer, setActiveTimer] = useState(null);
+  const [timerTick, setTimerTick] = useState(0);
   const { pending: busy, run } = useSubmitLock();
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -291,19 +295,39 @@ export default function MyWork() {
       api.backlogs.list(),
       api.people.list(),
       api.activities.list(activityParams).catch(() => []),
+      api.timeSessions.active().catch(() => null),
     ])
-      .then(([tk, iss, bl, pe, act]) => {
+      .then(([tk, iss, bl, pe, act, timer]) => {
         setTasks(tk);
         setIssues(iss);
         setBacklogs(bl);
         setPeople(pe);
         setActivities(Array.isArray(act) ? act : []);
+        setActiveTimer(timer || null);
       })
       .catch((err) => setLoadError(err.message || 'Failed to load your work'))
       .finally(() => setLoading(false));
   }, [user?.id, today]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!activeTimer?.started_at || activeTimer.ended_at) return undefined;
+    const id = setInterval(() => setTimerTick((n) => n + 1), 15000);
+    return () => clearInterval(id);
+  }, [activeTimer?.started_at, activeTimer?.ended_at, activeTimer?.id]);
+
+  const stopActiveTimer = useCallback(async () => {
+    await run(async () => {
+      try {
+        await api.timeSessions.stop({});
+        setActiveTimer(null);
+        load();
+      } catch (err) {
+        alert(err.message || 'Could not stop timer');
+      }
+    });
+  }, [run, load]);
 
   const myPerson = useMemo(() => resolveMyPerson(people, user), [people, user]);
 
@@ -479,20 +503,49 @@ export default function MyWork() {
   return (
     <div className="page-module my-work-page">
       <PageHeader
-        eyebrow="Personal workspace"
-        title="My work"
-        badge={stats.urgent > 0 ? `${stats.urgent} priority` : null}
-        subtitle="Your unified queue for delivery tasks, backlog, and support tickets."
+        eyebrow={t('eyebrow.personal')}
+        title={t('page.myWork')}
+        badge={stats.urgent > 0 ? t('myWork.priority', { n: stats.urgent }) : null}
         actions={(
           <div className="my-work-header-actions">
             <button type="button" className="btn btn-ghost btn-sm" onClick={load} disabled={busy}>
-              Refresh
+              {t('action.refresh')}
             </button>
-            <Link to="/calendar" className="btn btn-secondary btn-sm">Calendar</Link>
-            <Link to="/projects" className="btn btn-secondary btn-sm">Projects</Link>
+            <Link to="/calendar" className="btn btn-secondary btn-sm">{t('myWork.calendar')}</Link>
+            <Link to="/projects" className="btn btn-secondary btn-sm">{t('myWork.projects')}</Link>
           </div>
         )}
       />
+
+      {activeTimer && (
+        <div className="my-work-active-timer" role="status">
+          <div>
+            <p className="my-work-active-timer__label">{t('myWork.workingNow')}</p>
+            <p className="my-work-active-timer__title">{activeTimer.task_name || `Task #${activeTimer.task_id}`}</p>
+            <p className="my-work-active-timer__meta">
+              {activeTimer.project_name || 'Project'}
+              {' · '}
+              {formatElapsedMinutes(liveElapsedMinutes(activeTimer.started_at) || activeTimer.elapsed_minutes)}
+              <span className="sr-only">{timerTick}</span>
+            </p>
+            <p className="my-work-active-timer__hint">{t('myWork.timerHint')}</p>
+          </div>
+          <div className="my-work-active-timer__actions">
+            {activeTimer.project_id && (
+              <Link
+                to={`/projects/${activeTimer.project_id}?tab=tasks`}
+                className="btn btn-secondary btn-sm"
+              >
+                {t('myWork.openTask')}
+              </Link>
+            )}
+            <Link to="/timesheets" className="btn btn-ghost btn-sm">{t('myWork.timesheets')}</Link>
+            <button type="button" className="btn btn-primary btn-sm" onClick={stopActiveTimer} disabled={busy}>
+              {t('myWork.stopTimer')}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="my-work-workspace card section-card module-workspace">
         <header className="my-work-topbar" aria-label="Work summary">
@@ -599,14 +652,13 @@ export default function MyWork() {
                 <div className="my-work-panel__header">
                   <div>
                     <h2 className="my-work-panel__title">Today&apos;s schedule</h2>
-                    <p className="my-work-panel__desc">Meetings and field activities assigned to you.</p>
                   </div>
                   <Link to="/calendar" className="btn btn-secondary btn-sm">Full calendar</Link>
                 </div>
                 {sortedActivities.length === 0 ? (
                   <UiEmptyState
                     title="Clear calendar today"
-                    description="No activities are scheduled. Open the calendar to plan your week."
+                    description="No activities scheduled today."
                     action={<Link to="/calendar" className="btn btn-primary btn-sm">Open calendar</Link>}
                   />
                 ) : (

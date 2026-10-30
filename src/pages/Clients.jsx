@@ -11,6 +11,7 @@ import ModuleFilterBar from '../components/ModuleFilterBar';
 import PageLoadingState from '../components/PageLoadingState';
 import PageLoadError from '../components/PageLoadError';
 import { IMAGE_PRESETS } from '../lib/imageResize';
+import { useLocale } from '../context/LocaleContext';
 
 function companyMatchesSearch(company, q) {
   if (!q) return true;
@@ -184,6 +185,7 @@ function ProjectViewMenu({ projects }) {
 
 export default function Clients() {
   const { user } = useAuth();
+  const { t } = useLocale();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -451,8 +453,7 @@ export default function Clients() {
   return (
     <div className="page-module clients-page">
       <PageHeader
-        title="Clients"
-        subtitle="Companies, short codes, and PICs."
+        title={t('page.clients')}
         actions={
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button
@@ -460,14 +461,14 @@ export default function Clients() {
               className="btn btn-secondary"
               onClick={() => (addingCompany ? closeAddCompany() : openAddCompany())}
             >
-              {addingCompany ? 'Cancel' : '+ Add client'}
+              {addingCompany ? t('action.cancel') : t('action.addClient')}
             </button>
             <button
               type="button"
               className="btn btn-primary"
               onClick={() => (showForm ? (setShowForm(false), resetForm()) : openForm())}
             >
-              {showForm ? 'Cancel' : '+ Add PIC'}
+              {showForm ? t('action.cancel') : t('clients.addPic')}
             </button>
           </div>
         }
@@ -517,9 +518,6 @@ export default function Clients() {
                   maxLength={32}
                   required
                 />
-                <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Required code used in helpdesk / imports
-                </span>
               </label>
               {canEditLogo && (
                 <div className="client-modal-logo">
@@ -532,9 +530,6 @@ export default function Clients() {
                     fallbackLetter={addingCompany.name || 'C'}
                     busy={saving}
                   />
-                  <p className="client-modal-logo__hint">
-                    Click the square to add a logo. Optional.
-                  </p>
                 </div>
               )}
               <div className="project-create-footer">
@@ -594,9 +589,6 @@ export default function Clients() {
                   maxLength={32}
                   required
                 />
-                <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Required code used in helpdesk / imports
-                </span>
               </label>
               {canEditLogo && (
                 <div className="client-modal-logo">
@@ -609,9 +601,6 @@ export default function Clients() {
                     fallbackLetter={editingCompany.name || 'C'}
                     busy={saving}
                   />
-                  <p className="client-modal-logo__hint">
-                    Click the square to change the logo.
-                  </p>
                 </div>
               )}
               <div className="project-create-footer">

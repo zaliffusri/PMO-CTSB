@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 
 const RECIPIENT_MODES = [
-  { id: 'team', label: 'Whole team', hint: 'Everyone with an email on Team or Users' },
-  { id: 'assignees', label: 'People on this schedule', hint: 'Assignees and guest emails in the period' },
-  { id: 'custom', label: 'Custom list', hint: 'Comma-separated addresses' },
+  { id: 'team', label: 'Whole team' },
+  { id: 'assignees', label: 'People on this schedule' },
+  { id: 'custom', label: 'Custom list' },
 ];
 
 export default function ScheduleEmailModal({
@@ -121,9 +121,6 @@ export default function ScheduleEmailModal({
                   <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
               </select>
-              <span className="form-field__hint">
-                {RECIPIENT_MODES.find((m) => m.id === mode)?.hint}
-              </span>
             </label>
 
             {mode === 'custom' && (

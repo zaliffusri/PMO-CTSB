@@ -4,6 +4,7 @@ import App from './App';
 import { ThemeProvider } from './ThemeContext';
 import { AuthProvider } from './AuthContext';
 import { BrandingProvider } from './context/BrandingContext';
+import { LocaleProvider } from './context/LocaleContext';
 import './index.css';
 import './styles/auth.css';
 import './styles/theme-modes.css';
@@ -33,7 +34,7 @@ class ErrorBoundary extends React.Component {
             {this.state.error?.message || String(this.state.error)}
           </pre>
           <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>
-            Check the browser console (F12) for more. Make sure the backend is running on port 3001.
+            Check the browser console (F12) for more. Make sure the local API is running.
           </p>
           <button
             type="button"
@@ -50,15 +51,23 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ThemeProvider>
       <BrandingProvider>
-        <AuthProvider>
-          <ErrorBoundary>
-            <App />
-          </ErrorBoundary>
-        </AuthProvider>
+        <LocaleProvider>
+          <AuthProvider>
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
+          </AuthProvider>
+        </LocaleProvider>
       </BrandingProvider>
     </ThemeProvider>
   </React.StrictMode>

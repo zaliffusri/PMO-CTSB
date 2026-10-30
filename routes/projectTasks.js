@@ -5,6 +5,7 @@ import { notifyPersonInApp, emailForPerson } from '../lib/notifyUser.js';
 import { sendTaskAssignedEmail } from '../lib/mailer.js';
 import { parseHoursInput } from '../lib/hoursUtils.js';
 import { reloadStore, persistStore } from '../lib/storeSync.js';
+import { getVisibleProjectIdSet } from '../lib/projectScope.js';
 
 export const projectTasksRouter = Router();
 
@@ -20,7 +21,8 @@ function rollupGroupHours(groupId, allTasks) {
   };
 }
 
-async function withTaskMeta(t, preloaded = null) {
+function withTaskMeta(t, preloaded = null) {
+  if (!t) return null;
   const projects = preloaded?.projects ?? [];
   const people = preloaded?.people ?? [];
   const allTasks = preloaded?.tasks ?? [];
@@ -42,6 +44,7 @@ async function withTaskMeta(t, preloaded = null) {
   };
   return {
     ...t,
+    id: Number(t.id),
     ...hours,
     task_kind,
     status: normalizeTaskStatus(t),
@@ -50,6 +53,10 @@ async function withTaskMeta(t, preloaded = null) {
     parent_name: parent?.name ?? null,
     work_package_name: wp?.name ?? null,
     work_package_classification: wp?.classification ?? null,
+    predecessor_id: t.predecessor_id != null ? Number(t.predecessor_id) : null,
+    predecessor_name: t.predecessor_id != null
+      ? (allTasks.find((p) => Number(p.id) === Number(t.predecessor_id))?.name || null)
+      : null,
   };
 }
 
@@ -120,8 +127,11 @@ projectTasksRouter.get('/', async (req, res) => {
     if (Number.isFinite(projectId)) filters.project_id = projectId;
     if (Number.isFinite(workPackageId)) filters.work_package_id = workPackageId;
     const ctx = await loadTaskMetaContext(filters);
-    let tasks = ctx.tasks.map((t) => withTaskMeta(t, ctx));
-    tasks = applySort(tasks);
+    const visible = await getVisibleProjectIdSet(store, req.user);
+    const scoped = visible == null
+      ? ctx.tasks
+      : ctx.tasks.filter((t) => visible.has(Number(t.project_id)));
+    const tasks = applySort(scoped.map((t) => withTaskMeta(t, { ...ctx, tasks: scoped })).filter(Boolean));
     res.json(tasks);
   } catch (e) {
     console.error('project-tasks GET failed', e);
@@ -133,11 +143,10 @@ projectTasksRouter.get('/gantt', async (req, res) => {
   const from = req.query.from;
   const to = req.query.to;
   const ctx = await loadTaskMetaContext();
-  let tasks = await Promise.all(
-    ctx.tasks
-      .filter((t) => t.task_kind !== 'group')
-      .map((t) => withTaskMeta(t, ctx)),
-  );
+  let tasks = ctx.tasks
+    .filter((t) => t.task_kind !== 'group')
+    .map((t) => withTaskMeta(t, ctx))
+    .filter(Boolean);
   if (from && to) {
     tasks = tasks.filter(t => {
       const taskStart = t.planned_start_date || t.actual_start_date;
@@ -222,8 +231,11 @@ projectTasksRouter.post('/', async (req, res) => {
   });
   const tasks = await store.listProjectTasks();
   const projects = await store.listProjects();
-  const task = tasks.find(t => t.id === id);
-  const proj = projects.find((p) => p.id === task.project_id);
+  const task = (typeof store.findProjectTaskById === 'function'
+    ? await store.findProjectTaskById(id)
+    : null) || tasks.find((t) => Number(t.id) === Number(id));
+  if (!task) return res.status(500).json({ error: 'Task was created but could not be loaded' });
+  const proj = projects.find((p) => Number(p.id) === Number(task.project_id));
   await store.appendAuditLog(req.user, {
     action: 'create',
     target_type: 'project_task',
@@ -252,13 +264,15 @@ projectTasksRouter.post('/', async (req, res) => {
     }
   }
   if (!(await persistStore(res))) return;
-  res.status(201).json(await withTaskMeta(task));
+  res.status(201).json(withTaskMeta(task));
 });
 
 projectTasksRouter.put('/:id', async (req, res) => {
   const id = +req.params.id;
   const allTasks = await store.listProjectTasks();
-  const existing = allTasks.find(t => t.id === id);
+  const existing = typeof store.findProjectTaskById === 'function'
+    ? await store.findProjectTaskById(id)
+    : allTasks.find((t) => Number(t.id) === id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
 
   const hasChildren = allTasks.some(t => t.parent_id === existing.id);
@@ -314,6 +328,7 @@ projectTasksRouter.put('/:id', async (req, res) => {
     assignee_id,
     estimated_hours,
     actual_hours,
+    predecessor_id,
   } = req.body;
 
   let nextWorkPackageId = existing.work_package_id ?? null;
@@ -365,10 +380,16 @@ projectTasksRouter.put('/:id', async (req, res) => {
     work_package_id: nextWorkPackageId,
     estimated_hours: nextEstimated,
     actual_hours: nextActual,
+    predecessor_id: predecessor_id !== undefined
+      ? (predecessor_id != null && predecessor_id !== '' ? +predecessor_id : null)
+      : existing.predecessor_id,
   });
   const tasks = await store.listProjectTasks();
-  const task = tasks.find(t => t.id === id);
-  const meta = await withTaskMeta(task);
+  const task = (typeof store.findProjectTaskById === 'function'
+    ? await store.findProjectTaskById(id)
+    : null) || tasks.find((t) => Number(t.id) === Number(id));
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  const meta = withTaskMeta(task, { tasks, people });
   if (
     nextKind !== 'group'
     && nextAssignee != null
@@ -400,12 +421,16 @@ projectTasksRouter.put('/:id', async (req, res) => {
 });
 
 projectTasksRouter.delete('/:id', async (req, res) => {
-  const id = +req.params.id;
-  const allTasks = await store.listProjectTasks();
-  const existing = allTasks.find(t => t.id === id);
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'A valid task id is required' });
+  }
+  const existing = typeof store.findProjectTaskById === 'function'
+    ? await store.findProjectTaskById(id)
+    : (await store.listProjectTasks()).find((t) => Number(t.id) === id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
   const projects = await store.listProjects();
-  const proj = projects.find((p) => p.id === existing.project_id);
+  const proj = projects.find((p) => Number(p.id) === Number(existing.project_id));
   await store.deleteProjectTask(id);
   await store.appendAuditLog(req.user, {
     action: 'delete',

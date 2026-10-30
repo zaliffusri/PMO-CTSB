@@ -11,7 +11,7 @@ export function mapApiToForm(s) {
     general_notes: s.general_notes || '',
     currency_code: s.currency_code || 'MYR',
     mileage_from_office_km: { ...(s.mileage_from_office_km || {}) },
-    org_display_name: s.org_display_name || 'PMO CTSB',
+    org_display_name: s.org_display_name || 'C360',
     org_tagline: s.org_tagline || '',
     org_logo_url: s.org_logo_url || null,
     org_banner_url: s.org_banner_url || null,
@@ -23,5 +23,10 @@ export function mapApiToForm(s) {
     smtp_from: s.smtp_from || '',
     smtp_pass_set: Boolean(s.smtp_pass_set),
     smtp_configured: Boolean(s.smtp_configured),
+    azure_ad_client_id: s.azure_ad_client_id || '',
+    azure_ad_tenant_id: s.azure_ad_tenant_id || 'common',
+    azure_ad_allow_signup: s.azure_ad_allow_signup !== false,
+    azure_ad_secret_set: Boolean(s.azure_ad_secret_set),
+    azure_ad_configured: Boolean(s.azure_ad_configured),
   };
 }

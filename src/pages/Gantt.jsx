@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import PageHeader from '../components/PageHeader';
 import UiEmptyState from '../components/UiEmptyState';
+import { useLocale } from '../context/LocaleContext';
 
 const TASK_STATUS = {
   new: { label: 'New', className: 'gantt-status--new' },
@@ -29,10 +30,10 @@ const ZOOM_OPTIONS = [
 ];
 
 const STATUS_FILTERS = [
-  { id: 'all', label: 'All statuses' },
-  { id: 'new', label: 'New' },
-  { id: 'ongoing', label: 'In progress' },
-  { id: 'done', label: 'Done' },
+  { id: 'all', key: 'gantt.allStatuses' },
+  { id: 'new', key: 'gantt.new' },
+  { id: 'ongoing', key: 'gantt.inProgress' },
+  { id: 'done', key: 'gantt.done' },
 ];
 
 function parseDate(str) {
@@ -112,6 +113,7 @@ function taskMatchesSearch(task, q) {
     task.parent_name,
     task.assignee_name,
     task.project_name,
+    task.predecessor_name,
   ].filter(Boolean).join(' ').toLowerCase();
   return haystack.includes(q);
 }
@@ -146,6 +148,7 @@ function GanttSkeleton() {
 }
 
 export default function Gantt() {
+  const { t } = useLocale();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('both');
@@ -280,33 +283,32 @@ export default function Gantt() {
   return (
     <div className="page-module gantt-page">
       <PageHeader
-        eyebrow="Delivery"
-        title="Gantt timeline"
-        badge={!loading && stats.tasks > 0 ? `${stats.tasks} tasks` : null}
-        subtitle="Planned vs actual dates across your portfolio — open a project to edit tasks."
+        eyebrow={t('eyebrow.delivery')}
+        title={t('page.gantt')}
+        badge={!loading && stats.tasks > 0 ? t('gantt.tasksCount', { n: stats.tasks }) : null}
         actions={(
-          <Link to="/projects" className="btn btn-secondary btn-sm">Projects</Link>
+          <Link to="/projects" className="btn btn-secondary btn-sm">{t('nav.projects')}</Link>
         )}
       />
 
       <div className="gantt-workspace card section-card module-workspace">
         {!loading && stats.tasks > 0 && (
-          <div className="gantt-kpi-row" aria-label="Timeline summary">
+          <div className="gantt-kpi-row" aria-label={t('gantt.timelineSummary')}>
             <div className="gantt-kpi">
               <span className="gantt-kpi__value">{stats.projects}</span>
-              <span className="gantt-kpi__label">Projects</span>
+              <span className="gantt-kpi__label">{t('common.projects')}</span>
             </div>
             <div className="gantt-kpi">
               <span className="gantt-kpi__value">{stats.tasks}</span>
-              <span className="gantt-kpi__label">Tasks</span>
+              <span className="gantt-kpi__label">{t('common.tasks')}</span>
             </div>
             <div className="gantt-kpi">
               <span className="gantt-kpi__value">{stats.avgProgress}%</span>
-              <span className="gantt-kpi__label">Avg progress</span>
+              <span className="gantt-kpi__label">{t('gantt.avgProgress')}</span>
             </div>
             <div className="gantt-kpi gantt-kpi--accent">
               <span className="gantt-kpi__value">{stats.ongoing}</span>
-              <span className="gantt-kpi__label">In progress</span>
+              <span className="gantt-kpi__label">{t('gantt.inProgress')}</span>
             </div>
             <div className="gantt-kpi gantt-kpi--success">
               <span className="gantt-kpi__value">{stats.done}</span>
@@ -373,14 +375,14 @@ export default function Gantt() {
               </select>
             </label>
             <label className="gantt-toolbar__field">
-              <span className="module-toolbar__label">Status</span>
+              <span className="module-toolbar__label">{t('common.status')}</span>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="form-field__input helpdesk-filter-input"
               >
                 {STATUS_FILTERS.map((f) => (
-                  <option key={f.id} value={f.id}>{f.label}</option>
+                  <option key={f.id} value={f.id}>{t(f.key)}</option>
                 ))}
               </select>
             </label>
@@ -443,9 +445,7 @@ export default function Gantt() {
             <span className="gantt-legend-item"><span className="gantt-legend-swatch gantt-legend-swatch--planned" /> Planned</span>
             <span className="gantt-legend-item"><span className="gantt-legend-swatch gantt-legend-swatch--actual" /> Actual</span>
             <span className="gantt-legend-item"><span className="gantt-legend-swatch gantt-legend-swatch--today" /> Today</span>
-            {dualLane && (
-              <span className="gantt-legend-item gantt-legend-item--hint">Dual lane: planned above, actual below</span>
-            )}
+            <span className="gantt-legend-item"><span className="gantt-legend-swatch gantt-legend-swatch--fs" /> FS predecessor</span>
           </div>
         </div>
 
@@ -567,6 +567,11 @@ export default function Gantt() {
                                 {task.assignee_name && (
                                   <span className="gantt-task-assignee">{task.assignee_name}</span>
                                 )}
+                                {task.predecessor_name && (
+                                  <span className="gantt-task-pred" title={`Finish-to-start after ${task.predecessor_name}`}>
+                                    FS ← {task.predecessor_name}
+                                  </span>
+                                )}
                                 {progress > 0 && (
                                   <span className="gantt-task-progress">{progress}%</span>
                                 )}
@@ -581,7 +586,8 @@ export default function Gantt() {
                                   style={{ left: planPos.left, width: planPos.width }}
                                   tabIndex={0}
                                 >
-                                  <div className="gantt-bar gantt-bar-planning">
+                                  <div className={`gantt-bar gantt-bar-planning ${task.predecessor_id ? 'gantt-bar--has-pred' : ''}`}>
+                                    {task.predecessor_id && <span className="gantt-fs-flag">FS</span>}
                                     <span className="gantt-bar-shine" />
                                   </div>
                                   <GanttBarTooltip
@@ -590,6 +596,7 @@ export default function Gantt() {
                                       task.name,
                                       `${formatGanttDateLabel(task.planned_start_date)} → ${formatGanttDateLabel(task.planned_end_date)}`,
                                       planDays != null ? `${planDays} day${planDays === 1 ? '' : 's'}` : null,
+                                      task.predecessor_name ? `After: ${task.predecessor_name}` : null,
                                     ].filter(Boolean)}
                                   />
                                 </div>

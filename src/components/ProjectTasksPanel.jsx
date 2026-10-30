@@ -1,18 +1,19 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../AuthContext';
 import { useSubmitLock } from '../hooks/useSubmitLock';
 import UiEmptyState from './UiEmptyState';
 import KpiStrip from './KpiStrip';
 import DataListShell from './DataListShell';
 import EntityAttachments from './EntityAttachments';
-import ChartCard from './charts/ChartCard';
-import DonutChart from './charts/DonutChart';
-import HBarChart from './charts/HBarChart';
 import HoursField from './HoursField';
 import { formatProjectDate } from '../../lib/pmoMetrics.js';
-import { chartProjectTaskStatus, chartProjectAssigneeLoad } from '../../lib/projectCharts.js';
 import { sumHours, formatHours } from '../../lib/hoursUtils.js';
+import { PHASE_UI } from '../../lib/projectConstants.js';
+import { canCreateProject, personIdForUser } from '../../lib/permissions.js';
+import { formatElapsedMinutes, liveElapsedMinutes } from '../utils/timeSessionUi.js';
+import TaskCommentsModal from './TaskCommentsModal';
 
 const SORT_OPTIONS = [
   { id: 'group', label: 'Group order' },
@@ -32,6 +33,7 @@ const EMPTY_ADD_DRAFT = {
   planned_start_date: '',
   estimated_hours: '',
   work_package_id: '',
+  predecessor_id: '',
   showMore: false,
   addAnother: false,
 };
@@ -88,6 +90,8 @@ export default function ProjectTasksPanel({
   workPackages = [],
   packageFilter = '',
   allPeople = [],
+  /** Full roster for linking login → people.id (timers). Defaults to allPeople. */
+  rosterPeople,
   chartFilter,
   onClearChartFilter,
   canManage = true,
@@ -103,8 +107,87 @@ export default function ProjectTasksPanel({
   const [addDraft, setAddDraft] = useState(() => createAddDraft());
   const [quickName, setQuickName] = useState('');
   const [attachTask, setAttachTask] = useState(null);
+  const [commentTask, setCommentTask] = useState(null);
+  const [activeTimer, setActiveTimer] = useState(null);
+  const [timerTick, setTimerTick] = useState(0);
   const nameInputRef = useRef(null);
   const { pending: busy, run } = useSubmitLock();
+  const { user } = useAuth();
+  const myPersonId = personIdForUser(user, rosterPeople?.length ? rosterPeople : allPeople);
+  const isPmo = canCreateProject(user);
+
+  const refreshActiveTimer = useCallback(() => {
+    api.timeSessions.active()
+      .then((s) => setActiveTimer(s || null))
+      .catch(() => setActiveTimer(null));
+  }, []);
+
+  useEffect(() => { refreshActiveTimer(); }, [refreshActiveTimer, projectId]);
+
+  useEffect(() => {
+    if (!activeTimer?.started_at || activeTimer.ended_at) return undefined;
+    const id = setInterval(() => setTimerTick((n) => n + 1), 15000);
+    return () => clearInterval(id);
+  }, [activeTimer?.started_at, activeTimer?.ended_at, activeTimer?.id]);
+
+  const canTimeTask = useCallback((t) => {
+    if (!t || t.task_kind === 'group') return false;
+    if (isPmo) return true;
+    if (myPersonId == null) return false;
+    return Number(t.assignee_id) === Number(myPersonId);
+  }, [isPmo, myPersonId]);
+
+  const startTimerOnTask = useCallback(async (task) => {
+    await run(async () => {
+      const applyStart = async (forceSwitch) => {
+        const res = await api.timeSessions.start({ task_id: task.id, switch: forceSwitch });
+        setActiveTimer(res?.session || null);
+        if (onReload && (res?.previous_task || res?.hours_added_to_previous != null)) onReload();
+      };
+      try {
+        await applyStart(false);
+      } catch (err) {
+        if (err?.code === 'TIMER_CONFLICT' && err?.data?.active) {
+          const other = err.data.active;
+          const label = other.task_name || `Task #${other.task_id}`;
+          const ok = confirm(
+            `You are already timing "${label}" (${formatElapsedMinutes(other.elapsed_minutes)}).\n\nSwitch work to "${task.name}"? Previous time will be saved.`,
+          );
+          if (!ok) return;
+          try {
+            await applyStart(true);
+          } catch (e2) {
+            alert(e2.message || 'Could not switch timer');
+          }
+          return;
+        }
+        alert(err.message || 'Could not start timer');
+      }
+    });
+  }, [run, onReload]);
+
+  const stopTimerOnTask = useCallback(async (task) => {
+    await run(async () => {
+      try {
+        const res = await api.timeSessions.stop({ task_id: task?.id });
+        setActiveTimer(null);
+        if (res?.task && onReload) onReload();
+        else if (onReload) onReload();
+      } catch (err) {
+        alert(err.message || 'Could not stop timer');
+      }
+    });
+  }, [run, onReload]);
+
+  /** Project team for assignee pickers; keep current assignee visible if they left the team. */
+  const assigneePeopleFor = useCallback((assigneeId, assigneeName) => {
+    const list = [...(allPeople || [])];
+    const id = assigneeId != null && assigneeId !== '' ? Number(assigneeId) : null;
+    if (id != null && Number.isFinite(id) && !list.some((p) => Number(p.id) === id)) {
+      list.push({ id, name: assigneeName || `Person #${id}` });
+    }
+    return list;
+  }, [allPeople]);
 
   const taskGroups = useMemo(() => tasks.filter((t) => t.task_kind === 'group'), [tasks]);
   const leafTasks = useMemo(() => {
@@ -131,9 +214,6 @@ export default function ProjectTasksPanel({
       actHours: Math.round(sumHours(leafTasks, 'actual_hours') * 10) / 10,
     };
   }, [leafTasks, taskGroups]);
-
-  const statusChart = useMemo(() => chartProjectTaskStatus(tasks), [tasks]);
-  const assigneeChart = useMemo(() => chartProjectAssigneeLoad(tasks, 6), [tasks]);
 
   const visibleTasks = useMemo(() => {
     let list = tasks;
@@ -282,6 +362,11 @@ export default function ProjectTasksPanel({
   };
 
   const deleteTask = async (taskId, taskKind) => {
+    if (taskId == null || taskId === '' || Number.isNaN(Number(taskId))) {
+      alert('This task has no id yet. Refresh the page and try again.');
+      onReload?.();
+      return;
+    }
     const msg = taskKind === 'group'
       ? 'Delete this task group and all of its subtasks?'
       : 'Delete this task?';
@@ -332,6 +417,7 @@ export default function ProjectTasksPanel({
       estimated_hours: draft.estimated_hours !== '' && draft.estimated_hours != null
         ? +draft.estimated_hours
         : undefined,
+      predecessor_id: draft.predecessor_id ? +draft.predecessor_id : null,
     };
   };
 
@@ -439,6 +525,21 @@ export default function ProjectTasksPanel({
             ) : (
               <span className="project-task-name">{t.name}</span>
             )}
+            {!isGroup && (canManage ? (
+              <select
+                className="pmo-cell-select project-task-inline-select"
+                value={t.predecessor_id != null ? String(t.predecessor_id) : ''}
+                onChange={(e) => patchTask(t.id, { predecessor_id: e.target.value === '' ? null : +e.target.value })}
+                aria-label={`Predecessor for ${t.name}`}
+              >
+                <option value="">No predecessor</option>
+                {tasks.filter((p) => p.task_kind !== 'group' && Number(p.id) !== Number(t.id)).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            ) : t.predecessor_name ? (
+              <span className="project-task-muted">After: {t.predecessor_name}</span>
+            ) : null)}
           </div>
           </div>
         </td>
@@ -471,7 +572,7 @@ export default function ProjectTasksPanel({
               aria-label={`Assignee for ${t.name}`}
             >
               <option value="">Unassigned</option>
-              {allPeople.map((p) => (
+              {assigneePeopleFor(t.assignee_id, t.assignee_name).map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
@@ -542,8 +643,35 @@ export default function ProjectTasksPanel({
         </td>
         <td className="project-task-actions">
           <div className="project-task-actions-inner pmo-row-actions">
+          {!isGroup && canTimeTask(t) && (
+            Number(activeTimer?.task_id) === Number(t.id) ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm project-task-timer project-task-timer--running"
+                onClick={() => stopTimerOnTask(t)}
+                disabled={busy}
+                title="Stop work timer"
+              >
+                Stop · {formatElapsedMinutes(liveElapsedMinutes(activeTimer.started_at) || activeTimer.elapsed_minutes)}
+                <span className="sr-only">{timerTick}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm project-task-timer"
+                onClick={() => startTimerOnTask(t)}
+                disabled={busy || t.status === 'done'}
+                title="Start work timer"
+              >
+                Start
+              </button>
+            )
+          )}
           {!isGroup && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAttachTask(t)} title="Attachments">📎</button>
+          )}
+          {!isGroup && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCommentTask(t)} title="Comments">💬</button>
           )}
           {canManage && !isGroup && t.status !== 'done' && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => markDone(t)} disabled={busy}>
@@ -582,6 +710,7 @@ export default function ProjectTasksPanel({
             )}
             <h3 className="project-task-card__title">{t.name}</h3>
             {!isGroup && t.parent_name && <p className="project-task-card__parent">{t.parent_name}</p>}
+            {!isGroup && t.predecessor_name && <p className="project-task-card__parent">After: {t.predecessor_name}</p>}
           </div>
           {due && <span className={`project-task-due project-task-due--${due.tone}`}>{due.label}</span>}
         </div>
@@ -608,8 +737,32 @@ export default function ProjectTasksPanel({
           <span>Plan: {formatProjectDate(t.planned_start_date) || '—'} – {formatProjectDate(t.planned_end_date) || '—'}</span>
         </div>
         <div className="project-task-card__actions">
+          {!isGroup && canTimeTask(t) && (
+            Number(activeTimer?.task_id) === Number(t.id) ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm project-task-timer project-task-timer--running"
+                onClick={() => stopTimerOnTask(t)}
+                disabled={busy}
+              >
+                Stop · {formatElapsedMinutes(liveElapsedMinutes(activeTimer.started_at) || activeTimer.elapsed_minutes)}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm project-task-timer"
+                onClick={() => startTimerOnTask(t)}
+                disabled={busy || t.status === 'done'}
+              >
+                Start work
+              </button>
+            )
+          )}
           {!isGroup && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAttachTask(t)} title="Attachments">📎</button>
+          )}
+          {!isGroup && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCommentTask(t)} title="Comments">💬</button>
           )}
           {canManage && !isGroup && t.status !== 'done' && (
             <button type="button" className="btn btn-primary btn-sm" onClick={() => markDone(t)} disabled={busy}>Mark done</button>
@@ -692,33 +845,6 @@ export default function ProjectTasksPanel({
         ]}
       />
 
-      {leafTasks.length > 0 && (
-        <div className="project-tasks-charts">
-          <ChartCard title="By status" subtitle="Click to filter">
-            <DonutChart
-              data={statusChart.length ? statusChart : [{ key: 'empty', label: 'None', value: 1, color: 'var(--border)' }]}
-              centerValue={stats.total}
-              centerLabel="tasks"
-              interactive={statusChart.length > 0}
-              activeKey={statusFilter !== 'all' ? statusFilter : null}
-              onSegmentClick={(seg) => setStatusFilter(seg.key)}
-            />
-          </ChartCard>
-          {assigneeChart.length > 0 && (
-            <ChartCard title="By assignee" subtitle="Workload distribution">
-              <HBarChart
-                data={assigneeChart}
-                max={Math.max(...assigneeChart.map((d) => d.value), 1)}
-                unit=""
-                interactive
-                activeKey={assigneeFilter || null}
-                onBarClick={(bar) => setAssigneeFilter(String(bar.key) === assigneeFilter ? '' : String(bar.key))}
-              />
-            </ChartCard>
-          )}
-        </div>
-      )}
-
       <div className="card section-card module-filter-card project-tasks-toolbar">
         <div className="module-toolbar helpdesk-toolbar helpdesk-toolbar--compact project-tasks-toolbar__main">
           <label className="module-toolbar__field module-toolbar__field--grow">
@@ -741,7 +867,8 @@ export default function ProjectTasksPanel({
             <span className="module-toolbar__label">View</span>
             <select className="form-field__input pmo-filter-input" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
               <option value="table">Table</option>
-              <option value="board">Cards</option>
+              <option value="board">Kanban</option>
+              <option value="cards">Cards</option>
             </select>
           </label>
           <div className="module-toolbar__actions project-tasks-toolbar__actions">
@@ -772,7 +899,7 @@ export default function ProjectTasksPanel({
           </form>
         )}
         <p className="pmo-filter-summary" aria-live="polite">
-          {visibleTasks.length} of {tasks.length} rows · {viewMode === 'table' ? 'Table' : 'Cards'} view
+          {visibleTasks.length} of {tasks.length} rows · {viewMode === 'table' ? 'Table' : viewMode === 'board' ? 'Kanban' : 'Cards'} view
         </p>
       </div>
 
@@ -848,6 +975,9 @@ export default function ProjectTasksPanel({
                         {allPeople.map((p) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
+                        {!allPeople.length && (
+                          <option value="" disabled>Assign people on the People tab first</option>
+                        )}
                       </select>
                     </label>
                     <label className="form-field">
@@ -871,6 +1001,19 @@ export default function ProjectTasksPanel({
                       onChange={(e) => setAddDraft((d) => ({ ...d, estimated_hours: e.target.value }))}
                       placeholder="e.g. 8"
                     />
+                  </label>
+                  <label className="form-field">
+                    <span className="form-field__label">Predecessor (finish-to-start)</span>
+                    <select
+                      className="ui-input"
+                      value={addDraft.predecessor_id}
+                      onChange={(e) => setAddDraft((d) => ({ ...d, predecessor_id: e.target.value }))}
+                    >
+                      <option value="">None</option>
+                      {tasks.filter((p) => p.task_kind !== 'group').map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
                   </label>
                 </>
               )}
@@ -922,7 +1065,7 @@ export default function ProjectTasksPanel({
                   )}
                   {workPackages.length > 0 && (
                     <label className="form-field">
-                      <span className="form-field__label">Work package</span>
+                      <span className="form-field__label">{PHASE_UI.singular}</span>
                       <select
                         className="ui-input"
                         value={addDraft.work_package_id || packageFilter || ''}
@@ -974,6 +1117,33 @@ export default function ProjectTasksPanel({
           action={<button type="button" className="btn btn-secondary" onClick={() => { setStatusFilter('all'); setTaskSearch(''); onClearChartFilter?.(); }}>Clear filters</button>}
         />
       ) : viewMode === 'board' ? (
+        <div className="task-kanban">
+          {['new', 'ongoing', 'done'].map((col) => (
+            <section key={col} className="task-kanban__col">
+              <h3 className="task-kanban__title">{col === 'new' ? 'New' : col === 'ongoing' ? 'In progress' : 'Done'}</h3>
+              {visibleTasks.filter((t) => t.task_kind !== 'group' && String(t.status || 'new') === col).map((t) => (
+                <article key={t.id} className="task-kanban__card">
+                  <strong>{t.name}</strong>
+                  <p className="pmo-data-list__meta">{t.assignee_name || 'Unassigned'}</p>
+                  {t.predecessor_name && <p className="pmo-data-list__meta">After: {t.predecessor_name}</p>}
+                  <div className="pmo-row-actions">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCommentTask(t)}>💬</button>
+                    {canManage && col !== 'done' && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => patchTask(t.id, { status: col === 'new' ? 'ongoing' : 'done', progress_percent: col === 'ongoing' ? 100 : t.progress_percent })}
+                      >
+                        {col === 'new' ? 'Start' : 'Complete'}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </section>
+          ))}
+        </div>
+      ) : viewMode === 'cards' ? (
         <div className="project-task-board">
           {visibleTasks.map(renderTaskCard)}
         </div>
@@ -984,7 +1154,6 @@ export default function ProjectTasksPanel({
           stickyHeader
           comfortable
           fluid
-          scrollHint
           className="project-tasks-table-card"
           aria-label="Task list"
         >
@@ -1003,7 +1172,7 @@ export default function ProjectTasksPanel({
             <thead>
               <tr>
                 <th className="pmo-data-list__col-primary">Task</th>
-                {workPackages.length > 0 && <th className="hide-mobile">Package</th>}
+                {workPackages.length > 0 && <th className="hide-mobile">{PHASE_UI.singular}</th>}
                 <th>Assignee</th>
                 <th>Status</th>
                 <th className="hide-mobile">Planned</th>
@@ -1031,6 +1200,9 @@ export default function ProjectTasksPanel({
             </div>
           </div>
         </div>
+      )}
+      {commentTask && (
+        <TaskCommentsModal task={commentTask} onClose={() => setCommentTask(null)} />
       )}
     </div>
   );

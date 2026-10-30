@@ -14,9 +14,6 @@ export default function WorkspaceBanner() {
     >
       <div className="workspace-banner__overlay" />
       <div className="workspace-banner__content">
-        {branding.org_logo_url && (
-          <img src={branding.org_logo_url} alt="" className="workspace-banner__logo" />
-        )}
         <div>
           <p className="workspace-banner__eyebrow">{branding.org_display_name}</p>
           <h2 className="workspace-banner__title">Welcome back, {firstName}</h2>

@@ -18,6 +18,9 @@ import {
 } from '../lib/activityActorEmbed.js';
 import { nextCalendarSequence } from '../lib/calendarInvite.js';
 import { dispatchActivityNotifications } from '../lib/activityNotify.js';
+import { copyAttachments } from '../lib/attachmentCopy.js';
+import { isImageAttachment } from '../lib/attachmentConstants.js';
+import { deleteAttachmentFile } from '../lib/attachmentStorage.js';
 import { validateBody } from '../middleware/validate.js';
 import { createActivitySchema } from '../lib/validationSchemas.js';
 
@@ -179,6 +182,85 @@ async function enrichActivityForClient(a, projects = null, nameCache = null, sho
   };
 }
 
+async function withActivityPhotoCounts(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = [...new Set(list.map((r) => Number(r.id)).filter(Number.isFinite))];
+  if (!ids.length) return list.map((r) => ({ ...r, photo_count: Number(r.photo_count) || 0 }));
+  let atts = [];
+  try {
+    atts = typeof store.listAttachmentsForEntities === 'function'
+      ? await store.listAttachmentsForEntities('activity', ids)
+      : [];
+  } catch (e) {
+    console.warn('activity photo counts:', e?.message || e);
+  }
+  const counts = new Map();
+  const firstPhoto = new Map();
+  for (const att of atts) {
+    if (!isImageAttachment(att)) continue;
+    const id = Number(att.entity_id);
+    counts.set(id, (counts.get(id) || 0) + 1);
+    if (!firstPhoto.has(id) && Number.isFinite(Number(att.id))) {
+      firstPhoto.set(id, Number(att.id));
+    }
+  }
+  return list.map((r) => ({
+    ...r,
+    photo_count: counts.get(Number(r.id)) || 0,
+    preview_photo_id: firstPhoto.get(Number(r.id)) || null,
+  }));
+}
+
+async function rehomeActivityAttachments(fromIds, toId) {
+  const dest = Number(toId);
+  if (!Number.isFinite(dest)) return;
+  for (const fromId of fromIds || []) {
+    if (Number(fromId) === dest) continue;
+    try {
+      await copyAttachments(store, 'activity', fromId, 'activity', dest);
+    } catch (e) {
+      console.warn('activity photo copy:', e?.message || e);
+    }
+  }
+  for (const fromId of fromIds || []) {
+    if (Number(fromId) === dest) continue;
+    try {
+      const leftover = await store.listAttachments('activity', fromId);
+      for (const att of leftover) {
+        await store.deleteAttachment(att.id);
+      }
+    } catch (e) {
+      console.warn('activity photo rehome cleanup:', e?.message || e);
+    }
+  }
+}
+
+async function deleteActivityAttachments(ids) {
+  for (const id of ids || []) {
+    let list = [];
+    try {
+      list = await store.listAttachments('activity', id);
+    } catch (e) {
+      console.warn('activity photo list on delete:', e?.message || e);
+      continue;
+    }
+    for (const att of list) {
+      try {
+        if (att.kind === 'file' && att.storage_path) {
+          const siblings = await store.listAttachments(att.entity_type, att.entity_id);
+          const stillUsed = siblings.some(
+            (a) => a.id !== att.id && a.storage_path === att.storage_path,
+          );
+          if (!stillUsed) await deleteAttachmentFile(att.storage_path);
+        }
+        await store.deleteAttachment(att.id);
+      } catch (e) {
+        console.warn('activity photo delete:', e?.message || e);
+      }
+    }
+  }
+}
+
 /** Prefer earliest creator across a multi-assignee group before recreate. */
 async function inheritAuditFromGroup(groupRows, existing) {
   const rows = (groupRows || []).filter(Boolean);
@@ -265,7 +347,7 @@ activitiesRouter.get('/', async (req, res) => {
   const rows = await Promise.all(
     activities.map((a) => enrichActivityForClient(a, projects, nameCache, shortCodeByProject)),
   );
-  res.json(rows);
+  res.json(await withActivityPhotoCounts(rows));
 });
 
 async function listActivitiesInRange(from, to) {
@@ -281,9 +363,10 @@ async function listActivitiesInRange(from, to) {
   const shortCodeByProject = await buildClientShortCodeByProjectId(
     activities.map((a) => a.project_id),
   );
-  return Promise.all(
+  const rows = await Promise.all(
     activities.map((a) => enrichActivityForClient(a, projects, nameCache, shortCodeByProject)),
   );
+  return withActivityPhotoCounts(rows);
 }
 
 function periodLabelFromRange(fromRaw, toRaw) {
@@ -326,7 +409,7 @@ activitiesRouter.get('/schedule-email/preview', requireCalendarEditor, async (re
   const scheduleRows = groupActivitiesForScheduleEmail(rawRows);
   const periodLabel = periodLabelFromRange(from, to);
   const settings = await store.getSettings();
-  const orgName = settings?.org_display_name || 'PMO CTSB';
+  const orgName = settings?.org_display_name || 'C360';
   const sentBy = req.user?.name || req.user?.email || '';
 
   const { html, text, subject } = buildTeamScheduleEmail({
@@ -445,7 +528,8 @@ activitiesRouter.get('/:id', async (req, res) => {
       : null;
     if (!row) return res.status(404).json({ error: 'Activity not found' });
     const enriched = await enrichActivityForClient(row);
-    return res.json(enriched);
+    const [withPhotos] = await withActivityPhotoCounts([enriched]);
+    return res.json(withPhotos);
   } catch (e) {
     console.error('activities GET/:id failed', e);
     return res.status(500).json({ error: e?.message || 'Failed to load activity' });
@@ -679,7 +763,9 @@ activitiesRouter.post('/', requireCalendarEditor, validateBody(createActivitySch
     };
   }
 
-  const responseRows = await Promise.all(created.map((a) => enrichActivityForClient(a, projects)));
+  const responseRows = await withActivityPhotoCounts(
+    await Promise.all(created.map((a) => enrichActivityForClient(a, projects))),
+  );
   const meta = {
     email_notify: emailNotify,
     notify_email_requested: false,
@@ -826,6 +912,7 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
 
   activities = await store.listActivities();
   const createdRows = createdIds.map((newId) => activities.find((x) => x.id === newId)).filter(Boolean);
+  await rehomeActivityAttachments(previousGroupIds, createdIds[0]);
 
   // In-app only on save — calendar invite emails are sent via detail "Resend invite", not the log form.
   let emailNotify = {
@@ -898,8 +985,9 @@ activitiesRouter.put('/:id', requireCalendarEditor, async (req, res) => {
       person_name: await activityPersonName(r.person_id),
     })))
     : null;
+  const [enrichedFirst] = await withActivityPhotoCounts([await enrichActivityForClient(first, projects)]);
   return res.json({
-    ...await enrichActivityForClient(first, projects),
+    ...enrichedFirst,
     split_into: splitInto,
     replaced_id: id,
     email_notify: emailNotify,
@@ -974,6 +1062,12 @@ activitiesRouter.delete('/:id', requireCalendarEditor, async (req, res) => {
     return res.status(500).json({ error: e?.message || 'Failed to cancel activity' });
   }
   if (deleted === 0) return res.status(404).json({ error: 'Activity not found' });
+
+  try {
+    await deleteActivityAttachments([...(removedIds || []), ...deletedIds]);
+  } catch (e) {
+    console.warn('activities DELETE photos:', e?.message || e);
+  }
 
   // deleteActivitiesByIds already removed rows + tombstones; legacy path needs an extra purge.
   if (typeof store.deleteActivitiesByIds !== 'function') {

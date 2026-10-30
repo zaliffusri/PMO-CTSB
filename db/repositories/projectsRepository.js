@@ -19,6 +19,8 @@ const MAX_PROJECTS_LIMIT = 2000;
 
 /** Prefer richer columns; fall back when production schema is behind migrations. */
 const PROJECT_LITE_COLUMN_CANDIDATES = [
+  'id,name,short_code,description,classification,engagement_type,program_name,status,start_date,end_date,baseline_end_date,eot_log,tags,created_at',
+  'id,name,short_code,description,classification,engagement_type,status,start_date,end_date,baseline_end_date,eot_log,tags,created_at',
   'id,name,short_code,description,classification,engagement_type,status,start_date,end_date,tags,created_at',
   'id,name,description,classification,engagement_type,status,start_date,end_date,tags,created_at',
   'id,name,description,engagement_type,status,start_date,end_date,tags,created_at',
@@ -55,6 +57,8 @@ async function ensureProjectsOptionalColumns() {
         alter table public.projects add column if not exists engagement_type text;
         alter table public.projects add column if not exists classification text;
         alter table public.projects add column if not exists short_code text;
+        alter table public.projects add column if not exists baseline_end_date date;
+        alter table public.projects add column if not exists eot_log jsonb not null default '[]'::jsonb;
       `);
       try {
         await client.query("NOTIFY pgrst, 'reload schema'");
@@ -341,12 +345,16 @@ export function createProjectsRepository(ctx, getStore) {
         short_code != null && String(short_code).trim()
           ? String(short_code).trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
           : null;
+      const initialEnd = rest.end_date || null;
       const projectFields = {
         status: 'active',
         classification: normalizedClassification,
         engagement_type: normalizedEngagementType,
         short_code: normalizedShortCode,
         ...rest,
+        // Lock original end date as baseline when creating with a schedule
+        baseline_end_date: rest.baseline_end_date || initialEnd || null,
+        eot_log: Array.isArray(rest.eot_log) ? rest.eot_log : [],
         created_at,
       };
       const ids = normalizeProjectClientIds(
@@ -477,8 +485,11 @@ export function createProjectsRepository(ctx, getStore) {
         'status',
         'start_date',
         'end_date',
+        'baseline_end_date',
+        'eot_log',
         'classification',
         'engagement_type',
+        'program_name',
       ]) {
         if (patch[key] !== undefined) forDb[key] = patch[key];
       }
@@ -490,7 +501,7 @@ export function createProjectsRepository(ctx, getStore) {
         // Never silently drop engagement_type / classification when the user sent them.
         let pending = { ...forDb };
         const softDropKeys = ['tags'];
-        const identityKeys = ['engagement_type', 'classification', 'short_code'];
+        const identityKeys = ['engagement_type', 'classification', 'short_code', 'baseline_end_date', 'eot_log'];
         let ensuredSchema = false;
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {

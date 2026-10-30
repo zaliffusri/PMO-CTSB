@@ -4,6 +4,24 @@ import { generateToken, hashPassword, verifyPassword } from '../lib/auth.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getTokenFromHeader } from '../middleware/authUtils.js';
 import { mintSupabaseRealtimeJwt } from '../lib/realtimeJwt.js';
+import {
+  authorizeUrl,
+  callbackRedirectUri,
+  createPkce,
+  decodeJwtPayload,
+  emailFromMicrosoftProfile,
+  exchangeAuthorizationCode,
+  fetchGraphMe,
+  findOrCreateMicrosoftUser,
+  frontendOrigin,
+  isAzureAdConfigured,
+  nameFromMicrosoftProfile,
+  resolveAzureAdConfig,
+  saveOAuthState,
+  ssoErrorRedirect,
+  ssoSuccessRedirect,
+  takeOAuthState,
+} from '../lib/microsoftSso.js';
 
 export const authRouter = Router();
 
@@ -81,6 +99,82 @@ authRouter.post('/register-admin', async (req, res) => {
     });
   } catch {
     return res.status(500).json({ error: 'Failed to register admin' });
+  }
+});
+
+authRouter.get('/microsoft/status', async (req, res) => {
+  const cfg = await resolveAzureAdConfig(() => store.getSettings());
+  res.json({
+    configured: isAzureAdConfigured(cfg),
+    source: cfg.source,
+    tenant: cfg.clientId ? (cfg.tenantId || 'common') : null,
+  });
+});
+
+authRouter.get('/microsoft', async (req, res) => {
+  const front = frontendOrigin(req);
+  const cfg = await resolveAzureAdConfig(() => store.getSettings());
+  if (!isAzureAdConfigured(cfg)) {
+    return res.redirect(ssoErrorRedirect(front, 'not_configured'));
+  }
+  const redirectUri = callbackRedirectUri(req, cfg.redirectUri);
+  if (!redirectUri) {
+    return res.redirect(ssoErrorRedirect(front, 'not_configured'));
+  }
+  const { verifier, challenge, state } = createPkce();
+  saveOAuthState(state, { verifier, redirectUri, frontendOrigin: front });
+  return res.redirect(authorizeUrl({ cfg, redirectUri, state, challenge }));
+});
+
+authRouter.get('/microsoft/callback', async (req, res) => {
+  const frontFallback = frontendOrigin(req);
+  const fail = (code, storedFront) => res.redirect(ssoErrorRedirect(storedFront || frontFallback, code));
+  try {
+    if (req.query.error) {
+      const cancelled = String(req.query.error) === 'access_denied';
+      const pending = takeOAuthState(String(req.query.state || ''));
+      return fail(cancelled ? 'cancelled' : 'failed', pending?.frontendOrigin);
+    }
+    const code = String(req.query.code || '');
+    const state = String(req.query.state || '');
+    const pending = takeOAuthState(state);
+    if (!code || !pending?.verifier || !pending.redirectUri) {
+      return fail('failed');
+    }
+    const cfg = await resolveAzureAdConfig(() => store.getSettings());
+    if (!isAzureAdConfigured(cfg)) {
+      return fail('not_configured', pending.frontendOrigin);
+    }
+    const tokens = await exchangeAuthorizationCode({
+      cfg,
+      code,
+      redirectUri: pending.redirectUri,
+      verifier: pending.verifier,
+    });
+    const idToken = decodeJwtPayload(tokens.id_token) || {};
+    const graph = await fetchGraphMe(tokens.access_token);
+    const email = emailFromMicrosoftProfile({ idToken, graph });
+    const name = nameFromMicrosoftProfile({ idToken, graph, email });
+    const { user } = await findOrCreateMicrosoftUser(store, {
+      email,
+      name,
+      allowSignup: cfg.allowSignup,
+    });
+    if (typeof store.persistUsersToSupabase === 'function') {
+      try {
+        await store.persistUsersToSupabase();
+      } catch (e) {
+        console.warn('microsoft SSO persist users:', e?.message || e);
+      }
+    }
+    const session = await createUserSession(user);
+    return res.redirect(ssoSuccessRedirect(pending.frontendOrigin || frontFallback, session.token));
+  } catch (e) {
+    const code = e?.code || 'failed';
+    console.error('microsoft SSO callback failed:', e?.message || e);
+    return fail(['no_email', 'no_account', 'inactive', 'token_failed', 'cancelled', 'not_configured'].includes(code)
+      ? code
+      : 'failed');
   }
 });
 

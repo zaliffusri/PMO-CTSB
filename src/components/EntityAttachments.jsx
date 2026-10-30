@@ -56,6 +56,11 @@ export default function EntityAttachments({
   entityId,
   title = 'Attachments',
   compact = false,
+  readOnly = false,
+  gallery = false,
+  accept = ATTACHMENT_ACCEPT,
+  emptyHint = 'No attachments — upload screenshot or PDF (max 2.5 MB), or paste a reference link.',
+  allowLinks = true,
 }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -177,7 +182,7 @@ export default function EntityAttachments({
   if (!entityId) return null;
 
   return (
-    <div className={`entity-attachments ${compact ? 'entity-attachments--compact' : ''}`}>
+    <div className={`entity-attachments ${compact ? 'entity-attachments--compact' : ''} ${gallery ? 'entity-attachments--gallery' : ''}`}>
       <div className="entity-attachments__head">
         <span className="form-field__label">{title}</span>
       </div>
@@ -187,7 +192,7 @@ export default function EntityAttachments({
       {loading && items.length === 0 ? (
         <p className="pmo-table-muted">Loading attachments…</p>
       ) : items.length === 0 ? (
-        <p className="pmo-table-muted entity-attachments__empty">No attachments — upload screenshot or PDF (max 2.5 MB), or paste a reference link.</p>
+        <p className="pmo-table-muted entity-attachments__empty">{emptyHint}</p>
       ) : (
         <ul className="entity-attachments__list">
           {items.map((att) => (
@@ -208,7 +213,7 @@ export default function EntityAttachments({
                   {att.uploaded_by_name && ` · ${att.uploaded_by_name}`}
                 </span>
               </div>
-              {!att._pending && (
+              {!readOnly && !att._pending && (
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => remove(att.id)} disabled={busy} title="Remove">
                   ×
                 </button>
@@ -218,17 +223,21 @@ export default function EntityAttachments({
         </ul>
       )}
 
+      {!readOnly && (
       <div className="entity-attachments__actions entity-attachments__actions--below">
         <label className="btn btn-secondary btn-sm entity-attachments__upload-btn">
-          {busy ? 'Uploading…' : '+ Upload file'}
-          <input type="file" accept={ATTACHMENT_ACCEPT} className="sr-only" onChange={uploadFile} disabled={busy} />
+          {busy ? 'Uploading…' : gallery ? '+ Add photo' : '+ Upload file'}
+          <input type="file" accept={accept} className="sr-only" onChange={uploadFile} disabled={busy} />
         </label>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowLinkForm((v) => !v)} disabled={busy}>
-          + Add link
-        </button>
+        {allowLinks && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowLinkForm((v) => !v)} disabled={busy}>
+            + Add link
+          </button>
+        )}
       </div>
+      )}
 
-      {showLinkForm && (
+      {!readOnly && showLinkForm && (
         <form className="entity-attachments__link-form" onSubmit={addLink}>
           <input
             className="form-field__input"

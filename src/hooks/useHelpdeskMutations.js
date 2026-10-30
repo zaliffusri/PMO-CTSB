@@ -96,6 +96,7 @@ export function useHelpdeskMutations({
   const [resolveMethod, setResolveMethod] = useState('whatsapp');
   const [resolveNotes, setResolveNotes] = useState('');
   const [resolveAction, setResolveAction] = useState('');
+  const [resolveCsat, setResolveCsat] = useState('');
 
   const patchIssue = useCallback(async (id, partial) => {
     const local = enrichLocalPatch(partial, { people, projects, clients });
@@ -168,6 +169,7 @@ export function useHelpdeskMutations({
     setResolveMethod(issue.intake_channel === 'call' ? 'call' : (issue.intake_channel || 'whatsapp'));
     setResolveNotes('');
     setResolveAction(issue.action_taken || '');
+    setResolveCsat('');
   }, []);
 
   const confirmResolve = useCallback(async (e) => {
@@ -177,6 +179,7 @@ export function useHelpdeskMutations({
     const method = resolveMethod;
     const notes = resolveNotes;
     const action = resolveAction;
+    const csat = resolveCsat;
     const snapshotIssue = resolveIssue;
 
     setResolveIssue(null);
@@ -192,12 +195,14 @@ export function useHelpdeskMutations({
             resolution_method: method,
             resolution_notes: notes || null,
             action_taken: action || row.action_taken || notes || null,
+            csat_score: csat ? Number(csat) : row.csat_score,
           };
         }),
         request: () => api.issues.resolve(issueId, {
           resolution_method: method,
           resolution_notes: notes || undefined,
           action_taken: action || undefined,
+          csat_score: csat ? Number(csat) : undefined,
         }),
         reconcile: (prev, result) => reconcileIssue(prev, result),
         onError: (err) => {
@@ -206,10 +211,11 @@ export function useHelpdeskMutations({
           setResolveMethod(method);
           setResolveNotes(notes);
           setResolveAction(action);
+          setResolveCsat(csat);
         },
       });
     });
-  }, [resolveIssue, resolveMethod, resolveNotes, resolveAction, run, runOptimistic, closeIssue]);
+  }, [resolveIssue, resolveMethod, resolveNotes, resolveAction, resolveCsat, run, runOptimistic, closeIssue]);
 
   const promoteToBacklog = useCallback((issue) => {
     if (!issue.can_promote_backlog) {
@@ -320,6 +326,8 @@ export function useHelpdeskMutations({
     setResolveNotes,
     resolveAction,
     setResolveAction,
+    resolveCsat,
+    setResolveCsat,
     openResolve,
     confirmResolve,
     patchIssue,

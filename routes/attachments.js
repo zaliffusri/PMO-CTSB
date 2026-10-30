@@ -36,6 +36,11 @@ async function entityExists(entityType, entityId) {
     const tasks = await store.listProjectTasks();
     return tasks.some((t) => t.id === id);
   }
+  if (entityType === 'activity') {
+    if (typeof store.findActivityById !== 'function') return false;
+    const row = await store.findActivityById(id);
+    return Boolean(row);
+  }
   return false;
 }
 

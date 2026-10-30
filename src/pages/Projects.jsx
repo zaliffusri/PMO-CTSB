@@ -6,7 +6,6 @@ import { useAuth } from '../AuthContext';
 import { canCreateProject } from '../../lib/permissions.js';
 import PageHeader from '../components/PageHeader';
 import ProjectCreateModal from '../components/ProjectCreateModal';
-import ProjectsPortfolioCharts from '../components/ProjectsPortfolioCharts';
 import UiEmptyState from '../components/UiEmptyState';
 import PageLoadingState from '../components/PageLoadingState';
 import PageLoadError from '../components/PageLoadError';
@@ -18,32 +17,34 @@ import {
 } from '../../lib/projectConstants.js';
 import {
   enrichProjectsWithHealth,
-  portfolioSummary,
   healthLabel,
   formatProjectDate,
   deadlineSummary,
   progressColor,
+  portfolioSummary,
 } from '../../lib/pmoMetrics.js';
+import ProjectsPortfolioCharts from '../components/ProjectsPortfolioCharts';
+import { useLocale } from '../context/LocaleContext';
 
 const STATUS_FILTERS = [
-  { id: 'active', label: 'Active' },
-  { id: 'all', label: 'All' },
-  { id: 'on-hold', label: 'On hold' },
-  { id: 'completed', label: 'Completed' },
+  { id: 'active', key: 'status.active' },
+  { id: 'all', key: 'common.all' },
+  { id: 'on-hold', key: 'status.onHold' },
+  { id: 'completed', key: 'status.completed' },
 ];
 
 const HEALTH_FILTERS = [
-  { id: 'all', label: 'All health' },
-  { id: 'on_track', label: 'On track' },
-  { id: 'at_risk', label: 'At risk' },
-  { id: 'blocked', label: 'Blocked' },
+  { id: 'all', key: 'projects.allHealth' },
+  { id: 'on_track', key: 'health.on_track' },
+  { id: 'at_risk', key: 'health.at_risk' },
+  { id: 'blocked', key: 'health.blocked' },
 ];
 
 const SORT_OPTIONS = [
-  { id: 'health', label: 'Health priority' },
-  { id: 'progress', label: 'Progress' },
-  { id: 'due', label: 'Due date' },
-  { id: 'name', label: 'Name' },
+  { id: 'health', key: 'projects.sortHealth' },
+  { id: 'progress', key: 'projects.sortProgress' },
+  { id: 'due', key: 'projects.sortDue' },
+  { id: 'name', key: 'projects.sortName' },
 ];
 
 const HEALTH_ORDER = { blocked: 0, at_risk: 1, on_track: 2 };
@@ -62,7 +63,8 @@ function ProjectProgress({ progress, health }) {
   );
 }
 
-function ProjectCard({ project: p, highlight = false }) {
+function ProjectCard({ project: p }) {
+  const { t } = useLocale();
   const deadline = deadlineSummary(p.end_date, p.status);
   const title = String(p?.name || 'Untitled project');
   const initial = title.charAt(0).toUpperCase() || '?';
@@ -70,12 +72,12 @@ function ProjectCard({ project: p, highlight = false }) {
   return (
     <article
       id={`project-card-${p.id}`}
-      className={`project-card ui-card project-card--${p.health || 'on_track'} ${highlight ? 'project-card--spotlight' : ''}`}
+      className={`project-card ui-card project-card--${p.health || 'on_track'}`}
     >
       <Link to={`/projects/${p.id}`} className="project-card__cover-link">
         <div className="project-card__cover project-card__cover--placeholder">
           <span className="project-card__initial">{initial}</span>
-          <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
+          <span className={`pmo-health-badge pmo-health-${p.health}`}>{t(`health.${p.health}`) || healthLabel(p.health)}</span>
         </div>
       </Link>
       <div className="project-card__body">
@@ -83,8 +85,9 @@ function ProjectCard({ project: p, highlight = false }) {
           <Link to={`/projects/${p.id}`} className="project-card__title">{title}</Link>
           <span className={`dashboard-badge dashboard-badge-${p.status}`}>{p.status}</span>
         </div>
-        {(p.engagement_type || p.classification) && (
+        {(p.engagement_type || p.classification || p.program_name) && (
           <span className="project-card__classification">
+            {p.program_name ? `${p.program_name} · ` : ''}
             {p.engagement_type ? engagementTypeLabel(p.engagement_type) : deliveryScopeLabel(p.classification)}
           </span>
         )}
@@ -128,6 +131,7 @@ export default function Projects() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { t } = useLocale();
   const mayCreate = canCreateProject(user);
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -143,7 +147,7 @@ export default function Projects() {
   const [engagementTypeFilter, setEngagementTypeFilter] = useState('');
   const [sortBy, setSortBy] = useState('health');
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('pmo-projects-view') || 'grid');
-  const [spotlightId, setSpotlightId] = useState(null);
+  const [spotlightProjectId, setSpotlightProjectId] = useState(null);
   const { pending: saving, run } = useSubmitLock();
 
   const load = useCallback(() => {
@@ -204,6 +208,10 @@ export default function Projects() {
   }, []);
   const enriched = useMemo(() => enrichProjectsWithHealth(projects, tasks), [projects, tasks]);
   const summary = useMemo(() => portfolioSummary(enriched), [enriched]);
+  const activeCount = useMemo(
+    () => enriched.filter((p) => p.status === 'active').length,
+    [enriched],
+  );
 
   const filtered = useMemo(() => {
     let list = enriched;
@@ -221,6 +229,7 @@ export default function Projects() {
     else if (statusFilter !== 'all') list = list.filter((p) => p.status === statusFilter);
     if (healthFilter !== 'all') list = list.filter((p) => p.health === healthFilter);
     if (engagementTypeFilter) list = list.filter((p) => p.engagement_type === engagementTypeFilter);
+    if (spotlightProjectId) list = list.filter((p) => Number(p.id) === Number(spotlightProjectId));
 
     const sorted = [...list];
     sorted.sort((a, b) => {
@@ -238,35 +247,7 @@ export default function Projects() {
       return (b.overdueTasks || 0) - (a.overdueTasks || 0);
     });
     return sorted;
-  }, [enriched, search, statusFilter, healthFilter, engagementTypeFilter, sortBy]);
-
-  const handleChartDrillDown = useCallback((payload) => {
-    if (payload?.clear) {
-      setHealthFilter('all');
-      setStatusFilter('active');
-      setEngagementTypeFilter('');
-      setSpotlightId(null);
-      return;
-    }
-    if (payload.health) {
-      setHealthFilter(payload.health);
-      setStatusFilter('active');
-    }
-    if (payload.status) {
-      setStatusFilter(payload.status);
-    }
-    if (payload.engagementType !== undefined) {
-      setEngagementTypeFilter(payload.engagementType);
-    }
-    if (payload.projectId) {
-      const pid = +payload.projectId;
-      setSpotlightId(pid);
-      window.setTimeout(() => {
-        document.getElementById(`project-card-${pid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        document.querySelector(`tr[data-project-id="${pid}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 80);
-    }
-  }, []);
+  }, [enriched, search, statusFilter, healthFilter, engagementTypeFilter, spotlightProjectId, sortBy]);
 
   const setView = (mode) => {
     setViewMode(mode);
@@ -277,7 +258,8 @@ export default function Projects() {
     search.trim()
     || statusFilter !== 'active'
     || healthFilter !== 'all'
-    || engagementTypeFilter,
+    || engagementTypeFilter
+    || spotlightProjectId,
   );
 
   const resetFilters = () => {
@@ -285,7 +267,23 @@ export default function Projects() {
     setStatusFilter('active');
     setHealthFilter('all');
     setEngagementTypeFilter('');
-    setSpotlightId(null);
+    setSpotlightProjectId(null);
+  };
+
+  const handleChartDrillDown = (payload = {}) => {
+    if (payload.clear) {
+      resetFilters();
+      return;
+    }
+    if (payload.health) setHealthFilter(payload.health);
+    if (payload.status) setStatusFilter(payload.status === 'on_hold' ? 'on-hold' : payload.status);
+    if (payload.engagementType) setEngagementTypeFilter(payload.engagementType);
+    if (payload.projectId) {
+      setSpotlightProjectId(payload.projectId);
+      requestAnimationFrame(() => {
+        document.getElementById(`project-card-${payload.projectId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
   };
 
   const submit = async (form) => {
@@ -306,6 +304,7 @@ export default function Projects() {
           status: form.status || 'active',
           start_date: form.start_date || null,
           end_date: form.end_date || null,
+          program_name: form.program_name || null,
           client_ids: Array.isArray(form.client_ids) ? form.client_ids : [],
         });
         setShowForm(false);
@@ -318,7 +317,7 @@ export default function Projects() {
   };
 
   if (loading) {
-    return <PageLoadingState message="Loading portfolio…" />;
+    return <PageLoadingState message={t('projects.loading')} />;
   }
 
   if (loadError && projects.length === 0) {
@@ -328,125 +327,77 @@ export default function Projects() {
   return (
     <div className="page-module projects-page">
       <PageHeader
-        eyebrow="Delivery"
-        title="Projects"
-        badge={`${summary.activeProjects} active`}
-        subtitle="Portfolio health, deadlines, and team coverage — open a workspace to manage tasks and people."
-        actions={mayCreate ? (
-          <button type="button" className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-            {showForm ? 'Cancel' : '+ New project'}
-          </button>
-        ) : null}
-      />
-
-      <section className="dashboard-stats kpi-strip projects-kpis" aria-label="Portfolio summary">
-        <button type="button" className="dashboard-stat-card dashboard-stat-card--clickable" onClick={() => handleChartDrillDown({ clear: true })}>
-          <span className="dashboard-stat-label">Total</span>
-          <span className="dashboard-stat-value">{summary.totalProjects}</span>
-          <span className="dashboard-stat-hint">All projects</span>
-        </button>
-        <button
-          type="button"
-          className="dashboard-stat-card dashboard-stat-card--clickable"
-          onClick={() => handleChartDrillDown({ health: 'on_track', status: 'active' })}
-        >
-          <span className="dashboard-stat-label">On track</span>
-          <span className="dashboard-stat-value pmo-stat-success">{summary.onTrack}</span>
-          <span className="dashboard-stat-hint">Healthy delivery</span>
-        </button>
-        <button
-          type="button"
-          className="dashboard-stat-card dashboard-stat-card--clickable"
-          onClick={() => handleChartDrillDown({ health: 'at_risk', status: 'active' })}
-        >
-          <span className="dashboard-stat-label">At risk</span>
-          <span className={`dashboard-stat-value ${summary.atRisk ? 'pmo-stat-warning' : ''}`}>{summary.atRisk}</span>
-          <span className="dashboard-stat-hint">Review soon</span>
-        </button>
-        <button
-          type="button"
-          className="dashboard-stat-card dashboard-stat-card--clickable"
-          onClick={() => handleChartDrillDown({ health: 'blocked', status: 'active' })}
-        >
-          <span className="dashboard-stat-label">Blocked</span>
-          <span className={`dashboard-stat-value ${summary.blocked ? 'pmo-stat-danger' : ''}`}>{summary.blocked}</span>
-          <span className="dashboard-stat-hint">Stalled work</span>
-        </button>
-        <div className="dashboard-stat-card dashboard-stat-card--hide-sm">
-          <span className="dashboard-stat-label">Avg completion</span>
-          <span className="dashboard-stat-value">{summary.avgCompletion}%</span>
-          <span className="dashboard-stat-hint">Active projects</span>
-        </div>
-      </section>
-
-      <ProjectsPortfolioCharts
-        enriched={enriched}
-        summary={summary}
-        onDrillDown={handleChartDrillDown}
-        activeHealth={healthFilter}
-        activeStatus={statusFilter}
-        activeEngagement={engagementTypeFilter}
-        spotlightProjectId={spotlightId}
+        eyebrow={t('eyebrow.delivery')}
+        title={t('page.projects')}
+        badge={t('common.activeCount', { n: activeCount })}
       />
 
       <div className="card section-card module-filter-card helpdesk-toolbar-card projects-toolbar-card">
         <div className="module-toolbar helpdesk-toolbar helpdesk-toolbar--compact projects-toolbar--compact">
+          {mayCreate && (
+            <div className="module-toolbar__field">
+              <span className="module-toolbar__label">&nbsp;</span>
+              <button type="button" className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+                {showForm ? t('action.cancel') : t('action.addProject')}
+              </button>
+            </div>
+          )}
           <label className="module-toolbar__field module-toolbar__field--grow">
-            <span className="module-toolbar__label">Search</span>
+            <span className="module-toolbar__label">{t('common.search')}</span>
             <input
               type="search"
               className="form-field__input helpdesk-filter-input"
-              placeholder="Project, client, engagement…"
+              placeholder={t('projects.searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
           <label className="module-toolbar__field">
-            <span className="module-toolbar__label">Status</span>
+            <span className="module-toolbar__label">{t('common.status')}</span>
             <select
               className="form-field__input helpdesk-filter-input"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               {STATUS_FILTERS.map((f) => (
-                <option key={f.id} value={f.id}>{f.label}</option>
+                <option key={f.id} value={f.id}>{t(f.key)}</option>
               ))}
             </select>
           </label>
           <label className="module-toolbar__field">
-            <span className="module-toolbar__label">Health</span>
+            <span className="module-toolbar__label">{t('common.health')}</span>
             <select
               className="form-field__input helpdesk-filter-input"
               value={healthFilter}
               onChange={(e) => setHealthFilter(e.target.value)}
             >
               {HEALTH_FILTERS.map((f) => (
-                <option key={f.id} value={f.id}>{f.label}</option>
+                <option key={f.id} value={f.id}>{t(f.key)}</option>
               ))}
             </select>
           </label>
           <label className="module-toolbar__field">
-            <span className="module-toolbar__label">Engagement</span>
+            <span className="module-toolbar__label">{t('common.engagement')}</span>
             <select
               className="form-field__input helpdesk-filter-input"
               value={engagementTypeFilter}
               onChange={(e) => setEngagementTypeFilter(e.target.value)}
             >
-              <option value="">All types</option>
+              <option value="">{t('common.allTypes')}</option>
               {PROJECT_ENGAGEMENT_TYPES.map((t) => (
                 <option key={t.id} value={t.id}>{t.label}</option>
               ))}
             </select>
           </label>
           <label className="module-toolbar__field">
-            <span className="module-toolbar__label">Sort</span>
+            <span className="module-toolbar__label">{t('common.sort')}</span>
             <select
               className="form-field__input helpdesk-filter-input"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
             >
               {SORT_OPTIONS.map((o) => (
-                <option key={o.id} value={o.id}>{o.label}</option>
+                <option key={o.id} value={o.id}>{t(o.key)}</option>
               ))}
             </select>
           </label>
@@ -501,15 +452,27 @@ export default function Projects() {
         onSubmit={submit}
       />
 
+      {enriched.length > 0 && (
+        <ProjectsPortfolioCharts
+          enriched={enriched}
+          summary={summary}
+          onDrillDown={handleChartDrillDown}
+          activeHealth={healthFilter}
+          activeStatus={statusFilter}
+          activeEngagement={engagementTypeFilter}
+          spotlightProjectId={spotlightProjectId}
+        />
+      )}
+
       {filtered.length === 0 ? (
         <DataPanel>
           <UiEmptyState
             title="No projects match"
             description="Adjust filters or create a new project to get started."
             action={
-              !showForm ? (
+              mayCreate && !showForm ? (
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
-                  + New project
+                  + Add project
                 </button>
               ) : null
             }
@@ -533,34 +496,34 @@ export default function Projects() {
               </colgroup>
               <thead>
                 <tr>
-                  <th className="pmo-data-list__col-primary">Project</th>
-                  <th>Health</th>
-                  <th>Status</th>
-                  <th>Progress</th>
-                  <th className="hide-mobile">Tasks</th>
-                  <th className="hide-mobile">Overdue</th>
-                  <th className="hide-mobile">Team</th>
-                  <th className="hide-mobile">Client</th>
-                  <th>Due</th>
-                  <th className="table-actions-col">Actions</th>
+                  <th className="pmo-data-list__col-primary">{t('common.project')}</th>
+                  <th>{t('common.health')}</th>
+                  <th>{t('common.status')}</th>
+                  <th>{t('common.progress')}</th>
+                  <th className="hide-mobile">{t('common.tasks')}</th>
+                  <th className="hide-mobile">{t('common.overdue')}</th>
+                  <th className="hide-mobile">{t('common.teamCol')}</th>
+                  <th className="hide-mobile">{t('common.client')}</th>
+                  <th>{t('common.due')}</th>
+                  <th className="table-actions-col">{t('common.actions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((p) => {
                   const deadline = deadlineSummary(p.end_date, p.status);
-                  const isSpotlight = spotlightId === p.id;
                   return (
-                    <tr key={p.id} data-project-id={p.id} className={isSpotlight ? 'projects-table-row--spotlight' : ''}>
+                    <tr key={p.id} data-project-id={p.id}>
                       <td className="pmo-data-list__primary">
                         <Link to={`/projects/${p.id}`} className="pmo-link-strong">{p.name}</Link>
-                        {(p.engagement_type || p.classification) && (
+                        {(p.engagement_type || p.classification || p.program_name) && (
                           <div className="pmo-table-muted">
+                            {p.program_name ? `${p.program_name} · ` : ''}
                             {p.engagement_type ? engagementTypeLabel(p.engagement_type) : deliveryScopeLabel(p.classification)}
                           </div>
                         )}
                       </td>
                       <td>
-                        <span className={`pmo-health-badge pmo-health-${p.health}`}>{healthLabel(p.health)}</span>
+                        <span className={`pmo-health-badge pmo-health-${p.health}`}>{t(`health.${p.health}`) || healthLabel(p.health)}</span>
                       </td>
                       <td><span className={`dashboard-badge dashboard-badge-${p.status}`}>{p.status}</span></td>
                       <td>
@@ -589,14 +552,14 @@ export default function Projects() {
               </tbody>
             </table>
           </div>
-          <p className="pmo-data-list-footer pmo-data-list-footer--scroll-hint" aria-live="polite">
+          <p className="pmo-data-list-footer" aria-live="polite">
             Showing {filtered.length} of {projects.length} projects
           </p>
         </div>
       ) : (
         <div className="project-grid">
           {filtered.map((p) => (
-            <ProjectCard key={p.id} project={p} highlight={spotlightId === p.id} />
+            <ProjectCard key={p.id} project={p} />
           ))}
         </div>
       )}

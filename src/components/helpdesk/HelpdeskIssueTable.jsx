@@ -9,6 +9,7 @@ import {
   intakeChannelLabel,
 } from '../../../lib/issueConstants.js';
 import { nextSupportLevel, supportLevelLabel } from '../../../lib/issueWorkflow.js';
+import { useLocale } from '../../context/LocaleContext';
 
 export default function HelpdeskIssueTable({
   visible,
@@ -27,12 +28,13 @@ export default function HelpdeskIssueTable({
   canResolve,
   canEscalate,
 }) {
+  const { t } = useLocale();
   if (visible.length === 0) {
     return (
       <div className="card section-card pmo-data-list-card pmo-data-list-card--fluid">
         <UiEmptyState
-          title="No issues match this filter"
-          action={<button type="button" className="btn btn-primary btn-sm" onClick={onShowForm}>+ Log ticket</button>}
+          title={t('helpdesk.noMatch')}
+          action={<button type="button" className="btn btn-primary btn-sm" onClick={onShowForm}>{t('action.logTicket')}</button>}
         />
       </div>
     );
@@ -50,22 +52,24 @@ export default function HelpdeskIssueTable({
             <col className="col-priority" />
             <col className="col-status" />
             <col className="col-dates hide-mobile" />
+            <col className="col-dates hide-mobile" />
             <col className="col-package hide-mobile" />
             <col className="col-assignee" />
             <col className="col-actions" />
           </colgroup>
           <thead>
             <tr>
-              <th>Ticket</th>
-              <th>Mod</th>
-              <th>Level</th>
-              <th className="pmo-data-list__col-primary">Issue</th>
-              <th>Priority</th>
-              <th>Status</th>
-              <th className="hide-mobile">Client ref</th>
-              <th className="hide-mobile">Project</th>
-              <th>Assignee</th>
-              <th>Actions</th>
+              <th>{t('common.ticket')}</th>
+              <th>{t('common.module')}</th>
+              <th>{t('common.level')}</th>
+              <th className="pmo-data-list__col-primary">{t('common.issue')}</th>
+              <th>{t('common.priority')}</th>
+              <th>{t('common.status')}</th>
+              <th className="hide-mobile">{t('common.sla')}</th>
+              <th className="hide-mobile">{t('common.clientRef')}</th>
+              <th className="hide-mobile">{t('common.project')}</th>
+              <th>{t('common.assignee')}</th>
+              <th>{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -111,6 +115,11 @@ export default function HelpdeskIssueTable({
                     ) : (
                       <span className="project-meta-chip">{statusLabel(issue.status)}</span>
                     )}
+                  </td>
+                  <td className="hide-mobile">
+                    <span className={`sla-badge ${issue.sla_breached ? 'sla-badge--breach' : ''}`}>
+                      {issue.sla_label || '—'}
+                    </span>
                   </td>
                   <td className="hide-mobile helpdesk-ext-ref">
                     {issue.external_ticket_ref || '—'}
@@ -178,7 +187,7 @@ export default function HelpdeskIssueTable({
           </tbody>
         </table>
       </div>
-      <p className="pmo-data-list-footer pmo-data-list-footer--scroll-hint" aria-live="polite">
+      <p className="pmo-data-list-footer" aria-live="polite">
         Showing {visible.length} of {issuesLength} tickets
       </p>
     </div>

@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { inputStyle } from '../../styles/commonStyles';
 import { ACTIVITY_LOCATION_OTHERS } from '../../constants/activityLocations';
 import { ACTIVITY_TYPE_OPTIONS } from '../../utils/calendarUtils.js';
+import { ATTACHMENT_IMAGE_ACCEPT } from '../../../lib/attachmentConstants.js';
+import EntityAttachments from '../EntityAttachments.jsx';
 import ActivityLocationFields from './ActivityLocationFields.jsx';
 
 export default function CalendarActivityForm({
@@ -19,7 +21,9 @@ export default function CalendarActivityForm({
   onSubmit,
   onClose,
   mutating,
-  userRole,
+  pendingPhotos = [],
+  onAddPendingPhotos,
+  onRemovePendingPhoto,
 }) {
   if (!open) return null;
 
@@ -138,15 +142,57 @@ export default function CalendarActivityForm({
             onPreset={(v) => setForm((f) => ({ ...f, locationPreset: v, locationOther: v === ACTIVITY_LOCATION_OTHERS ? f.locationOther : '' }))}
             onOther={(v) => setForm((f) => ({ ...f, locationOther: v }))}
           />
-          <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Sites match{' '}
-            {userRole === 'admin' ? (
-              <Link to="/settings/locations">Settings → Locations</Link>
+          <div className="calendar-activity-photos" style={{ gridColumn: '1 / -1' }}>
+            {editingActivityId != null ? (
+              <EntityAttachments
+                entityType="activity"
+                entityId={editingActivityId}
+                title="Site photos"
+                gallery
+                allowLinks={false}
+                accept={ATTACHMENT_IMAGE_ACCEPT}
+                emptyHint="Add photos from the site visit, UAT, or outstation so the team can see what happened (max 2.5 MB each)."
+              />
             ) : (
-              <span>Settings → Locations (admin)</span>
+              <>
+                <span className="form-field__label">Site photos</span>
+                <p className="pmo-table-muted" style={{ margin: '0.25rem 0 0.5rem' }}>
+                  Optional. Photos of the visit, site, or session so everyone can see what happened outside the office.
+                </p>
+                {pendingPhotos.length > 0 && (
+                  <ul className="entity-attachments__list entity-attachments--gallery calendar-pending-photos">
+                    {pendingPhotos.map((item, idx) => (
+                      <li key={`${item.file.name}-${idx}`} className="entity-attachments__item">
+                        {item.url
+                          ? <img className="entity-attachments__thumb" src={item.url} alt="" />
+                          : <span className="entity-attachments__icon" aria-hidden>IMG</span>}
+                        <div className="entity-attachments__meta">
+                          <span className="pmo-link-strong">{item.file.name}</span>
+                        </div>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRemovePendingPhoto?.(idx)} title="Remove">
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <label className="btn btn-secondary btn-sm entity-attachments__upload-btn">
+                  + Add photo
+                  <input
+                    type="file"
+                    accept={ATTACHMENT_IMAGE_ACCEPT}
+                    className="sr-only"
+                    multiple
+                    onChange={(e) => {
+                      const files = [...(e.target.files || [])];
+                      e.target.value = '';
+                      if (files.length) onAddPendingPhotos?.(files);
+                    }}
+                  />
+                </label>
+              </>
             )}
-            . Choose <strong>Others</strong> for a one-off place.
-          </p>
+          </div>
           <label>
             Start *{' '}
             <input type="datetime-local" value={form.start_at} onChange={(e) => setForm((f) => ({ ...f, start_at: e.target.value }))} required style={inputStyle} />
@@ -155,10 +201,6 @@ export default function CalendarActivityForm({
             End *{' '}
             <input type="datetime-local" value={form.end_at} onChange={(e) => setForm((f) => ({ ...f, end_at: e.target.value }))} required style={inputStyle} />
           </label>
-          <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Multi-day tip: Start = first day + daily start time, End = last day + daily end time.
-            Example: Mon 9:00 → Tue 11:00 means <strong>9:00–11:00 on both days</strong> (not one long overnight block).
-          </p>
           <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
             <button type="submit" className="btn btn-primary" disabled={mutating}>
               {mutating ? 'Saving…' : editingActivityId != null ? 'Update activity' : 'Save activity'}

@@ -41,9 +41,6 @@ export default function SettingsBranding() {
       <div className="settings-panel__header">
         <div className="settings-panel__header-text">
           <h2 className="settings-panel__title">Workspace branding</h2>
-          <p className="settings-panel__desc">
-            Organization name, logo, and banner used on sign-in, sidebar, and the dashboard welcome area.
-          </p>
         </div>
       </div>
 
@@ -60,7 +57,7 @@ export default function SettingsBranding() {
               className="form-field__input ui-input"
               value={form.org_display_name || ''}
               onChange={(e) => setForm((f) => ({ ...f, org_display_name: e.target.value }))}
-              placeholder="PMO CTSB"
+              placeholder="C360"
             />
           </div>
 
@@ -80,7 +77,6 @@ export default function SettingsBranding() {
         <div className="settings-branding-images">
           <ImageUploadField
             label="Organization logo"
-            hint="PNG or JPG, shown in sidebar and sign-in. Recommended ~160×64px."
             value={form.org_logo_url}
             onChange={(org_logo_url) => setForm((f) => ({ ...f, org_logo_url }))}
             onError={setErr}
@@ -89,7 +85,6 @@ export default function SettingsBranding() {
           />
           <ImageUploadField
             label="Workspace banner"
-            hint="Wide image for dashboard welcome. Recommended 1200×320px."
             value={form.org_banner_url}
             onChange={(org_banner_url) => setForm((f) => ({ ...f, org_banner_url }))}
             onError={setErr}

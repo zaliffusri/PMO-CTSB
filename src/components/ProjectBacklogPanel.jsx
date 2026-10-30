@@ -78,6 +78,7 @@ export default function ProjectBacklogPanel({
   workPackages = [],
   workPackageFilter = '',
   canManage = false,
+  onPromoted = null,
   openBacklogId = null,
 }) {
   const { user } = useAuth();
@@ -96,6 +97,16 @@ export default function ProjectBacklogPanel({
   const [pendingFiles, setPendingFiles] = useState([]);
   const [pendingPreviews, setPendingPreviews] = useState([]);
   const { pending: busy, run } = useSubmitLock();
+
+  /** Project team for assignee pickers; keep current assignee if they left the team. */
+  const assigneePeopleFor = (assigneeId, assigneeName) => {
+    const list = [...(people || [])];
+    const id = assigneeId != null && assigneeId !== '' ? Number(assigneeId) : null;
+    if (id != null && Number.isFinite(id) && !list.some((p) => Number(p.id) === id)) {
+      list.push({ id, name: assigneeName || `Person #${id}` });
+    }
+    return list;
+  };
 
   useEffect(() => {
     const next = pendingFiles.map((file, idx) => {
@@ -249,17 +260,34 @@ export default function ProjectBacklogPanel({
     }
   };
 
+  const decideCr = async (item, decision) => {
+    await run(async () => {
+      try {
+        const updated = await api.backlogs.approve(item.id, { decision });
+        handleItemUpdated(updated);
+      } catch (err) {
+        alert(err.message || 'Failed to record CR decision');
+      }
+    });
+  };
+
   const promoteTask = async (item) => {
-    if (!confirm(`Promote "${item.title}" to task?`)) return;
+    if (!confirm(`Promote "${item.title}" to a project task?\n\nThis creates a Task with dates, hours, and assignee from this backlog item.`)) return;
     await run(async () => {
       try {
         const res = await api.backlogs.promoteToTask(item.id, {
           assignee_id: item.assignee_person_id || null,
         });
-        alert(`Task created: ${res.task?.name || 'OK'}`);
-        load();
+        const task = res?.task;
+        const taskName = task?.name || item.title;
+        if (typeof onPromoted === 'function') {
+          await onPromoted(task || { id: res?.backlog?.task_id, name: taskName, project_id: item.project_id });
+        } else {
+          alert(`Task created: ${taskName}\nOpen the Tasks tab to see it.`);
+          load();
+        }
       } catch (err) {
-        alert(err.message);
+        alert(err.message || 'Failed to promote backlog to task');
       }
     });
   };
@@ -302,9 +330,6 @@ export default function ProjectBacklogPanel({
       <div className="section-card__header section-card__header--compact">
         <div>
           <h2 className="section-card__title">Product backlog</h2>
-          <p className="section-card__desc">
-            Prioritized work items — Open → In progress → Fixed → Closed. Assignees update status; creators receive notifications. Use discussion to @mention the team.
-          </p>
         </div>
         {canManage && (
           <div className="card-actions">
@@ -384,7 +409,7 @@ export default function ProjectBacklogPanel({
                 <th scope="col">Module</th>
                 <th scope="col" className="pmo-data-list__col-primary">Item</th>
                 <th scope="col">Type</th>
-                {workPackages.length > 0 && <th scope="col" className="hide-mobile">Work package</th>}
+                {workPackages.length > 0 && <th scope="col" className="hide-mobile">Phase</th>}
                 <th scope="col">Status</th>
                 <th scope="col" className="hide-mobile">Source</th>
                 <th scope="col">Assignee</th>
@@ -409,6 +434,9 @@ export default function ProjectBacklogPanel({
                     <button type="button" className="helpdesk-title helpdesk-title--link" onClick={() => setDetailItem(item)}>
                       {item.title}
                     </button>
+                    {item.task_id ? (
+                      <span className="pmo-data-list__meta">Linked task #{item.task_id}</span>
+                    ) : null}
                   </td>
                   <td>{typeLabel(item.item_type)}</td>
                   {workPackages.length > 0 && (
@@ -449,13 +477,15 @@ export default function ProjectBacklogPanel({
                         }}
                       >
                         {!item.assignee_person_id && <option value="">Select assignee…</option>}
-                        {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        {assigneePeopleFor(item.assignee_person_id, item.assignee_name).map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
                       </select>
                     ) : (
                       item.assignee_name || '—'
                     )}
                   </td>
-                  <td>
+                  <td className="backlog-table__hours">
                     <HoursField
                       estimated={item.estimated_hours}
                       actual={item.actual_hours}
@@ -465,17 +495,47 @@ export default function ProjectBacklogPanel({
                       onActualChange={canUpdateItem(item) ? (v) => patchItem(item.id, { actual_hours: v }) : undefined}
                     />
                   </td>
-                  <td className="table-actions-col pmo-row-actions">
+                  <td className="table-actions-col backlog-table__actions">
+                    <div className="pmo-row-actions">
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetailItem(item)} title="Discussion">
                       💬{item.comment_count > 0 ? ` ${item.comment_count}` : ''}
                     </button>
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAttachItem(item)} title="Attachments">
                       📎
                     </button>
+                    {canManage && normalizeBacklogType(item.item_type) === 'cr' && !item.task_id && item.approval_status !== 'approved' && item.approval_status !== 'rejected' && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => decideCr(item, 'approved')}
+                          disabled={busy}
+                        >
+                          Approve CR
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => decideCr(item, 'rejected')}
+                          disabled={busy}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {canManage && normalizeBacklogType(item.item_type) === 'cr' && item.approval_status && (
+                      <span className={`backlog-status-badge backlog-status-badge--${item.approval_status === 'approved' ? 'done' : item.approval_status === 'rejected' ? 'closed' : 'open'}`}>
+                        CR {item.approval_status}
+                      </span>
+                    )}
                     {canManage && !item.task_id && item.status !== 'closed' && (
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => promoteTask(item)} disabled={busy}>
-                        → Task
-                      </button>
+                      normalizeBacklogType(item.item_type) === 'cr' && item.approval_status !== 'approved' ? (
+                        <span className="pmo-data-list__meta">Needs CR approval</span>
+                      ) : (
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => promoteTask(item)} disabled={busy}>
+                          → Task
+                        </button>
+                      )
                     )}
                     {canManage && (
                       <button
@@ -489,6 +549,7 @@ export default function ProjectBacklogPanel({
                         Delete
                       </button>
                     )}
+                    </div>
                   </td>
                 </tr>
                 );
@@ -644,6 +705,9 @@ export default function ProjectBacklogPanel({
                     >
                       <option value="">Select assignee…</option>
                       {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {!people.length && (
+                        <option value="" disabled>Assign people on the People tab first</option>
+                      )}
                     </select>
                   </div>
                   <div className="form-field">

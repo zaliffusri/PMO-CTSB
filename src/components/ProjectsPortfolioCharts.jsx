@@ -72,13 +72,13 @@ export default function ProjectsPortfolioCharts({
       )}
 
       <div className="projects-charts-grid">
-        <ChartCard title="Portfolio completion" subtitle="Average across active projects">
+        <ChartCard title="Portfolio completion">
           <div className="chart-gauge-wrap">
             <GaugeChart value={summary.avgCompletion} label="Active avg" />
           </div>
         </ChartCard>
 
-        <ChartCard title="Delivery health" subtitle="Active projects · click to filter">
+        <ChartCard title="Delivery health">
           <DonutChart
             data={healthChart.length ? healthChart : [{ key: 'empty', label: 'None', value: 1, color: 'var(--border)' }]}
             centerValue={healthTotal}
@@ -89,7 +89,7 @@ export default function ProjectsPortfolioCharts({
           />
         </ChartCard>
 
-        <ChartCard title="Project status" subtitle="Entire portfolio mix">
+        <ChartCard title="Project status">
           <DonutChart
             data={statusChart.length ? statusChart : [{ key: 'empty', label: 'None', value: 1, color: 'var(--border)' }]}
             centerValue={enriched.length}
@@ -103,7 +103,7 @@ export default function ProjectsPortfolioCharts({
           />
         </ChartCard>
 
-        <ChartCard title="Top progress" subtitle="Leading active projects · click to spotlight" className="projects-charts-grid__wide">
+        <ChartCard title="Top progress" className="projects-charts-grid__wide">
           <HBarChart
             data={progressChart}
             max={100}
@@ -114,7 +114,7 @@ export default function ProjectsPortfolioCharts({
         </ChartCard>
 
         {engagementChart.length > 0 && (
-          <ChartCard title="Engagement type" subtitle="Contract, LO, PO… · click to filter">
+          <ChartCard title="Engagement type">
             <DonutChart
               data={engagementChart}
               centerValue={engagementChart.reduce((s, d) => s + d.value, 0)}
@@ -130,7 +130,7 @@ export default function ProjectsPortfolioCharts({
         )}
 
         {overdueChart.length > 0 && (
-          <ChartCard title="Overdue tasks" subtitle="By project · click to open list">
+          <ChartCard title="Overdue tasks">
             <HBarChart
               data={overdueChart}
               max={Math.max(...overdueChart.map((d) => d.value), 1)}
@@ -143,7 +143,7 @@ export default function ProjectsPortfolioCharts({
         )}
 
         {taskVolumeChart.length > 0 && (
-          <ChartCard title="Task volume" subtitle="Open tasks per active project">
+          <ChartCard title="Task volume">
             <VBarChart
               data={taskVolumeChart}
               unit=""
@@ -154,10 +154,6 @@ export default function ProjectsPortfolioCharts({
           </ChartCard>
         )}
       </div>
-
-      <p className="projects-charts-hint">
-        Hover chart segments for details. Click to filter the project list or spotlight a project below.
-      </p>
     </section>
   );
 }

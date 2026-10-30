@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
 import { inputStyle } from '../styles/commonStyles';
@@ -13,6 +13,7 @@ import {
   CalendarMonthGrid,
 } from '../components/calendar';
 import { useSubmitLock } from '../hooks/useSubmitLock';
+import { prepareAttachmentUpload } from '../lib/attachmentUpload.js';
 import { useCalendarActivities } from '../hooks/useCalendarActivities';
 import { activityLogicalGroupKey } from '../../lib/activityLogicalGroup.js';
 import { canEditCalendarUser, normalizeRole, PMO_ROLES } from '../../lib/permissions.js';
@@ -64,6 +65,13 @@ export default function Calendar() {
   });
   const [personSearch, setPersonSearch] = useState('');
   const [editingActivityId, setEditingActivityId] = useState(null);
+  const [pendingPhotos, setPendingPhotos] = useState([]);
+  const clearPendingPhotos = useCallback(() => {
+    setPendingPhotos((prev) => {
+      prev.forEach((item) => { if (item.url) URL.revokeObjectURL(item.url); });
+      return [];
+    });
+  }, []);
   const { user } = useAuth();
   const [detailActivityId, setDetailActivityId] = useState(null);
   const [pendingOpenActivityId, setPendingOpenActivityId] = useState(null);
@@ -222,10 +230,28 @@ export default function Calendar() {
     return false;
   }, [people]);
 
+  const projectFilterId = useMemo(() => {
+    const raw = searchParams.get('project') || searchParams.get('project_id') || '';
+    return String(raw).trim();
+  }, [searchParams]);
+
+  const projectFilterName = useMemo(() => {
+    if (!projectFilterId) return '';
+    const match = projects.find((p) => String(p.id) === String(projectFilterId));
+    return match?.name || `Project #${projectFilterId}`;
+  }, [projectFilterId, projects]);
+
+  const projectFilteredActivities = useMemo(() => {
+    if (!projectFilterId) return groupedCalendarActivities;
+    return groupedCalendarActivities.filter(
+      (a) => a.project_id != null && String(a.project_id) === String(projectFilterId),
+    );
+  }, [groupedCalendarActivities, projectFilterId]);
+
   const personFilteredActivities = useMemo(() => {
-    if (!personFilter) return groupedCalendarActivities;
-    return groupedCalendarActivities.filter((a) => activityIncludesPerson(a, personFilter));
-  }, [groupedCalendarActivities, personFilter, activityIncludesPerson]);
+    if (!personFilter) return projectFilteredActivities;
+    return projectFilteredActivities.filter((a) => activityIncludesPerson(a, personFilter));
+  }, [projectFilteredActivities, personFilter, activityIncludesPerson]);
 
   const filteredCalendarActivities = useMemo(() => {
     if (typeFilter === 'all') return personFilteredActivities;
@@ -235,6 +261,15 @@ export default function Calendar() {
     });
   }, [personFilteredActivities, typeFilter]);
 
+  const clearProjectFilter = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('project');
+      next.delete('project_id');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const personFilterOptions = useMemo(() => {
     const byId = new Map();
     people.forEach((p) => {
@@ -242,7 +277,7 @@ export default function Calendar() {
       byId.set(Number(p.id), p);
     });
     // Also surface assignees present this month even if not in current roster snapshot.
-    groupedCalendarActivities.forEach((a) => {
+    projectFilteredActivities.forEach((a) => {
       const ids = Array.isArray(a.person_ids) && a.person_ids.length
         ? a.person_ids
         : (a.person_id != null ? [a.person_id] : []);
@@ -257,7 +292,7 @@ export default function Calendar() {
       });
     });
     return [...byId.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  }, [people, groupedCalendarActivities]);
+  }, [people, projectFilteredActivities]);
 
   const selectedPersonLabel = useMemo(() => {
     if (!personFilter) return '';
@@ -266,14 +301,15 @@ export default function Calendar() {
   }, [personFilter, personFilterOptions]);
 
   const monthStats = useMemo(() => {
-    const total = groupedCalendarActivities.length;
+    const statsSource = projectFilterId ? projectFilteredActivities : groupedCalendarActivities;
+    const total = statsSource.length;
     let daysWithEvents = 0;
     const typeCounts = {};
-    groupedCalendarActivities.forEach((a) => {
+    statsSource.forEach((a) => {
       typeCounts[a.type] = (typeCounts[a.type] || 0) + 1;
     });
     for (let d = 1; d <= 31; d++) {
-      if (groupedCalendarActivities.some((a) => isActivityOnDate(a, year, month, d))) daysWithEvents += 1;
+      if (statsSource.some((a) => isActivityOnDate(a, year, month, d))) daysWithEvents += 1;
     }
     const topEntry = Object.entries(typeCounts).sort((x, y) => y[1] - x[1])[0];
     return {
@@ -281,7 +317,7 @@ export default function Calendar() {
       daysWithEvents,
       topType: topEntry ? { type: topEntry[0], count: topEntry[1] } : null,
     };
-  }, [groupedCalendarActivities, year, month]);
+  }, [groupedCalendarActivities, projectFilteredActivities, projectFilterId, year, month]);
 
   useEffect(() => {
     if (detailActivityId == null) return;
@@ -449,6 +485,32 @@ export default function Calendar() {
             notify_email: false,
           });
         }
+        const savedId = result?.id
+          || result?.replaced_id
+          || result?.activities?.[0]?.id
+          || editingActivityId;
+        if (pendingPhotos.length && savedId) {
+          const failures = [];
+          for (const item of pendingPhotos) {
+            try {
+              const prepared = await prepareAttachmentUpload(item.file);
+              await api.attachments.create({
+                entity_type: 'activity',
+                entity_id: savedId,
+                kind: 'file',
+                file_name: prepared.file_name,
+                mime_type: prepared.mime_type,
+                data_url: prepared.data_url,
+              });
+            } catch (err) {
+              failures.push(item.file.name);
+              console.error('activity photo upload failed', err);
+            }
+          }
+          if (failures.length) {
+            alert(`Activity saved, but ${failures.length} photo(s) could not be uploaded.`);
+          }
+        }
         const emailNotify = result?.email_notify;
         const isEdit = editingActivityId != null;
         const inApp = Number(emailNotify?.in_app) || 0;
@@ -479,6 +541,7 @@ export default function Calendar() {
           end_at: '',
         });
         setPersonSearch('');
+        clearPendingPhotos();
         setShowForm(false);
         setEditingActivityId(null);
         loadActivities(rangeStartIso, rangeEndExclusiveIso);
@@ -534,7 +597,7 @@ export default function Calendar() {
       ...f,
       person_ids: [],
       external_attendees: '',
-      project_id: '',
+      project_id: projectFilterId || '',
       type: 'meeting',
       title: '',
       description: '',
@@ -544,6 +607,7 @@ export default function Calendar() {
       end_at: '',
     }));
     setPersonSearch('');
+    clearPendingPhotos();
     setShowForm(true);
     loadPeopleRoster({ syncIfEmpty: true })
       .then(setPeople)
@@ -559,7 +623,7 @@ export default function Calendar() {
       ...f,
       person_ids: [],
       external_attendees: '',
-      project_id: '',
+      project_id: projectFilterId || '',
       type: 'meeting',
       title: '',
       description: '',
@@ -569,6 +633,7 @@ export default function Calendar() {
       end_at: `${dateStr}T17:00`,
     }));
     setPersonSearch('');
+    clearPendingPhotos();
     setShowForm(true);
     loadPeopleRoster({ syncIfEmpty: true })
       .then(setPeople)
@@ -596,6 +661,7 @@ export default function Calendar() {
     });
     setPersonSearch('');
     setEditingActivityId(a.id);
+    clearPendingPhotos();
     setDetailActivityId(null);
     setDayListDay(null);
     setShowForm(true);
@@ -1073,6 +1139,25 @@ export default function Calendar() {
         month={month}
         year={year}
       />
+      {projectFilterId && (
+        <div className="card section-card calendar-project-filter-banner" role="status">
+          <p className="calendar-project-filter-banner__text">
+            Showing activities for{' '}
+            <Link to={`/projects/${projectFilterId}`} className="pmo-link-strong">
+              {projectFilterName}
+            </Link>
+            {' '}only.
+          </p>
+          <div className="calendar-project-filter-banner__actions">
+            <Link to={`/projects/${projectFilterId}`} className="btn btn-secondary btn-sm">
+              Back to project
+            </Link>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={clearProjectFilter}>
+              Show all activities
+            </button>
+          </div>
+        </div>
+      )}
       {showScheduleEmail && (
         <ScheduleEmailModal
           open={showScheduleEmail}
@@ -1329,9 +1414,30 @@ export default function Calendar() {
         setPersonSearch={setPersonSearch}
         togglePerson={togglePerson}
         onSubmit={submit}
-        onClose={() => { setShowForm(false); setEditingActivityId(null); }}
+        onClose={() => {
+          setShowForm(false);
+          setEditingActivityId(null);
+          clearPendingPhotos();
+        }}
         mutating={mutating}
-        userRole={user?.role}
+        pendingPhotos={pendingPhotos}
+        onAddPendingPhotos={(files) => {
+          setPendingPhotos((prev) => [
+            ...prev,
+            ...files.map((file) => ({
+              file,
+              url: file.type?.startsWith('image/') ? URL.createObjectURL(file) : null,
+            })),
+          ]);
+        }}
+        onRemovePendingPhoto={(idx) => {
+          setPendingPhotos((prev) => {
+            const next = [...prev];
+            const [removed] = next.splice(idx, 1);
+            if (removed?.url) URL.revokeObjectURL(removed.url);
+            return next;
+          });
+        }}
       />
       <CalendarMonthGrid
         year={year}

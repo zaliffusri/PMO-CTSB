@@ -91,6 +91,7 @@ export function groupActivitiesForCalendar(activities) {
       person_name = person_name ? `${person_name}; ${ext}` : ext;
     }
     const person_ids = [...new Set(group.map((g) => g.person_id).filter((x) => x != null))];
+    const preview_photo_id = group.map((g) => g.preview_photo_id).find((id) => Number.isFinite(Number(id))) || null;
     // Prefer earliest create + latest update across assignee rows.
     let created_at = primary.created_at;
     let created_by_name = primary.created_by_name;
@@ -116,6 +117,8 @@ export function groupActivitiesForCalendar(activities) {
       ...primary,
       person_name,
       person_ids,
+      photo_count: group.reduce((sum, g) => sum + (Number(g.photo_count) || 0), 0),
+      preview_photo_id: preview_photo_id ? Number(preview_photo_id) : null,
       created_at,
       created_by_name,
       created_by_user_id,

@@ -11,7 +11,13 @@ export function requireSupabase() {
   return supabase;
 }
 
+/**
+ * Supabase/Postgres path. When ALLOW_LOCAL_STORE=1 (npm run dev), always use
+ * in-memory local store even if Supabase env vars are present — otherwise promote
+ * and task lookups hit a different data plane and return "Task not found".
+ */
 export function isDbMode() {
+  if (process.env.ALLOW_LOCAL_STORE === '1') return false;
   return Boolean(supabase);
 }
 

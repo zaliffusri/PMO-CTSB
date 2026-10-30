@@ -3,15 +3,18 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { api } from '../../api';
 import { mapApiToForm } from './settingsStyles';
 import PageHeader from '../../components/PageHeader';
+import { useLocale } from '../../context/LocaleContext';
 
 const SETTINGS_TABS = [
-  { to: '/settings/branding', label: 'Branding' },
-  { to: '/settings/locations', label: 'Locations' },
-  { to: '/settings/modules', label: 'Modules' },
-  { to: '/settings/email', label: 'Email' },
+  { to: '/settings/branding', key: 'nav.branding' },
+  { to: '/settings/locations', key: 'nav.locations' },
+  { to: '/settings/modules', key: 'nav.modules' },
+  { to: '/settings/email', key: 'nav.email' },
+  { to: '/settings/microsoft', key: 'nav.microsoft' },
 ];
 
 export default function SettingsLayout() {
+  const { t } = useLocale();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [form, setForm] = useState(null);
@@ -42,10 +45,9 @@ export default function SettingsLayout() {
     return (
       <div className="page-module settings-page">
         <PageHeader
-          title="System settings"
-          subtitle="Configure branding, locations, modules, and workspace preferences."
+          title={t('settings.title')}
         />
-        <div className="settings-loading ui-card">Loading settings…</div>
+        <div className="settings-loading ui-card">{t('settings.loading')}</div>
       </div>
     );
   }
@@ -54,8 +56,7 @@ export default function SettingsLayout() {
     return (
       <div className="page-module settings-page">
         <PageHeader
-          title="System settings"
-          subtitle="Configure branding, locations, and workspace preferences."
+          title={t('settings.title')}
         />
         <div className="settings-error ui-card">
           <p>{err}</p>
@@ -68,7 +69,7 @@ export default function SettingsLayout() {
               setLoading(false);
             }}
           >
-            Retry
+            {t('action.retry')}
           </button>
         </div>
       </div>
@@ -78,18 +79,17 @@ export default function SettingsLayout() {
   return (
     <div className="page-module settings-page">
       <PageHeader
-        title="System settings"
-        subtitle="Configure branding, locations, modules, and workspace preferences. UI mode is changed from the header theme control."
+        title={t('settings.title')}
       />
 
-      <nav className="settings-subnav module-tabs" aria-label="Settings sections">
+      <nav className="settings-subnav module-tabs" aria-label={t('settings.sections')}>
         {SETTINGS_TABS.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}
             className={({ isActive }) => `module-tab ${isActive ? 'active' : ''}`}
           >
-            {tab.label}
+            {t(tab.key)}
           </NavLink>
         ))}
       </nav>

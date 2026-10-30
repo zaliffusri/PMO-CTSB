@@ -3,7 +3,6 @@ import { DEFAULT_ACCEPT, resizeImageToDataUrl } from '../lib/imageResize';
 
 export default function ImageUploadField({
   label,
-  hint,
   value,
   onChange,
   onError,
@@ -72,7 +71,6 @@ export default function ImageUploadField({
             </button>
           )}
         </div>
-        {hint && <p className="image-upload__hint">{hint}</p>}
         <input ref={inputRef} type="file" accept={accept} className="sr-only" onChange={onFile} />
       </div>
     );
@@ -105,7 +103,6 @@ export default function ImageUploadField({
           )}
         </div>
       </div>
-      {hint && <p className="image-upload__hint">{hint}</p>}
       <input ref={inputRef} type="file" accept={accept} className="sr-only" onChange={onFile} />
     </div>
   );

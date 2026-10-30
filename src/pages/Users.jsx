@@ -7,6 +7,7 @@ import ModuleFilterBar from '../components/ModuleFilterBar';
 import PageLoadingState from '../components/PageLoadingState';
 import DataPanel from '../components/DataPanel';
 import { ROLE_OPTIONS, roleLabel } from '../constants/roles';
+import { useLocale } from '../context/LocaleContext';
 
 function UserFormModal({ open, title, subtitle, onClose, onSubmit, pending, submitLabel, children }) {
   if (!open) return null;
@@ -39,6 +40,7 @@ function UserFormModal({ open, title, subtitle, onClose, onSubmit, pending, subm
 }
 
 export default function Users() {
+  const { t } = useLocale();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -148,17 +150,16 @@ export default function Users() {
     });
   };
 
-  if (loading) return <PageLoadingState message="Loading users…" />;
+  if (loading) return <PageLoadingState message={t('users.loading')} />;
 
   return (
     <div className="page-module users-page">
       <PageHeader
-        eyebrow="Administration"
-        title="System users"
-        subtitle="Create and manage user accounts, roles, and access for this workspace."
+        eyebrow={t('eyebrow.admin')}
+        title={t('page.users')}
         actions={
           <button type="button" className="btn btn-primary" onClick={() => setShowForm(true)}>
-            + Create user
+            {t('action.createUser')}
           </button>
         }
       />
@@ -211,9 +212,6 @@ export default function Users() {
             ))}
           </select>
         </div>
-        <p className="form-field__hint">
-          New users get default password: <code>P@ssw0rd</code>
-        </p>
       </UserFormModal>
 
       <UserFormModal
@@ -288,7 +286,6 @@ export default function Users() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
-          <p className="form-field__hint">Inactive users cannot sign in.</p>
         </div>
       </UserFormModal>
 

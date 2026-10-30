@@ -19,9 +19,11 @@ import {
   HelpdeskPromoteModal,
   HelpdeskCreateForm,
 } from '../components/helpdesk';
+import { useLocale } from '../context/LocaleContext';
 
 export default function Issues() {
   const { user } = useAuth();
+  const { t } = useLocale();
   const [searchParams, setSearchParams] = useSearchParams();
   const mayAssign = canAssignIssues(user);
 
@@ -100,6 +102,12 @@ export default function Issues() {
       l1: open.filter((i) => i.helpdesk_stage === 'L1').length,
       l2: open.filter((i) => i.helpdesk_stage === 'L2').length,
       backlog: open.filter((i) => i.helpdesk_stage === 'backlog').length,
+      slaBreached: open.filter((i) => i.sla_breached).length,
+      csatAvg: (() => {
+        const scored = issues.filter((i) => i.csat_score != null);
+        if (!scored.length) return null;
+        return Math.round((scored.reduce((s, i) => s + Number(i.csat_score), 0) / scored.length) * 10) / 10;
+      })(),
     };
   }, [issues]);
 
@@ -145,25 +153,24 @@ export default function Issues() {
     return map;
   }, [backlogs]);
 
-  if (loading) return <PageLoadingState message="Loading helpdesk…" />;
+  if (loading) return <PageLoadingState message={t('helpdesk.loading')} />;
   if (loadError) return <PageLoadError message={loadError} onRetry={load} />;
 
   return (
     <div className="page-module helpdesk-page">
       <PageHeader
-        eyebrow="Service desk"
-        title="Helpdesk"
-        badge={stats.open > 0 ? `${stats.open} open` : null}
-        subtitle="Track client tickets from external QA helpdesk. Resolve at L1 or L2, or promote to product backlog when dev/data work is needed."
+        eyebrow={t('eyebrow.serviceDesk')}
+        title={t('page.helpdesk')}
+        badge={stats.open > 0 ? t('common.openCount', { n: stats.open }) : null}
         actions={
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {mayAssign && (
               <button type="button" className="btn btn-secondary" onClick={m.runImportEticket} disabled={m.importing || m.saving}>
-                {m.importing ? 'Importing…' : 'Import eTicket CSV'}
+                {m.importing ? t('action.importing') : t('action.importCsv')}
               </button>
             )}
             <button type="button" className="btn btn-primary" onClick={() => m.setShowForm(true)}>
-              + Log ticket
+              {t('action.logTicket')}
             </button>
           </div>
         }
@@ -171,13 +178,13 @@ export default function Issues() {
 
       <div className="helpdesk-workflow-banner card section-card" role="note">
         <p>
-          <strong>Support flow:</strong>{' '}
-          <span className={levelClass('L1')}>1st level</span>
+          <strong>{t('helpdesk.flow')}</strong>{' '}
+          <span className={levelClass('L1')}>{t('helpdesk.l1')}</span>
           {' → '}
-          <span className={levelClass('L2')}>2nd level</span>
+          <span className={levelClass('L2')}>{t('helpdesk.l2')}</span>
           {' → '}
-          <span className={levelClass('backlog')}>Backlog</span>
-          . Resolve at L1/L2, or use <strong>→ Backlog</strong> when dev/data work is needed.
+          <span className={levelClass('backlog')}>{t('helpdesk.backlog')}</span>
+          . {t('helpdesk.flowHint', { backlog: t('helpdesk.toBacklog') })}
         </p>
       </div>
 
@@ -261,6 +268,8 @@ export default function Issues() {
           onNotesChange={m.setResolveNotes}
           action={m.resolveAction}
           onActionChange={m.setResolveAction}
+          csat={m.resolveCsat}
+          onCsatChange={m.setResolveCsat}
           saving={m.saving}
           onCancel={() => m.setResolveIssue(null)}
           onSubmit={m.confirmResolve}

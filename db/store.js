@@ -17,6 +17,8 @@ import { createNotificationsRepository } from './repositories/notificationsRepos
 import { createBacklogsRepository } from './repositories/backlogsRepository.js';
 import { createDeliveryRepository } from './repositories/deliveryRepository.js';
 import { createAttachmentsRepository } from './repositories/attachmentsRepository.js';
+import { createTimeSessionsRepository } from './repositories/timeSessionsRepository.js';
+import { createDeliveryExtrasRepository } from './repositories/deliveryExtrasRepository.js';
 import { purgeProjectFromSupabase, hasSupabaseClient } from './runtime/supabaseSync.js';
 import { mergeRepositories } from './runtime/mergeRepositories.js';
 
@@ -38,6 +40,8 @@ store = mergeRepositories(
   createBacklogsRepository(ctx, getStore),
   createDeliveryRepository(ctx, getStore),
   createAttachmentsRepository(ctx, getStore),
+  createTimeSessionsRepository(ctx, getStore),
+  createDeliveryExtrasRepository(ctx, getStore),
   {
     /**
      * No-op in DB mode (writes already durable).

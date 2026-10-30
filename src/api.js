@@ -4,9 +4,9 @@
  * - `[PMO API] failed …` — HTTP error response
  * - `[PMO API] network error …` — fetch did not complete (offline, DNS, CORS, etc.)
  */
-// VITE_API_BASE overrides everything (e.g. different API port).
-// In `vite` dev, call the API server directly — the /api proxy on :5173 often 404s on some setups
-// (browser hits Vite, which has no /api route). Backend CORS allows localhost origins.
+// VITE_API_BASE overrides everything (e.g. a remote API).
+// In local dev, stay on the Vite origin so /api is proxied to the API port
+// (3001 by default, or API_PORT when 3001 is already taken).
 function resolveApiBase() {
   const fromEnv = import.meta.env.VITE_API_BASE;
   if (fromEnv != null && String(fromEnv).trim() !== '') {
@@ -19,11 +19,6 @@ function resolveApiBase() {
       // Relative values like /api are valid and handled as-is.
     }
     return raw;
-  }
-  const host =
-    typeof window !== 'undefined' && window.location ? String(window.location.hostname || '').toLowerCase() : '';
-  if (import.meta.env.DEV || host === 'localhost' || host === '127.0.0.1') {
-    return 'http://127.0.0.1:3001/api';
   }
   return '/api';
 }
@@ -91,7 +86,11 @@ async function request(path, options = {}) {
       if (detailText) msg = `${msg}: ${detailText}`;
     }
     console.error('[PMO API] failed', method, path, res.status, msg);
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    err.code = data?.code;
+    throw err;
   }
   if (method === 'GET' && Array.isArray(data)) {
     console.log('[PMO API] ok', method, path, res.status, `(${data.length} items)`);
@@ -105,6 +104,7 @@ export const api = {
   auth: {
     registerAdmin: (body) => request('/auth/register-admin', { method: 'POST', body: JSON.stringify(body) }),
     login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+    microsoftStatus: () => request('/auth/microsoft/status'),
     me: () => request('/auth/me'),
     logout: () => request('/auth/logout', { method: 'POST' }),
     changePassword: (body) => request('/auth/change-password', { method: 'POST', body: JSON.stringify(body) }),
@@ -136,6 +136,7 @@ export const api = {
     },
     create: (body) => request('/projects', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    recordEot: (id, body) => request(`/projects/${id}/eot`, { method: 'POST', body: JSON.stringify(body) }),
     delete: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   },
   people: {
@@ -194,8 +195,42 @@ export const api = {
     list: (params) => request('/project-tasks?' + (params ? new URLSearchParams(params).toString() : '')),
     listGantt: (from, to) => request(`/project-tasks/gantt${from && to ? `?from=${from}&to=${to}` : ''}`),
     create: (body) => request('/project-tasks', { method: 'POST', body: JSON.stringify(body) }),
-    update: (id, body) => request(`/project-tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-    delete: (id) => request(`/project-tasks/${id}`, { method: 'DELETE' }),
+    update: (id, body) => {
+      if (id == null || id === '' || Number.isNaN(Number(id))) {
+        return Promise.reject(new Error('Task id is missing — reload the Tasks tab and try again'));
+      }
+      return request(`/project-tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+    },
+    delete: (id) => {
+      if (id == null || id === '' || Number.isNaN(Number(id))) {
+        return Promise.reject(new Error('Task id is missing — reload the Tasks tab and try again'));
+      }
+      return request(`/project-tasks/${id}`, { method: 'DELETE' });
+    },
+  },
+  timeSessions: {
+    active: () => request('/time-sessions/active'),
+    listForTask: (taskId) => request(`/time-sessions/task/${taskId}`),
+    start: (body) => request('/time-sessions/start', { method: 'POST', body: JSON.stringify(body) }),
+    stop: (body) => request('/time-sessions/stop', { method: 'POST', body: JSON.stringify(body || {}) }),
+    timesheets: (params) => request('/timesheets?' + new URLSearchParams(params || {}).toString()),
+    approveTimesheet: (id, body) => request(`/timesheets/${id}/approve`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  },
+  raid: {
+    list: (projectId) => request('/raid?project_id=' + encodeURIComponent(projectId)),
+    create: (body) => request('/raid', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/raid/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    delete: (id) => request(`/raid/${id}`, { method: 'DELETE' }),
+  },
+  search: {
+    query: (q) => request('/search?q=' + encodeURIComponent(q || '')),
+  },
+  projectActivity: {
+    list: (projectId) => request(`/projects/${projectId}/activity`),
+  },
+  taskComments: {
+    list: (taskId) => request(`/tasks/${taskId}/comments`),
+    add: (taskId, body) => request(`/tasks/${taskId}/comments`, { method: 'POST', body: JSON.stringify(body) }),
   },
   issues: {
     list: (params) => request('/issues?' + new URLSearchParams(params || {}).toString()),
@@ -214,19 +249,13 @@ export const api = {
     update: (id, body) => request(`/backlogs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     delete: (id) => request(`/backlogs/${id}`, { method: 'DELETE' }),
     promoteToTask: (id, body) => request(`/backlogs/${id}/promote-task`, { method: 'POST', body: JSON.stringify(body || {}) }),
+    approve: (id, body) => request(`/backlogs/${id}/approve`, { method: 'POST', body: JSON.stringify(body || {}) }),
     listComments: (id) => request(`/backlogs/${id}/comments`),
     addComment: (id, body) => request(`/backlogs/${id}/comments`, { method: 'POST', body: JSON.stringify(body) }),
   },
   projectPhases: {
     list: (params) => request('/project-phases?' + new URLSearchParams(params || {}).toString()),
     financeSummary: () => request('/project-phases/finance-summary'),
-    initTemplate: (projectId, workPackageId) => request('/project-phases/init-template', {
-      method: 'POST',
-      body: JSON.stringify({
-        project_id: projectId,
-        ...(workPackageId ? { work_package_id: workPackageId } : {}),
-      }),
-    }),
     create: (body) => request('/project-phases', { method: 'POST', body: JSON.stringify(body) }),
     update: (id, body) => request(`/project-phases/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   },
@@ -240,12 +269,6 @@ export const api = {
         return Promise.reject(new Error('Invalid work package id'));
       }
       return request(`/work-packages/${id}`, { method: 'DELETE' });
-    },
-    initPhases: (id) => {
-      if (id == null || id === '' || id === 'undefined' || !Number.isFinite(Number(id))) {
-        return Promise.reject(new Error('Invalid work package id'));
-      }
-      return request(`/work-packages/${id}/init-phases`, { method: 'POST', body: '{}' });
     },
   },
   notifications: {
